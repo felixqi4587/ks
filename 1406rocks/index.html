@@ -385,13 +385,6 @@
       <button class="add" id="addEnemy">＋ 加敌鲸</button>
     </div>
 
-    <div class="card">
-      <h2><span class="n">6</span>礼包码（全王国可见）</h2>
-      <p class="hint">填可用礼包码 + 备注/截止（可选）。区分大小写。发布后玩家在「礼包码」页一键复制并打开官网兑换。</p>
-      <div id="giftEdit"></div>
-      <button class="add" id="addGift">＋ 加礼包码</button>
-    </div>
-
     <button class="btn amber full" id="pubBtn2">发布到全王国</button>
     <div class="ver" id="verLine"></div>
   </section>
@@ -609,16 +602,7 @@ function renderEnemies(){ var box=$("enemyList"); box.innerHTML="";
       if(k==="mm")v=Math.max(0,+v||0); if(k==="ss")v=Math.min(59,Math.max(0,+v||0)); en[k]=v; rebuildStage(); renderHome(); });
     el.querySelector(".del").addEventListener("click",function(){st.enemyWhales.splice(idx,1);renderEnemies();rebuildStage();renderHome();});
     box.appendChild(el); }); }
-/* ---------- gift codes (admin editor; feeds cloud auto-redeem) ---------- */
-function renderGiftEdit(){ var box=$("giftEdit"); if(!box) return; box.innerHTML="";
-  st.giftCodes.forEach(function(g,idx){ var el=document.createElement("div"); el.className="whale";
-    el.innerHTML='<div class="r1"><input class="nm" placeholder="礼包码(区分大小写)" value="'+esc(g.code)+'" data-k="code"><button class="del">×</button></div>'+
-      '<div class="row" style="margin-top:6px"><input placeholder="备注(可选)" value="'+esc(g.label)+'" data-k="label"><input placeholder="截止(可选)" value="'+esc(g.expires)+'" data-k="expires" style="flex:0 0 104px"></div>';
-    el.addEventListener("input",function(e){var k=e.target.getAttribute("data-k");if(!k)return;g[k]=e.target.value;});
-    el.querySelector(".del").addEventListener("click",function(){st.giftCodes.splice(idx,1);renderGiftEdit();});
-    box.appendChild(el); }); }
-
-function renderAdmin(){ seg("sideSeg",st.side); $("tacticsEdit").value=st.tactics; renderWhales(); renderStagger(); renderTurretEdit(); renderEnemies(); renderGiftEdit(); }
+function renderAdmin(){ seg("sideSeg",st.side); $("tacticsEdit").value=st.tactics; renderWhales(); renderStagger(); renderTurretEdit(); renderEnemies(); }
 
 function rebuild(){ renderHome(); if(admin) renderAdmin(); rebuildStage(); }
 
@@ -731,7 +715,6 @@ $("sideSeg").addEventListener("click",function(e){var b=e.target.closest("[data-
 $("tacticsEdit").addEventListener("input",function(){st.tactics=this.value;renderTactics();});
 $("addWhale").addEventListener("click",function(){st.castleWhales.push(newWhale("",1,0,[],""));renderWhales();renderStagger();rebuildStage();renderHome();});
 $("addEnemy").addEventListener("click",function(){st.enemyWhales.push(newEnemy("",1,0));renderEnemies();rebuildStage();renderHome();});
-$("addGift").addEventListener("click",function(){st.giftCodes.push({code:"",label:"",expires:""});renderGiftEdit();});
 $("addMember").addEventListener("click",function(){roster.push({name:"",fid:""});renderRoster();});
 $("runRedeem").addEventListener("click",runRedeem);
 ["me_mm","me_ss"].forEach(function(id){$(id).addEventListener("input",function(){renderRefillPanel();});});
