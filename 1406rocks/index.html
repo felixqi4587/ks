@@ -330,7 +330,7 @@
   <section id="auto" class="hide">
     <div class="card hero">
       <div class="herohead"><span class="step">🎁</span>云端全自动兑换</div>
-      <div class="herosub">录入队员 Player ID 即可。云端（Cloudflare）<b>自动收码 + 给全队兑换</b>，队员零操作，<b>每 12 小时自动跑一次</b>；也可下方手动立即兑换。官方客服已确认此类自动兑换不打击。</div>
+      <div class="herosub">录入队员 Player ID 即可。云端（Cloudflare）<b>自动收码 + 给全队兑换</b>，队员零操作，<b>约每 30 分钟自动检查、发现新码就自动兑换</b>（连点都不用）；也可下方手动立即兑换。官方客服已确认此类自动兑换不打击。</div>
     </div>
     <div class="card">
       <h2>👥 队员名单</h2>
@@ -344,7 +344,7 @@
       <div id="autoCodes" class="hint">加载中…</div>
     </div>
     <div class="card">
-      <p class="hint" style="margin:0 0 9px">加完 Player ID 点这里立即领取（否则每 12 小时云端会自动领一次）。</p>
+      <p class="hint" style="margin:0 0 9px">加完 Player ID 点这里立即领取（否则约每 30 分钟云端自动检查、有新码自动兑换）。</p>
       <button class="btn amber full" id="runRedeem">▶ 立即云端兑换全队</button>
       <div id="redeemLog" style="margin-top:10px"></div>
     </div>
@@ -555,7 +555,7 @@ function statusInfo(s){ var m={ok:["✓ 成功","var(--ok)"],already:["已领过
 function renderLog(rec){ var log=$("redeemLog"); if(!log) return;
   if(!rec||!rec.results||!rec.results.length){ log.innerHTML='<p class="hint">暂无结果（名单为空就先加队员并保存）。</p>'; return; }
   var when=rec.ranAt?("（"+clk(Date.parse(rec.ranAt))+" UTC）"):"";
-  log.innerHTML='<div class="lab" style="margin-top:0">兑换结果 '+when+'</div>'+rec.results.map(function(r){var si=statusInfo(r.status);
+  log.innerHTML='<div class="lab" style="margin-top:0">兑换结果 · '+(rec.mode==="auto"?"自动":"手动")+' '+when+(rec.newSuccess?' · 新成功 '+rec.newSuccess:'')+'</div>'+rec.results.map(function(r){var si=statusInfo(r.status);
     return '<div style="display:flex;gap:8px;align-items:center;font-size:12.5px;padding:6px 0;border-bottom:1px solid var(--line)"><span style="flex:1;min-width:0">'+esc(r.name)+' · <b style="color:var(--ac2)">'+esc(r.code)+'</b></span><span style="color:'+si[1]+';font-weight:700;white-space:nowrap">'+si[0]+'</span></div>'; }).join(""); }
 function loadLast(){ fetch(WBASE+"/lastredeem",{cache:"no-store"}).then(function(r){return r.json();}).then(function(j){ if(j&&j.results&&j.results.length) renderLog(j); }).catch(function(){}); }
 function runRedeem(){ var b=$("runRedeem"), old=b.textContent; b.disabled=true; b.textContent="云端兑换中…（约几十秒）";

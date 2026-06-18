@@ -13,6 +13,6 @@ ADMIN_PASS = "666"
 binding = "PLAN_KV"
 id = "16ffe9547013464089f234f0efd54102"
 
-# auto-redeem gift codes for the roster every 12 hours (friends zero-action)
+# check sources every 30 min; auto-redeem only newly-detected codes / new members (incremental ledger)
 [triggers]
-crons = ["0 */12 * * *"]
+crons = ["*/30 * * * *"]
