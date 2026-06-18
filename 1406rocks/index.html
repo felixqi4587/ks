@@ -324,35 +324,6 @@
       <p class="hint">炮塔车加入是自由的，玩家自己加。</p>
     </details>
 
-    <button class="btn amber full" id="giftEntry" style="margin-top:2px">🎁 礼包码一键兑换</button>
-  </section>
-
-  <!-- ===================== 礼包码 ===================== -->
-  <section id="gift" class="hide">
-    <button class="lockbtn" id="giftBack" style="margin-bottom:13px">← 返回主页</button>
-    <div class="card hero">
-      <div class="herohead"><span class="step">🎁</span>礼包码一键兑换</div>
-      <div class="herosub">点「复制并打开官网」→ 在官网粘贴码、填 Player ID、过验证码、确认。<b>全程在你自己浏览器完成</b>，不经过我们的服务器。</div>
-    </div>
-    <div class="card">
-      <div class="lab" style="margin-top:0">你的 Player ID（游戏内点左上角头像可看到）</div>
-      <div class="row"><input id="gc_fid" inputmode="numeric" placeholder="例如 12345678"><button class="btn" id="gcCopyFid" style="flex:0 0 auto;padding:11px 14px">复制</button></div>
-      <p class="hint" style="margin-top:7px">*只存在你自己手机里，不上传。</p>
-    </div>
-    <div class="card">
-      <h2>🎟 可用礼包码</h2>
-      <p class="hint">区分大小写、会过期，以游戏内为准。一码每个账号一次。</p>
-      <div id="giftList"></div>
-    </div>
-    <div class="card">
-      <h2>📋 三步兑换</h2>
-      <div class="guide">
-        <div class="g atk"><div class="h">① 登录</div>在官网粘贴/输入你的 Player ID → 点 Login（确认是你的角色）。</div>
-        <div class="g rem"><div class="h">② 粘贴礼包码</div>礼包码已自动复制好，直接粘贴。</div>
-        <div class="g def"><div class="h">③ 验证码 + 确认</div>输入图形验证码 → 点 Confirm，奖励进游戏邮箱。<b>验证码必须你本人输入</b>，官方反作弊谁都跳不过。</div>
-      </div>
-    </div>
-    <p class="foot">🎁 本工具不会替你兑换，只是帮你一键复制礼包码并打开 Century Games 官方兑换页。Player ID、兑换、验证码都在你自己的浏览器、由你本人完成——全程不经过我们的服务器。非官方，与 Century Games 无关。</p>
   </section>
 
   <!-- ===================== 云端自动兑换（仅管理） ===================== -->
@@ -363,16 +334,17 @@
     </div>
     <div class="card">
       <h2>👥 队员名单</h2>
-      <p class="hint">名字（备注）+ Player ID（游戏内点左上角头像可看到）。存在云端、仅管理可见。改完记得「保存到云端」。</p>
+      <p class="hint">名字（备注）+ Player ID（游戏内点左上角头像可看到）。存在云端、仅管理可见。<b>改动自动保存，无需手动。</b></p>
       <div id="rosterList"></div>
       <button class="add" id="addMember">＋ 加队员</button>
-      <button class="btn amber full" id="saveRoster" style="margin-top:8px">保存名单到云端</button>
+      <div id="rosterSave" class="hint" style="margin-top:9px">改动会自动保存到云端</div>
     </div>
     <div class="card">
       <h2>🎟 当前可用礼包码（自动收集）</h2>
       <div id="autoCodes" class="hint">加载中…</div>
     </div>
     <div class="card">
+      <p class="hint" style="margin:0 0 9px">加完 Player ID 点这里立即领取（否则每 12 小时云端会自动领一次）。</p>
       <button class="btn amber full" id="runRedeem">▶ 立即云端兑换全队</button>
       <div id="redeemLog" style="margin-top:10px"></div>
     </div>
@@ -514,14 +486,13 @@ function doLogin(){ var pw=prompt("管理密码："); if(pw==null) return; if(pw
   try{ localStorage.setItem(LS_KEY,JSON.stringify({ok:true,name:nm})); }catch(e){}
   view="admin"; applyAdminUI(); toast("已进入管理 · "+(nm||"匿名")); }
 function doLogout(){ admin=false; adminName=""; try{localStorage.removeItem(LS_KEY);}catch(e){} view="home"; applyAdminUI(); toast("已退出管理"); }
-function showView(v){ view=v;
+function showView(v){ if((v==="admin"||v==="auto")&&!admin) v="home"; view=v;
   $("home").classList.toggle("hide",v!=="home");
   $("admin").classList.toggle("hide",v!=="admin");
-  $("gift").classList.toggle("hide",v!=="gift");
   $("auto").classList.toggle("hide",v!=="auto");
   $("viewtabs").querySelectorAll("button").forEach(function(b){b.classList.toggle("on",b.getAttribute("data-v")===v);});
   window.scrollTo(0,0);
-  if(v==="auto"){ loadRoster(); loadAutoCodes(); loadLast(); }
+  if(v==="auto"){ if(!rosterLoaded) loadRoster(); loadAutoCodes(); loadLast(); }
 }
 function applyAdminUI(){
   $("pubBtn").classList.toggle("hide",!admin);
@@ -566,21 +537,23 @@ function renderTurretFold(){ var box=$("turretFold"); box.innerHTML="";
 function renderHome(){ renderRefillPanel(); renderOrder(); renderTactics(); renderTurretFold(); }
 
 /* ---------- cloud auto-redeem (admin) ---------- */
+var rosterSaveT=null, rosterLoaded=false, rosterDirty=false;
 function renderRoster(){ var box=$("rosterList"); if(!box) return; box.innerHTML="";
   if(!roster.length){ box.innerHTML='<p class="hint">还没有队员，点下方「＋ 加队员」。</p>'; }
   roster.forEach(function(m,idx){ var el=document.createElement("div"); el.className="whale";
     el.innerHTML='<div class="r1"><input class="nm" placeholder="名字/备注" value="'+esc(m.name||"")+'" data-k="name">'+
       '<input class="nm" inputmode="numeric" placeholder="Player ID" value="'+esc(m.fid||"")+'" data-k="fid" style="flex:0 0 132px;font-family:var(--mono)">'+
       '<button class="del">×</button></div>';
-    el.addEventListener("input",function(e){var k=e.target.getAttribute("data-k");if(!k)return; m[k]= (k==="fid"? e.target.value.replace(/\D/g,"") : e.target.value);});
-    el.querySelector(".del").addEventListener("click",function(){roster.splice(idx,1);renderRoster();});
+    el.addEventListener("input",function(e){var k=e.target.getAttribute("data-k");if(!k)return; m[k]= (k==="fid"? e.target.value.replace(/\D/g,"") : e.target.value); scheduleSave();});
+    el.querySelector(".del").addEventListener("click",function(){roster.splice(idx,1);renderRoster();scheduleSave();});
     box.appendChild(el); }); }
 function loadRoster(){ fetch(WBASE+"/roster",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:"666"})})
-  .then(function(r){return r.json();}).then(function(j){ roster=(j&&j.roster)||[]; renderRoster(); }).catch(function(){ renderRoster(); }); }
-function saveRoster(){ var b=$("saveRoster"); b.disabled=true;
-  fetch(WBASE+"/roster",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:"666",roster:roster})})
-   .then(function(r){return r.json();}).then(function(j){ b.disabled=false; if(j&&j.ok){ roster=j.roster; renderRoster(); toast("名单已存云端 ✓"); } else toast("保存失败"); })
-   .catch(function(){ b.disabled=false; toast("网络错误"); }); }
+  .then(function(r){return r.json();}).then(function(j){ rosterLoaded=true; if(!rosterDirty){ roster=(j&&j.roster)||[]; renderRoster(); } }).catch(function(){ renderRoster(); }); }
+function setSaveStatus(t){ var s=$("rosterSave"); if(s) s.textContent=t; }
+function scheduleSave(){ rosterDirty=true; setSaveStatus("保存中…"); clearTimeout(rosterSaveT); rosterSaveT=setTimeout(saveRosterNow,700); }
+function saveRosterNow(){ fetch(WBASE+"/roster",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:"666",roster:roster})})
+   .then(function(r){return r.json();}).then(function(j){ setSaveStatus((j&&j.ok)?"已自动保存到云端 ✓":"保存失败，请重试"); })
+   .catch(function(){ setSaveStatus("保存失败（网络）"); }); }
 function loadAutoCodes(){ var box=$("autoCodes"); if(!box) return; box.textContent="加载中…";
   fetch(WBASE+"/codes",{cache:"no-store"}).then(function(r){return r.json();}).then(function(j){ var cs=(j&&j.codes)||[];
     box.innerHTML= cs.length? '<div class="chips">'+cs.map(function(c){return '<span class="chip" style="background:var(--acb);border-color:var(--gold-line);color:var(--ac2)">'+esc(c)+'</span>';}).join("")+'</div>' : '<span class="hint">暂无可用码</span>'; })
@@ -636,38 +609,18 @@ function renderEnemies(){ var box=$("enemyList"); box.innerHTML="";
       if(k==="mm")v=Math.max(0,+v||0); if(k==="ss")v=Math.min(59,Math.max(0,+v||0)); en[k]=v; rebuildStage(); renderHome(); });
     el.querySelector(".del").addEventListener("click",function(){st.enemyWhales.splice(idx,1);renderEnemies();rebuildStage();renderHome();});
     box.appendChild(el); }); }
-/* ---------- gift codes ---------- */
-function getRedeemed(){ try{return JSON.parse(localStorage.getItem(LS_REDEEMED)||"[]");}catch(e){return [];} }
-function setRedeemed(a){ try{localStorage.setItem(LS_REDEEMED,JSON.stringify(a));}catch(e){} }
-function manualCopy(t){ try{window.prompt("复制下面的内容：",t);}catch(e){} }
-function copyText(t){ if(navigator.clipboard&&navigator.clipboard.writeText){return navigator.clipboard.writeText(t).catch(function(){manualCopy(t);});} manualCopy(t); return Promise.resolve(); }
-function openGift(code){ window.open(GIFT_URL,"_blank","noopener"); copyText(code).then(function(){toast(code+" 已复制 · 正在打开官网");}); }
-function renderGiftCodes(){ var box=$("giftList"); if(!box) return; box.innerHTML="";
-  var redeemed=getRedeemed(), live=st.giftCodes.map(function(g){return g.code;});
-  var pruned=redeemed.filter(function(c){return live.indexOf(c)>=0;});
-  if(pruned.length!==redeemed.length){ setRedeemed(pruned); redeemed=pruned; }
-  if(!st.giftCodes.length){ box.innerHTML='<p class="hint">管理员尚未发布礼包码。</p>'; return; }
-  st.giftCodes.forEach(function(g){ var done=redeemed.indexOf(g.code)>=0;
-    var el=document.createElement("div"); el.className="gcrow"+(done?" done":"");
-    el.innerHTML='<div class="gccode">'+esc(g.code)+'</div>'+
-      '<div class="gcmeta">'+(g.label?esc(g.label):'')+(g.expires?(g.label?' · ':'')+'截止 '+esc(g.expires):'')+(done?' · <span style="color:var(--ok)">✓ 已兑换</span>':'')+'</div>'+
-      '<button class="btn amber full gcbtn">📋 复制并打开官网</button>'+
-      '<label class="gcchk"><input type="checkbox" '+(done?'checked':'')+'> 标记已兑换（仅本机记录）</label>';
-    el.querySelector(".gcbtn").addEventListener("click",function(){openGift(g.code);});
-    el.querySelector(".gcchk input").addEventListener("change",function(e){var r=getRedeemed(),i=r.indexOf(g.code);
-      if(e.target.checked&&i<0)r.push(g.code); else if(!e.target.checked&&i>=0)r.splice(i,1); setRedeemed(r); renderGiftCodes();});
-    box.appendChild(el); }); }
+/* ---------- gift codes (admin editor; feeds cloud auto-redeem) ---------- */
 function renderGiftEdit(){ var box=$("giftEdit"); if(!box) return; box.innerHTML="";
   st.giftCodes.forEach(function(g,idx){ var el=document.createElement("div"); el.className="whale";
     el.innerHTML='<div class="r1"><input class="nm" placeholder="礼包码(区分大小写)" value="'+esc(g.code)+'" data-k="code"><button class="del">×</button></div>'+
       '<div class="row" style="margin-top:6px"><input placeholder="备注(可选)" value="'+esc(g.label)+'" data-k="label"><input placeholder="截止(可选)" value="'+esc(g.expires)+'" data-k="expires" style="flex:0 0 104px"></div>';
-    el.addEventListener("input",function(e){var k=e.target.getAttribute("data-k");if(!k)return;g[k]=e.target.value;renderGiftCodes();});
-    el.querySelector(".del").addEventListener("click",function(){st.giftCodes.splice(idx,1);renderGiftEdit();renderGiftCodes();});
+    el.addEventListener("input",function(e){var k=e.target.getAttribute("data-k");if(!k)return;g[k]=e.target.value;});
+    el.querySelector(".del").addEventListener("click",function(){st.giftCodes.splice(idx,1);renderGiftEdit();});
     box.appendChild(el); }); }
 
 function renderAdmin(){ seg("sideSeg",st.side); $("tacticsEdit").value=st.tactics; renderWhales(); renderStagger(); renderTurretEdit(); renderEnemies(); renderGiftEdit(); }
 
-function rebuild(){ renderHome(); renderGiftCodes(); if(admin) renderAdmin(); rebuildStage(); }
+function rebuild(){ renderHome(); if(admin) renderAdmin(); rebuildStage(); }
 
 /* ===================== battle animation ===================== */
 var svgEl, cx=196, cy=104, anim=null;
@@ -778,21 +731,15 @@ $("sideSeg").addEventListener("click",function(e){var b=e.target.closest("[data-
 $("tacticsEdit").addEventListener("input",function(){st.tactics=this.value;renderTactics();});
 $("addWhale").addEventListener("click",function(){st.castleWhales.push(newWhale("",1,0,[],""));renderWhales();renderStagger();rebuildStage();renderHome();});
 $("addEnemy").addEventListener("click",function(){st.enemyWhales.push(newEnemy("",1,0));renderEnemies();rebuildStage();renderHome();});
-$("addGift").addEventListener("click",function(){st.giftCodes.push({code:"",label:"",expires:""});renderGiftEdit();renderGiftCodes();});
-$("giftEntry").addEventListener("click",function(){showView("gift");});
-$("giftBack").addEventListener("click",function(){showView("home");});
+$("addGift").addEventListener("click",function(){st.giftCodes.push({code:"",label:"",expires:""});renderGiftEdit();});
 $("addMember").addEventListener("click",function(){roster.push({name:"",fid:""});renderRoster();});
-$("saveRoster").addEventListener("click",saveRoster);
 $("runRedeem").addEventListener("click",runRedeem);
-$("gc_fid").addEventListener("input",function(){try{localStorage.setItem(LS_FID,this.value);}catch(e){}});
-$("gcCopyFid").addEventListener("click",function(){var v=($("gc_fid").value||"").trim();if(!v){toast("先填 Player ID");return;}copyText(v).then(function(){toast("Player ID 已复制 ✓");});});
 ["me_mm","me_ss"].forEach(function(id){$(id).addEventListener("input",function(){renderRefillPanel();});});
 $("scrub").addEventListener("input",function(){playing=false;$("pp").textContent="▶";tNow=+$("scrub").value;renderAnim(tNow);});
 $("pp").addEventListener("click",function(){playing=!playing;$("pp").textContent=playing?"⏸":"▶";lastTs=null;});
 
 /* ---------- init ---------- */
 buildStageBase();
-try{ var _fid=localStorage.getItem(LS_FID); if(_fid) $("gc_fid").value=_fid; }catch(e){}
 loadAuth(); applyAdminUI(); loadPlan();
 tick(); setInterval(tick,500);
 requestAnimationFrame(frame);
