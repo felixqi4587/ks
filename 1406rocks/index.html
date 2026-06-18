@@ -556,9 +556,12 @@ function loadAutoCodes(){ var box=$("autoCodes"); if(!box) return; box.textConte
    .catch(function(){ box.textContent="加载失败"; }); }
 function statusInfo(s){ var m={ok:["✓ 成功","var(--ok)"],already:["已领过","var(--t3)"],expired:["码过期","var(--ac2)"],invalid:["码无效","var(--bad)"],usedup:["已用尽","var(--ac2)"],bad_fid:["FID错误","var(--bad)"],rate:["限流稍后","var(--ac2)"],capped:["超上限","var(--t3)"],err:["失败","var(--bad)"]}; return m[s]||[s,"var(--t2)"]; }
 function renderLog(rec){ var log=$("redeemLog"); if(!log) return;
-  if(!rec||!rec.results||!rec.results.length){ log.innerHTML='<p class="hint">暂无结果（名单为空就先加队员并保存）。</p>'; return; }
-  var when=rec.ranAt?("（"+clk(Date.parse(rec.ranAt))+" UTC）"):"";
-  log.innerHTML='<div class="lab" style="margin-top:0">兑换结果 · '+(rec.mode==="auto"?"自动":"手动")+' '+when+(rec.newSuccess?' · 新成功 '+rec.newSuccess:'')+'</div>'+rec.results.map(function(r){var si=statusInfo(r.status);
+  var when=rec&&rec.ranAt?("（"+clk(Date.parse(rec.ranAt))+" UTC）"):"";
+  if(!rec||!rec.results||!rec.results.length){
+    if(rec&&rec.skipped) log.innerHTML='<p class="hint">✓ 全部已兑换过，无需重复'+when+'（已跳过 '+rec.skipped+' 个已兑换的码）。</p>';
+    else log.innerHTML='<p class="hint">暂无结果（名单为空就先加队员）。</p>';
+    return; }
+  log.innerHTML='<div class="lab" style="margin-top:0">兑换结果 · '+(rec.mode==="auto"?"自动":"手动")+' '+when+(rec.newSuccess?' · 新成功 '+rec.newSuccess:'')+(rec.skipped?' · 跳过已兑 '+rec.skipped:'')+'</div>'+rec.results.map(function(r){var si=statusInfo(r.status);
     return '<div style="display:flex;gap:8px;align-items:center;font-size:12.5px;padding:6px 0;border-bottom:1px solid var(--line)"><span style="flex:1;min-width:0">'+esc(r.name)+' · <b style="color:var(--ac2)">'+esc(r.code)+'</b></span><span style="color:'+si[1]+';font-weight:700;white-space:nowrap">'+si[0]+'</span></div>'; }).join(""); }
 function loadLast(){ fetch(WBASE+"/lastredeem",{cache:"no-store"}).then(function(r){return r.json();}).then(function(j){ if(j&&j.results&&j.results.length) renderLog(j); }).catch(function(){}); }
 function runRedeem(){ var b=$("runRedeem"), old=b.textContent; b.disabled=true; b.textContent="云端兑换中…（约几十秒）";

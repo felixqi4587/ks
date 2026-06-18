@@ -105,8 +105,8 @@ function fetchJSON(url, cb) {
 }
 // collect codes from all sources into a persisted codeDB { code:{status,firstSeen,lastSeenAlive,deadHits,expiredAt} }
 async function collectCodes(env) {
-  var db = await getJSON(env, CODEDB_KEY, {}), now = Date.now();
-  function seeActive(code) { code = String(code || "").trim(); if (!code) return; if (!db[code]) db[code] = { status: "active", firstSeen: now, lastSeenAlive: now, deadHits: 0 }; else if (db[code].status !== "expired") { db[code].status = "active"; db[code].lastSeenAlive = now; } }
+  var db = await getJSON(env, CODEDB_KEY, {}), now = Date.now(), before = JSON.stringify(db);
+  function seeActive(code) { code = String(code || "").trim(); if (!code) return; if (!db[code]) db[code] = { status: "active", firstSeen: now, deadHits: 0 }; }
   function seeExpired(code) { code = String(code || "").trim(); if (!code) return; if (!db[code]) db[code] = { status: "expired", firstSeen: now, deadHits: 0, expiredAt: now }; else { db[code].status = "expired"; if (!db[code].expiredAt) db[code].expiredAt = now; } }
   // source 1: kingshot.net (authoritative expiry)
   await fetchJSON(SRC_KINGSHOTNET, function (j) { var list = (j && j.data && j.data.giftCodes) || []; list.forEach(function (g) { if (!g || !g.code) return; if (g.expiresAt) seeExpired(g.code); else seeActive(g.code); }); });
@@ -116,22 +116,25 @@ async function collectCodes(env) {
   try { var pr = await env.PLAN_KV.get(KEY); if (pr) { var p = JSON.parse(pr).plan; ((p && p.giftCodes) || []).forEach(function (g) { if (g && g.code) seeActive(g.code); }); } } catch (e) {}
   // drop codes expired for > 30 days
   Object.keys(db).forEach(function (c) { if (db[c].status === "expired" && db[c].expiredAt && now - db[c].expiredAt > 2592000000) delete db[c]; });
-  await env.PLAN_KV.put(CODEDB_KEY, JSON.stringify(db));
+  if (JSON.stringify(db) !== before) { try { await env.PLAN_KV.put(CODEDB_KEY, JSON.stringify(db)); } catch (e) {} }
   return db;
 }
 async function activeCodes(env) { var db = await collectCodes(env); return Object.keys(db).filter(function (c) { return db[c].status !== "expired"; }); }
 
-// redeem run. force=true -> full pass (manual). force=false -> incremental: only (fid,code) pairs not in the ledger (cron / auto on new code).
-async function redeemRun(env, force) {
+// redeem run — ALWAYS incremental: only (fid,code) pairs NOT confirmed-done in the ledger.
+// A pair is "done" only after a confirmed redeem (SUCCESS) or confirmed already-claimed (RECEIVED).
+// First-time fid/code => not in ledger => attempted once; confirmed pairs are never retried (auto OR manual).
+async function redeemRun(env, trigger) {
   var roster = await getJSON(env, ROSTER_KEY, []);
   var db = await collectCodes(env);
   var codes = Object.keys(db).filter(function (c) { return db[c].status !== "expired"; });
   var done = await getJSON(env, DONE_KEY, {});
-  var results = [], fetches = 2, doneChanged = false, dbChanged = false, newSuccess = 0;
+  var results = [], fetches = 2, doneChanged = false, dbChanged = false, newSuccess = 0, skipped = 0;
   for (var a = 0; a < roster.length; a++) {
     var m = roster[a], fid = String(m.fid || "").trim(), name = m.name || fid;
     if (!fid) continue;
-    var todo = codes.filter(function (c) { return force || !done[fid + ":" + c]; });
+    var todo = codes.filter(function (c) { return !done[fid + ":" + c]; });
+    skipped += codes.length - todo.length; // already-confirmed pairs we deliberately skip
     if (!todo.length) continue;
     if (fetches >= MAX_FETCH) { results.push({ fid: fid, name: name, code: "-", status: "capped", msg: "超出单次上限，下次继续" }); break; }
     var pi = await ksPost("/player", { fid: fid, time: Date.now() }); fetches++;
@@ -152,8 +155,8 @@ async function redeemRun(env, force) {
   }
   if (doneChanged) { try { await env.PLAN_KV.put(DONE_KEY, JSON.stringify(done)); } catch (e) {} }
   if (dbChanged) { try { await env.PLAN_KV.put(CODEDB_KEY, JSON.stringify(db)); } catch (e) {} }
-  var rec = { ranAt: new Date().toISOString(), mode: force ? "manual" : "auto", codes: codes, count: roster.length, newSuccess: newSuccess, results: results };
-  if (force || results.length) { try { await env.PLAN_KV.put(LAST_KEY, JSON.stringify(rec)); } catch (e) {} }
+  var rec = { ranAt: new Date().toISOString(), mode: trigger, codes: codes, count: roster.length, newSuccess: newSuccess, skipped: skipped, results: results };
+  if (trigger === "manual" || results.length) { try { await env.PLAN_KV.put(LAST_KEY, JSON.stringify(rec)); } catch (e) {} }
   return rec;
 }
 
@@ -200,7 +203,7 @@ export default {
     if (url.pathname === "/redeem" && request.method === "POST") {
       let body; try { body = await request.json(); } catch { return json({ error: "bad json" }, 400); }
       if (!body || body.password !== env.ADMIN_PASS) return json({ error: "wrong password" }, 403);
-      const rec = await redeemRun(env, true);
+      const rec = await redeemRun(env, "manual");
       return json({ ok: true, result: rec });
     }
     // ---- last redeem log (public-ish; admin UI shows it) ----
@@ -214,6 +217,6 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(redeemRun(env, false)); // incremental: auto-redeem newly-detected codes / new members
+    ctx.waitUntil(redeemRun(env, "auto")); // incremental: auto-redeem newly-detected codes / new members
   },
 };
