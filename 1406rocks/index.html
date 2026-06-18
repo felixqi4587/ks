@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14110B">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>1406rocks · 王城战协同</title>
+<style>
+  :root{
+    --bg:#14110B;--surface:#221C12;--surface2:#2C2616;--line:rgba(255,240,210,.11);
+    --tx:#FCF6E8;--t2:rgba(250,240,220,.62);--t3:rgba(250,240,220,.34);
+    --ac:#E9A82E;--ac2:#FFC558;--acb:rgba(233,168,46,.16);--ac-on:#1A1206;
+    --ok:#36D17A;--ok-bg:rgba(54,209,122,.15);--bad:#FF5247;--bad-bg:rgba(255,82,71,.15);
+    --blue:#5BA8FF;--blue-bg:rgba(91,168,255,.15);
+    --font:-apple-system,BlinkMacSystemFont,system-ui,"PingFang SC","Helvetica Neue",sans-serif;
+    --mono:ui-monospace,"SF Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0}
+  body{background:radial-gradient(120% 55% at 50% -8%,#2A2412 0%,#14110B 55%) fixed,var(--bg);
+    color:var(--tx);font-family:var(--font);font-size:16px;line-height:1.4;letter-spacing:-.2px;
+    -webkit-font-smoothing:antialiased;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+  .wrap{max-width:520px;margin:0 auto;padding:12px 13px 48px}
+  .tnum{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+  .top{display:flex;align-items:center;gap:9px;margin-bottom:6px}
+  .top .sig{color:var(--ac);display:inline-flex}
+  .top h1{font-size:18px;font-weight:800;margin:0;letter-spacing:.5px}
+  .top .sub{font-size:11px;color:var(--t3)}
+  .clock{font:700 13px/1 var(--mono);color:var(--ac);margin-left:auto;text-align:right}
+  .clock small{display:block;color:var(--t3);font-weight:400;font-size:10px;margin-top:2px}
+  .statusbar{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--t2);background:var(--surface);border-radius:8px;padding:6px 10px;margin:8px 0 4px}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--t3);flex:0 0 auto}
+  .dot.live{background:var(--ok);box-shadow:0 0 0 3px var(--ok-bg)} .dot.off{background:var(--bad)}
+  .statusbar .admin{margin-left:auto;display:flex;gap:6px;align-items:center}
+  .lockbtn{border:.5px solid var(--line);background:var(--surface2);color:var(--t2);border-radius:7px;padding:5px 9px;font:600 11px/1 var(--font);cursor:pointer}
+  .pubbtn{border:0;background:var(--ac);color:var(--ac-on);border-radius:7px;padding:6px 11px;font:700 11px/1 var(--font);cursor:pointer}
+  .pubbtn:disabled{opacity:.5}
+  .castlephase{font-size:11px;color:var(--t2);background:var(--surface);border-radius:8px;padding:6px 10px;margin:4px 0 12px;text-align:center}
+  .castlephase b{color:var(--ac2)}
+  .viewtabs{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:12px}
+  .viewtabs button{border:.5px solid var(--line);background:var(--surface);color:var(--t2);border-radius:11px;padding:9px 2px;cursor:pointer;font:600 13px/1.1 var(--font)}
+  .viewtabs button.on{border-color:var(--ac);background:var(--acb);color:var(--ac2)}
+  .card{background:var(--surface);border-radius:14px;padding:13px;margin-bottom:12px}
+  .card h2{font-size:15px;font-weight:600;margin:0 0 4px;display:flex;align-items:center;gap:7px}
+  .card h2 .n{background:var(--surface2);color:var(--ac);border-radius:6px;width:19px;height:19px;display:inline-flex;align-items:center;justify-content:center;font:800 11px/1 var(--mono);flex:0 0 auto}
+  .hint{font-size:12px;color:var(--t3);line-height:1.5;margin:0 0 4px}
+  .lab{font-size:12.5px;color:var(--t2);margin:12px 0 6px;font-weight:600}
+  .row{display:flex;gap:8px;align-items:center}
+  .seg{display:flex;gap:3px;background:var(--surface2);padding:3px;border-radius:9px}
+  .seg button{flex:1;border:0;background:transparent;color:var(--t2);font:600 12.5px/1 var(--font);padding:8px 4px;border-radius:7px;cursor:pointer}
+  .seg button.on{background:var(--ac);color:var(--ac-on)}
+  input,select,textarea{background:var(--surface2);border:.5px solid var(--line);color:var(--tx);font:600 15px/1 var(--font);padding:9px 8px;border-radius:9px;-moz-appearance:textfield;width:100%}
+  input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  textarea{font-weight:400;font-size:13px;line-height:1.5;min-height:58px;resize:vertical}
+  .mmss{display:flex;align-items:center;gap:4px}
+  .mmss input{width:54px;text-align:center;font-family:var(--mono);font-size:16px}
+  .mmss .c{color:var(--t3);font:700 16px/1 var(--mono)} .mmss .u{font-size:11px;color:var(--t3)}
+  .btn{border:0;border-radius:10px;background:var(--surface2);color:var(--ac);font:600 14px/1 var(--font);padding:11px;cursor:pointer}
+  .btn.amber{background:var(--ac);color:var(--ac-on)} .btn.full{width:100%}
+  /* stage */
+  .stage{position:relative;background:radial-gradient(120% 75% at 50% 26%,#221b10,#0f0d08);border:.5px solid var(--line);border-radius:16px;overflow:hidden;margin-bottom:10px}
+  .stage svg{display:block;width:100%;height:auto}
+  .phaselab{position:absolute;left:11px;top:9px;font:700 12px/1 var(--font);color:var(--ac2);text-shadow:0 1px 3px #000}
+  .leg{position:absolute;right:9px;top:9px;font:600 9.5px/1.45 var(--font);color:#9a8c6e;text-align:right}
+  .ctrl{display:flex;align-items:center;gap:9px;margin-bottom:12px}
+  .ctrl button{background:var(--surface2);border:.5px solid var(--line);color:var(--ac);border-radius:8px;padding:7px 12px;font-size:14px;cursor:pointer}
+  .ctrl input[type=range]{flex:1;accent-color:var(--ac)}
+  /* refill panel */
+  .erow{background:var(--surface2);border-radius:11px;padding:10px;margin-bottom:8px}
+  .erow .et{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--t2);margin-bottom:5px}
+  .erow .et b{color:var(--bad)}
+  .erow .cue{font:800 16px/1.25 var(--font);color:var(--ac2)}
+  .erow .note{font-size:11px;color:var(--ok);margin-top:4px}
+  /* guide */
+  .guide{font-size:13px;line-height:1.6}
+  .guide .g{border-radius:9px;padding:9px 10px;margin-bottom:7px}
+  .guide .g.atk{background:var(--acb)} .guide .g.def{background:var(--bad-bg)} .guide .g.rem{background:var(--surface2)}
+  .guide .g b{color:var(--tx)} .guide .g .h{font-weight:700;margin-bottom:2px}
+  .guide .g.atk .h{color:var(--ac2)} .guide .g.def .h{color:#ff9a92} .guide .g.rem .h{color:var(--t2)}
+  .order{font-size:13px;color:var(--t2);line-height:1.7}
+  .order b{color:var(--ac2)}
+  .meRes{border-radius:12px;padding:13px;text-align:center;margin-top:6px}
+  .meRes.idle{background:var(--surface2)} .meRes.go{background:var(--acb)}
+  .meRes .hl{font:800 13px/1 var(--font);color:var(--ac2)} .meRes.idle .hl{color:var(--t2)}
+  .meRes .big{font:800 22px/1.1 var(--mono);margin:6px 0 3px;color:var(--ac2)} .meRes.idle .big{color:var(--t3)}
+  .meRes .s{font-size:12px;color:var(--t2)}
+  /* structs / turret */
+  .struct{display:flex;align-items:center;gap:9px;padding:8px 0;border-bottom:.5px solid var(--line)}
+  .struct:last-child{border:0}
+  .struct .ico{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex:0 0 auto;background:var(--surface2)}
+  .struct .nm{width:54px;font:600 12.5px/1.1 var(--font);color:var(--t2);flex:0 0 auto}
+  .struct .ph{flex:1;font-size:13.5px;color:var(--tx)}
+  .struct input{flex:1}
+  /* admin whale/foe */
+  .whale,.foe{background:var(--surface2);border-radius:10px;padding:10px;margin-bottom:8px}
+  .whale .r1,.foe .r1{display:flex;gap:6px;align-items:center}
+  .whale .r1 .nm,.foe .r1 .nm{flex:1;font-size:14px;padding:8px}
+  .whale .r1 .del,.foe .r1 .del{flex:0 0 auto;width:30px;height:34px;background:transparent;color:var(--bad);border:0;font-size:18px;cursor:pointer}
+  .jlab{font-size:11px;color:var(--t3);margin:8px 0 5px}
+  .chips{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px}
+  .chip{background:var(--ok-bg);border:.5px solid var(--ok);color:#9fe7b8;border-radius:20px;padding:3px 5px 3px 9px;font-size:11.5px;display:flex;align-items:center;gap:4px}
+  .chip b{color:var(--bad);cursor:pointer;font-size:13px;padding:0 2px}
+  .addj{display:flex;gap:6px} .addj input{flex:1;font-size:13px;padding:8px}
+  .addj button{background:var(--ok);color:#08260f;border:0;border-radius:8px;padding:0 12px;font:700 12px/1 var(--font);cursor:pointer;white-space:nowrap}
+  .orreq{margin-top:7px} .orreq .t{font-size:11px;color:var(--t3);margin-bottom:4px}
+  .add{background:var(--surface2);border:1px dashed var(--line);color:var(--ac);border-radius:8px;padding:8px;width:100%;font:600 12.5px/1 var(--font);cursor:pointer;margin-top:2px}
+  .preview{font-size:12px;color:var(--blue);margin-top:8px;background:var(--blue-bg);border-radius:8px;padding:8px 10px;line-height:1.5}
+  .ver{font-size:11px;color:var(--ok);text-align:center;margin-top:8px}
+  details{background:var(--surface);border-radius:14px;padding:2px 13px;margin-bottom:12px}
+  details summary{cursor:pointer;font-size:14px;font-weight:600;padding:11px 0;list-style:none;color:var(--ac2)}
+  details summary::-webkit-details-marker{display:none}
+  details summary:before{content:"▸ ";color:var(--ac)} details[open] summary:before{content:"▾ "}
+  .foot{font-size:10.5px;color:var(--t3);text-align:center;margin-top:16px;line-height:1.6}
+  .hide{display:none!important}
+  .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--ac);color:var(--ac-on);font:700 13px/1 var(--font);padding:12px 18px;border-radius:100px;z-index:50;box-shadow:0 8px 24px rgba(0,0,0,.4);opacity:0;transition:opacity .25s,transform .25s;pointer-events:none}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(-4px)}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <span class="sig" aria-hidden="true"><svg viewBox="0 0 120 120" width="28" height="28" fill="none">
+      <path d="M60 14 C60 14 84 22 98 22 C98 22 100 60 96 76 C91 95 74 104 60 110 C46 104 29 95 24 76 C20 60 22 22 22 22 C36 22 60 14 60 14 Z" stroke="currentColor" stroke-width="6" stroke-linejoin="round"/>
+      <path d="M60 84 C50 84 43 78 43 69 C43 60 50 56 60 56 C70 56 77 60 77 69 C77 78 70 84 60 84 Z" fill="currentColor"/>
+      <ellipse cx="44" cy="50" rx="5" ry="6.5" fill="currentColor"/><ellipse cx="55" cy="44" rx="5" ry="6.5" fill="currentColor"/>
+      <ellipse cx="66" cy="44" rx="5" ry="6.5" fill="currentColor"/><ellipse cx="77" cy="50" rx="5" ry="6.5" fill="currentColor"/></svg></span>
+    <div><h1>1406 ROCKS</h1><div class="sub">王城战 · 全王国跨联盟协同</div></div>
+    <div class="clock"><span id="utc">--:--:--</span><small>UTC · 本地 <span id="loc">--:--:--</span></small></div>
+  </div>
+
+  <div class="statusbar">
+    <span class="dot" id="netdot"></span><span id="netlab">连接云端中…</span>
+    <span class="admin">
+      <button class="pubbtn hide" id="pubBtn">发布到全王国</button>
+      <button class="lockbtn hide" id="logoutBtn">退出</button>
+      <button class="lockbtn" id="lockBtn">🔒 管理</button>
+    </span>
+  </div>
+  <div class="castlephase">战斗阶段 <b>10:00–22:00 UTC</b> ｜ 城堡战 <b>12:00–18:00 UTC</b> ｜ <b id="cstat">—</b></div>
+
+  <div class="viewtabs hide" id="viewtabs">
+    <button data-v="admin" class="on">🔧 配置</button>
+    <button data-v="home">👁 主页预览</button>
+  </div>
+
+  <!-- ===================== 玩家主页 ===================== -->
+  <section id="home">
+    <div class="card" style="padding:11px 13px">
+      <div class="lab" style="margin-top:0">① 填一次：我到王城的行军时间</div>
+      <div class="mmss"><input id="me_mm" type="number" min="0" value="1"><span class="u">分</span><span class="c">:</span><input id="me_ss" type="number" min="0" max="59" value="20"><span class="u">秒</span><span style="margin-left:auto;font-size:11px;color:var(--t3)">通常 1 分多</span></div>
+    </div>
+
+    <div class="stage">
+      <svg viewBox="0 0 400 230" id="svg"></svg>
+      <div class="phaselab" id="phaselab"></div>
+      <div class="leg">🟡我方鲸<br>🔴敌方鲸<br>🟢加入/补兵</div>
+    </div>
+    <div class="ctrl"><button id="pp">⏸</button><input id="scrub" type="range" min="0" max="1000" value="0"></div>
+
+    <div class="card">
+      <h2>🛡 补兵时机尺（按你的行军算）</h2>
+      <p class="hint">挑当场正在来袭的那条敌鲸，照大字发兵。补兵带纯兵、可加速。</p>
+      <div id="refillPanel"></div>
+    </div>
+
+    <div class="card">
+      <h2>⚔️ 我什么时候发车</h2>
+      <div class="meRes idle" id="meRes"><div class="hl">—</div><div class="big">—</div><div class="s">—</div></div>
+      <div class="lab">发车顺序（给鲸鱼/加入者）</div>
+      <div class="order" id="orderBox"></div>
+    </div>
+
+    <div class="card">
+      <h2>📋 分轮战斗指南</h2>
+      <div class="guide">
+        <div class="g atk"><div class="h">进攻轮</div>加入分配给你的车 → 看上方发车顺序/动画 → <b>同步命中</b>。攻击阵容默认 <b>步50/骑20/弓30</b>（敌步兵墙多则切 30/20/50）。</div>
+        <div class="g def"><div class="h">防守轮</div>拿下后<b>立刻换防御英雄 + 改比例约 步60/骑20/弓20</b>；按"补兵时机尺"在敌每车落地瞬间补满；最强号常驻当驻防队长。</div>
+        <div class="g rem"><div class="h">通用提醒</div>开打前后<b>多刷新本网站看时间</b>；改了兵种/英雄要回来重看自己的行军/发兵时刻。</div>
+      </div>
+    </div>
+
+    <div class="card hide" id="tacticsCard">
+      <h2>📌 本次战术安排</h2>
+      <div id="tacticsView" style="font-size:13.5px;line-height:1.6;white-space:pre-wrap;word-break:break-word"></div>
+    </div>
+
+    <details>
+      <summary>炮塔分配（4 个集结者）</summary>
+      <div id="turretFold" style="padding-bottom:8px"></div>
+      <p class="hint">炮塔车加入是自由的，玩家自己加。</p>
+    </details>
+  </section>
+
+  <!-- ===================== 管理配置页 ===================== -->
+  <section id="admin" class="hide">
+    <div class="card">
+      <h2><span class="n">1</span>我方相对王城方位</h2>
+      <p class="hint">选我方在王城哪一侧。也决定动画里我方/敌方在哪边。</p>
+      <div class="seg" id="sideSeg"><button data-v="left">左侧</button><button data-v="right" class="on">右侧</button></div>
+    </div>
+
+    <div class="card">
+      <h2><span class="n">2</span>战术安排 & 加入要求（可选）</h2>
+      <p class="hint">一段话写清安排：集合时间、哪个联盟开王城车/炮塔车、语音频道等。留空则主页不显示。</p>
+      <textarea id="tacticsEdit" placeholder="例：12:00 UTC 集合。王城车=钢铁联盟，炮塔车=烈焰联盟。语音对表。"></textarea>
+    </div>
+
+    <div class="card">
+      <h2><span class="n">3</span>王城攻城车（大鲸）</h2>
+      <p class="hint">填每条攻城车的鲸鱼名 + 到王城行军（鲸鱼游戏内开一次集结看一眼报给你）。</p>
+      <div id="whaleList"></div>
+      <button class="add" id="addWhale">＋ 加鲸鱼</button>
+      <div class="preview" id="staggerPreview"></div>
+    </div>
+
+    <div class="card">
+      <h2><span class="n">4</span>炮塔分配（4 个集结者）</h2>
+      <p class="hint">填谁负责"开"这 4 个炮塔车。加入炮塔车自由，不用点名。</p>
+      <div id="turretEdit"></div>
+    </div>
+
+    <div class="card">
+      <h2><span class="n">5</span>敌方鲸鱼（守城补兵基准）</h2>
+      <p class="hint">填对面主攻鲸鱼名 + 到王城行军。玩家据此各自算补兵发兵时刻。敌方集结固定 5:00。</p>
+      <div id="enemyList"></div>
+      <button class="add" id="addEnemy">＋ 加敌鲸</button>
+    </div>
+
+    <button class="btn amber full" id="pubBtn2">发布到全王国</button>
+    <div class="ver" id="verLine"></div>
+  </section>
+
+  <p class="foot">行军时间随距离与加速变化，请游戏内实测。炮塔加成等为社区数据、非官方。本工具为 1406 玩家自制、非官方、与 Century Games 无关。</p>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+"use strict";
+var API="https://1406rocks-plan.kingshot1406.workers.dev/plan";
+var GATHER=300, DELTA=2;
+var $=function(i){return document.getElementById(i);}, NS="http://www.w3.org/2000/svg";
+var C={ac:"#E9A82E",ac2:"#FFC558",ok:"#36D17A",bad:"#FF5247",blue:"#5BA8FF",t3:"rgba(250,240,220,.34)",on:"#1A1206"};
+
+var st={ side:"right", tactics:"", castleWhales:[], turretLeaders:["","","",""], enemyWhales:[] };
+var admin=false, adminName="", baseUpdatedAt=null, uid=1, view="home";
+var LS_KEY="rocks1406_admin";
+
+function newWhale(n,mm,ss,joiners,req){return {id:uid++,name:n||"",mm:mm||0,ss:ss==null?0:ss,joiners:(joiners||[]).slice(),requirement:req||""};}
+function newEnemy(n,mm,ss){return {id:uid++,name:n||"",mm:mm||0,ss:ss==null?0:ss};}
+function march(o){return (o.mm||0)*60+(o.ss||0);}
+function pad(n){return (n<10?"0":"")+n;}
+function fmt(s){s=Math.round(s);var g=s<0?"-":"";s=Math.abs(s);var m=Math.floor(s/60);s%=60;return g+(m>0?m+"分":"")+(s<10&&m>0?"0":"")+s+"秒";}
+function mmss(s){s=Math.max(0,Math.round(s));return Math.floor(s/60)+":"+pad(s%60);}
+function clk(ms){var d=new Date(ms);return pad(d.getUTCHours())+":"+pad(d.getUTCMinutes())+":"+pad(d.getUTCSeconds());}
+function esc(s){return (s||"").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;");}
+function toast(t){var el=$("toast");el.textContent=t;el.classList.add("show");setTimeout(function(){el.classList.remove("show");},2200);}
+
+/* ---------- compute: attack stagger ---------- */
+function computeStagger(){
+  var rows=st.castleWhales.map(function(w){return {whale:w,march:march(w)};}).sort(function(a,b){return b.march-a.march;});
+  var base=rows.length?rows[0].march:0;
+  return rows.map(function(r,i){
+    var warn=r.march<=0?"行军未填":(r.march>600?"行军可能填错(>10分)":"");
+    return {whale:r.whale,march:r.march,delay:base-r.march,openOrder:i,warn:warn};
+  });
+}
+
+/* ---------- compute: refill cue per enemy ---------- */
+function refillCue(enemy,myMarchSec){
+  var Em=march(enemy), R=myMarchSec;
+  if(R<=0) return {ready:false,text:"先填你的行军时间"};
+  var gatherRemain=R-Em-DELTA;
+  if(gatherRemain>0) return {ready:true,mode:"gather",text:"他集结剩 "+mmss(gatherRemain)+" 时发兵"};
+  var incoming=R-DELTA;
+  if(incoming<=0) return {ready:true,mode:"now",text:"他发车后立刻发（你很快）"};
+  return {ready:true,mode:"incoming",text:"他发车后、来袭落地倒计时 "+mmss(incoming)+" 时发兵"};
+}
+
+/* ---------- cloud ---------- */
+function serialize(){return {v:6,side:st.side,tactics:st.tactics,
+  castleWhales:st.castleWhales.map(function(w){return {name:w.name,mm:w.mm,ss:w.ss,joiners:w.joiners,requirement:w.requirement};}),
+  turretLeaders:st.turretLeaders.slice(0,4),
+  enemyWhales:st.enemyWhales.map(function(e){return {name:e.name,mm:e.mm,ss:e.ss};})};}
+function applyPlan(p){ if(!p||p.v!==6) return false;
+  st.side=p.side==="left"?"left":"right"; st.tactics=p.tactics||"";
+  st.castleWhales=(p.castleWhales||[]).map(function(w){return newWhale(w.name,w.mm,w.ss,w.joiners||[],w.requirement||"");});
+  st.turretLeaders=[0,1,2,3].map(function(i){return (p.turretLeaders&&p.turretLeaders[i])||"";});
+  st.enemyWhales=(p.enemyWhales||[]).map(function(e){return newEnemy(e.name,e.mm,e.ss);});
+  return true; }
+function seedDefaults(){ if(!st.castleWhales.length) st.castleWhales=[newWhale("鲸a",1,30,[],"TG5 步兵营"),newWhale("鲸b",1,15,[],"")];
+  if(!st.enemyWhales.length) st.enemyWhales=[newEnemy("敌A",1,10),newEnemy("敌B",0,50)]; }
+function setNet(s,t){$("netdot").className="dot"+(s?(" "+s):"");$("netlab").textContent=t;}
+function showVer(by,at){$("verLine").textContent=at?("当前版本："+(by||"—")+" 于 "+clk(Date.parse(at))+" UTC 发布"):"尚未发布过";}
+function loadPlan(){ setNet("","连接云端中…");
+  fetch(API,{cache:"no-store"}).then(function(r){return r.json();}).then(function(o){
+    if(o&&o.plan&&applyPlan(o.plan)){ baseUpdatedAt=o.updatedAt;
+      setNet("live","已连接 · "+(o.updatedBy||"—")+" 于 "+(o.updatedAt?clk(Date.parse(o.updatedAt))+" UTC":"—")+" 发布"); showVer(o.updatedBy,o.updatedAt); }
+    else { setNet("live","已连接 · 暂无发布，使用默认"); seedDefaults(); showVer(null,null); }
+    rebuild();
+  }).catch(function(){ setNet("off","离线 · 使用本地默认"); seedDefaults(); showVer(null,null); rebuild(); }); }
+function publishPlan(){ if(!admin) return; var b=$("pubBtn"),b2=$("pubBtn2"); b.disabled=true;b2.disabled=true;
+  fetch(API,{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({password:"666",name:adminName,plan:serialize(),baseUpdatedAt:baseUpdatedAt})})
+   .then(function(r){return r.json().then(function(j){return {s:r.status,j:j};});})
+   .then(function(res){ b.disabled=false;b2.disabled=false;
+     if(res.s===200&&res.j.ok){ baseUpdatedAt=res.j.updatedAt; setNet("live","已连接 · "+(res.j.updatedBy||"—")+" 于 "+clk(Date.parse(res.j.updatedAt))+" UTC 发布"); showVer(res.j.updatedBy,res.j.updatedAt); toast("已发布 ✓ 全王国刷新即看到"); }
+     else if(res.s===409){ var who=(res.j.current&&res.j.current.updatedBy)||"有人"; if(confirm(who+" 刚发布了新版。覆盖？（取消=放弃，建议刷新）")){ baseUpdatedAt=res.j.current?res.j.current.updatedAt:baseUpdatedAt; publishPlan(); } else toast("已取消，请刷新查看最新"); }
+     else toast(res.j.error==="wrong password"?"密码错误":"发布失败"); })
+   .catch(function(){ b.disabled=false;b2.disabled=false; toast("网络错误，发布失败"); }); }
+
+/* ---------- auth ---------- */
+function loadAuth(){ try{ var s=JSON.parse(localStorage.getItem(LS_KEY)||"null"); if(s&&s.ok){admin=true;adminName=s.name||"";} }catch(e){} }
+function doLogin(){ var pw=prompt("管理密码："); if(pw==null) return; if(pw!=="666"){ toast("密码错误"); return; }
+  var nm=(prompt("你的名字（用于署名）：")||"").trim().slice(0,24); admin=true; adminName=nm;
+  try{ localStorage.setItem(LS_KEY,JSON.stringify({ok:true,name:nm})); }catch(e){}
+  view="admin"; applyAdminUI(); toast("已进入管理 · "+(nm||"匿名")); }
+function doLogout(){ admin=false; adminName=""; try{localStorage.removeItem(LS_KEY);}catch(e){} view="home"; applyAdminUI(); toast("已退出管理"); }
+function applyAdminUI(){
+  $("pubBtn").classList.toggle("hide",!admin);
+  $("logoutBtn").classList.toggle("hide",!admin);
+  $("lockBtn").classList.toggle("hide",admin);
+  $("viewtabs").classList.toggle("hide",!admin);
+  if(!admin) view="home";
+  $("home").classList.toggle("hide",view!=="home");
+  $("admin").classList.toggle("hide",view!=="admin");
+  $("viewtabs").querySelectorAll("button").forEach(function(b){b.classList.toggle("on",b.getAttribute("data-v")===view);});
+  rebuild();
+}
+
+/* ---------- render: home ---------- */
+function myMarchSec(){ return (+$("me_mm").value||0)*60+(+$("me_ss").value||0); }
+function renderRefillPanel(){ var box=$("refillPanel"); box.innerHTML="";
+  if(!st.enemyWhales.length){ box.innerHTML='<p class="hint">管理员尚未发布敌方鲸鱼；战时可口头报点。</p>'; return; }
+  var my=myMarchSec();
+  st.enemyWhales.forEach(function(e){ var c=refillCue(e,my); var el=document.createElement("div"); el.className="erow";
+    el.innerHTML='<div class="et"><b>'+(esc(e.name)||"敌鲸")+'</b> 集结5:00 · 行军 '+mmss(march(e))+'</div>'+
+      '<div class="cue">'+(c.ready?esc(c.text):'<span style="color:var(--t3)">'+esc(c.text)+'</span>')+'</div>'+
+      (c.ready?'<div class="note">补兵在他落地后≈'+DELTA+'秒到，正好补满 ✓</div>':'');
+    box.appendChild(el); }); }
+function renderMeAndOrder(){
+  var rows=computeStagger(), my=myMarchSec(), res=$("meRes");
+  var base=rows.length?rows[0].march:0;
+  if(!rows.length){ res.className="meRes idle"; res.querySelector(".hl").textContent="还没有车队"; res.querySelector(".big").textContent="—"; res.querySelector(".s").textContent="等管理发布攻城车"; }
+  else if(my<=0){ res.className="meRes idle"; res.querySelector(".hl").textContent="先填你的行军"; res.querySelector(".big").textContent="—"; res.querySelector(".s").textContent="到王城几分几秒"; }
+  else { var delay=base-my; res.className="meRes go";
+    if(delay<=0){ res.querySelector(".hl").textContent="你（同）最远 → 最先开"; res.querySelector(".big").textContent="最先发"; res.querySelector(".s").textContent="若你单独开车，你第一个开集结；若加入，看你那辆车开集结时立刻加入。"; }
+    else { res.querySelector(".hl").textContent="你在最远车之后开集结"; res.querySelector(".big").textContent="晚 "+mmss(delay); res.querySelector(".s").textContent="最远车("+mmss(base)+")开集结后 "+mmss(delay)+" 你再开 · 同时命中。加入者看车开集结即加入。"; } }
+  var ob=$("orderBox");
+  if(!rows.length){ ob.innerHTML='<span class="hint">—</span>'; }
+  else ob.innerHTML=rows.map(function(r,i){
+    return (i+1)+". <b>"+(esc(r.whale.name)||("车"+(i+1)))+"</b> 行军"+mmss(r.march)+" · "+(r.delay===0?"最先开集结":("最远车后 "+mmss(r.delay)+" 开"))+(r.warn?(' <span style="color:var(--bad)">⚠'+r.warn+'</span>'):"");
+  }).join("<br>");
+}
+function renderTactics(){ var c=$("tacticsCard"); if(st.tactics&&st.tactics.trim()){ c.classList.remove("hide"); $("tacticsView").textContent=st.tactics; } else c.classList.add("hide"); }
+function structIcon(i){ return i===0
+  ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="'+C.ac+'" stroke-width="2"><path d="M3 21V8l4-3 5 3 5-3 4 3v13z"/><path d="M9 21v-5h6v5"/></svg>'
+  : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="'+C.blue+'" stroke-width="2"><path d="M8 21V5l4-2 4 2v16M6 21h12M9 9h6M9 13h6"/></svg>'; }
+function renderTurretFold(){ var box=$("turretFold"); box.innerHTML="";
+  st.turretLeaders.forEach(function(h,i){ var el=document.createElement("div"); el.className="struct";
+    el.innerHTML='<div class="ico">'+structIcon(i+1)+'</div><div class="nm">炮塔 '+(i+1)+'</div><div class="ph">'+(h?esc(h):'<span style="color:var(--t3)">未分配</span>')+'</div>';
+    box.appendChild(el); }); }
+function renderHome(){ renderRefillPanel(); renderMeAndOrder(); renderTactics(); renderTurretFold(); }
+
+/* ---------- render: admin ---------- */
+function seg(id,val){var s=$(id);if(s)s.querySelectorAll("button").forEach(function(b){b.classList.toggle("on",b.getAttribute("data-v")===String(val));});}
+function renderWhales(){ var box=$("whaleList"); box.innerHTML="";
+  st.castleWhales.forEach(function(w,idx){ var el=document.createElement("div"); el.className="whale";
+    var chips=w.joiners.map(function(j,ji){return '<span class="chip">'+esc(j)+' <b data-j="'+ji+'">×</b></span>';}).join("");
+    el.innerHTML='<div class="r1"><input class="nm" placeholder="鲸鱼名" value="'+esc(w.name)+'" data-k="name">'+
+      '<span class="mmss"><input type="number" min="0" value="'+w.mm+'" data-k="mm" style="width:44px;text-align:center;font-family:var(--mono)"><span class="u">分</span><span class="c">:</span>'+
+      '<input type="number" min="0" max="59" value="'+pad(w.ss)+'" data-k="ss" style="width:44px;text-align:center;font-family:var(--mono)"><span class="u">秒</span></span>'+
+      '<button class="del">×</button></div>'+
+      '<div class="jlab">加入者（输名字→加入，可删）：</div>'+
+      '<div class="chips">'+chips+'</div>'+
+      '<div class="addj"><input placeholder="输入加入者名字" data-addj="1"><button data-add="1">＋ 加入</button></div>'+
+      '<div class="orreq"><div class="t">或：懒得点名就写个要求 ↓</div><input placeholder="如：TG5 步兵营" value="'+esc(w.requirement)+'" data-k="requirement"></div>';
+    el.addEventListener("input",function(e){var k=e.target.getAttribute("data-k");if(!k)return;var v=e.target.value;
+      if(k==="mm")v=Math.max(0,+v||0); if(k==="ss")v=Math.min(59,Math.max(0,+v||0)); w[k]=v; renderStagger(); renderHome(); });
+    el.querySelector(".del").addEventListener("click",function(){st.castleWhales.splice(idx,1);renderWhales();renderStagger();rebuildStage();renderHome();});
+    el.querySelector("[data-add]").addEventListener("click",function(){var inp=el.querySelector("[data-addj]");var nm=(inp.value||"").trim();if(!nm)return;w.joiners.push(nm);inp.value="";renderWhales();});
+    el.querySelectorAll(".chip b").forEach(function(x){x.addEventListener("click",function(){w.joiners.splice(+x.getAttribute("data-j"),1);renderWhales();});});
+    box.appendChild(el); });
+}
+function renderStagger(){ var rows=computeStagger(); var p=$("staggerPreview");
+  if(!rows.length){ p.textContent="发车顺序预览：先加鲸鱼。"; return; }
+  p.innerHTML="📺 发车顺序预览（玩家端动画会显示）：<br>"+rows.map(function(r,i){return (r.delay===0?("<b>"+(esc(r.whale.name)||"车1")+" 先开</b>"):((esc(r.whale.name)||("车"+(i+1)))+" 晚 "+mmss(r.delay)+" 开"))+(r.warn?(" ⚠"+r.warn):"");}).join(" → ")+"。集结准备统一 5:00。"; }
+function renderTurretEdit(){ var box=$("turretEdit"); box.innerHTML="";
+  st.turretLeaders.forEach(function(h,i){ var el=document.createElement("div"); el.className="struct";
+    el.innerHTML='<div class="ico">'+structIcon(i+1)+'</div><div class="nm">炮塔 '+(i+1)+'</div><input value="'+esc(h)+'" placeholder="谁开这个炮塔车">';
+    el.querySelector("input").addEventListener("input",function(e){st.turretLeaders[i]=e.target.value;renderHome();});
+    box.appendChild(el); }); }
+function renderEnemies(){ var box=$("enemyList"); box.innerHTML="";
+  st.enemyWhales.forEach(function(en,idx){ var el=document.createElement("div"); el.className="foe";
+    el.innerHTML='<div class="r1"><input class="nm" placeholder="敌方鲸鱼名" value="'+esc(en.name)+'" data-k="name">'+
+      '<span class="mmss"><input type="number" min="0" value="'+en.mm+'" data-k="mm" style="width:44px;text-align:center;font-family:var(--mono)"><span class="u">分</span><span class="c">:</span>'+
+      '<input type="number" min="0" max="59" value="'+pad(en.ss)+'" data-k="ss" style="width:44px;text-align:center;font-family:var(--mono)"><span class="u">秒</span></span>'+
+      '<button class="del">×</button></div>';
+    el.addEventListener("input",function(e){var k=e.target.getAttribute("data-k");if(!k)return;var v=e.target.value;
+      if(k==="mm")v=Math.max(0,+v||0); if(k==="ss")v=Math.min(59,Math.max(0,+v||0)); en[k]=v; rebuildStage(); renderHome(); });
+    el.querySelector(".del").addEventListener("click",function(){st.enemyWhales.splice(idx,1);renderEnemies();rebuildStage();renderHome();});
+    box.appendChild(el); }); }
+function renderAdmin(){ seg("sideSeg",st.side); $("tacticsEdit").value=st.tactics; renderWhales(); renderStagger(); renderTurretEdit(); renderEnemies(); }
+
+function rebuild(){ renderHome(); if(admin) renderAdmin(); rebuildStage(); }
+
+/* ===================== battle animation ===================== */
+var svgEl, cx=196, cy=104, anim=null;
+function E(t,a){var e=document.createElementNS(NS,t);for(var k in a)e.setAttribute(k,a[k]);return e;}
+function lerp(a,b,p){return a+(b-a)*p;} function cl(x){return x<0?0:x>1?1:x;} function sg(t,a,b){return cl((t-a)/(b-a));}
+function buildStageBase(){ svgEl=$("svg"); svgEl.innerHTML="";
+  svgEl.appendChild(E("circle",{cx:cx,cy:cy,r:90,fill:"none",stroke:"#2a2414","stroke-width":1}));
+  svgEl.appendChild(E("circle",{cx:cx,cy:cy,r:58,fill:"none",stroke:"#2a2414","stroke-width":1}));
+  [[cx-40,cy-38],[cx+40,cy-38],[cx-40,cy+38],[cx+40,cy+38]].forEach(function(p){svgEl.appendChild(E("rect",{x:p[0]-5,y:p[1]-5,width:10,height:10,rx:2,fill:"#1b1710",stroke:C.blue,"stroke-width":1.4}));});
+}
+function rebuildStage(){ if(!svgEl) buildStageBase(); else svgEl.innerHTML="";
+  buildStageBase();
+  var dir=st.side==="left"?-1:1;
+  // castle
+  anim={dir:dir};
+  anim.castle=E("rect",{x:cx-16,y:cy-14,width:32,height:28,rx:3,fill:"#3a3320",stroke:"#7d7350","stroke-width":2}); svgEl.appendChild(anim.castle);
+  svgEl.appendChild(E("rect",{x:cx-16,y:cy-20,width:6,height:7,fill:"#7d7350"}));svgEl.appendChild(E("rect",{x:cx-3,y:cy-20,width:6,height:7,fill:"#7d7350"}));svgEl.appendChild(E("rect",{x:cx+10,y:cy-20,width:6,height:7,fill:"#7d7350"}));
+  svgEl.appendChild(E("rect",{x:cx-26,y:cy+22,width:52,height:7,rx:3.5,fill:"#1b1710",stroke:"#333"}));
+  anim.bar=E("rect",{x:cx-25,y:cy+23,width:50,height:5,rx:2.5,fill:C.ok}); svgEl.appendChild(anim.bar);
+  anim.imp=E("circle",{cx:cx,cy:cy,r:16,fill:"none",stroke:C.ac2,"stroke-width":3,opacity:0}); svgEl.appendChild(anim.imp);
+  anim.glow=E("circle",{cx:cx,cy:cy,r:26,fill:"none",stroke:C.ok,"stroke-width":2,opacity:0}); svgEl.appendChild(anim.glow);
+  // barracks our side
+  var bx=cx+dir*150; anim.bx=bx; anim.by=cy;
+  svgEl.appendChild(E("rect",{x:bx-7,y:cy-7,width:14,height:14,rx:2,fill:"#1b1710",stroke:C.ok,"stroke-width":1.4}));
+  // schedule
+  var W=st.castleWhales.map(function(w){return {w:w,m:march(w)};}).filter(function(x){return x.m>0;});
+  if(!W.length) W=[{w:{name:"鲸a"},m:90}];
+  W.sort(function(a,b){return b.m-a.m;});
+  var base=W[0].m, S=2600/Math.max(base,1), GD=2200, landAll=base*S+GD, n=W.length;
+  anim.landAll=landAll;
+  anim.whales=W.map(function(x,i){
+    var frac=n===1?0.5:i/(n-1);
+    var px=cx+dir*(58+(x.m/base)*116), py=cy+(frac-0.5)*(n>1?112:0);
+    var g={m:x.m,name:x.w.name||("鲸"+(i+1)),px:px,py:py,openAt:(base-x.m)*S,gEnd:(base-x.m)*S+GD,land:landAll};
+    g.line=E("line",{x1:px,y1:py,x2:cx,y2:cy,stroke:C.ac,"stroke-width":1,"stroke-dasharray":"2 4",opacity:.16}); svgEl.appendChild(g.line);
+    g.ring=E("circle",{cx:px,cy:py,r:12,fill:"none",stroke:C.ac2,"stroke-width":2.4,opacity:0,"stroke-dasharray":(2*Math.PI*12).toFixed(1)}); svgEl.appendChild(g.ring);
+    g.join=[0,1,2].map(function(){var d=E("circle",{cx:px,cy:py,r:2.6,fill:C.ok,opacity:0});svgEl.appendChild(d);return d;});
+    g.dot=E("circle",{cx:px,cy:py,r:8.5,fill:C.ac}); svgEl.appendChild(g.dot);
+    g.txt=E("text",{x:px,y:py+3,"text-anchor":"middle",fill:C.on,"font-size":8.5,"font-weight":800}); g.txt.textContent=g.name.slice(0,2); svgEl.appendChild(g.txt);
+    g.lbl=E("text",{x:px,y:py-15,"text-anchor":"middle",fill:"#cbb98a","font-size":9,"font-weight":600}); g.lbl.textContent=mmss(x.m); svgEl.appendChild(g.lbl);
+    return g;
+  });
+  var Ed=st.enemyWhales.map(function(e){return {e:e,m:march(e)};}); if(!Ed.length) Ed=[{e:{name:"敌A"},m:70}];
+  var ne=Ed.length, Emax=Math.max.apply(null,Ed.map(function(x){return x.m;}).concat([1]));
+  anim.enemies=Ed.map(function(x,i){
+    var frac=ne===1?0.5:i/(ne-1);
+    var ex=cx-dir*(58+(x.m/Emax)*100), ey=cy+(frac-0.5)*(ne>1?120:0);
+    var en={m:x.m,name:x.e.name||("敌"+(i+1)),ex:ex,ey:ey,land:landAll+900+i*1300};
+    en.refillArrive=en.land+350; en.refillLaunch=en.refillArrive-900;
+    en.dot=E("circle",{cx:ex,cy:ey,r:8.5,fill:C.bad,opacity:0}); svgEl.appendChild(en.dot);
+    en.txt=E("text",{x:ex,y:ey+3,"text-anchor":"middle",fill:"#fff","font-size":8,"font-weight":800,opacity:0}); en.txt.textContent=en.name.slice(0,2); svgEl.appendChild(en.txt);
+    en.cd=E("text",{x:ex,y:ey-11,"text-anchor":"middle",fill:"#ff8a82","font-size":9,"font-weight":700,opacity:0}); svgEl.appendChild(en.cd);
+    en.burst=[0,1,2,3,4].map(function(){var d=E("circle",{cx:anim.bx,cy:anim.by,r:2.6,fill:C.ok,opacity:0});svgEl.appendChild(d);return d;});
+    return en;
+  });
+  var lastE=anim.enemies[anim.enemies.length-1];
+  anim.T=lastE.refillArrive+1300;
+}
+function barVal(t){ if(t<anim.landAll) return 0; var v=1;
+  anim.enemies.forEach(function(en){ if(t>=en.land) v-=0.45; if(t>=en.refillArrive) v+=0.45; });
+  return cl(v); }
+function renderAnim(t){ if(!anim) return; var dir=anim.dir;
+  var ph; if(t<anim.landAll-200) ph="① 错峰开集结（远的先开）+ 加入"; else if(t<anim.landAll+700) ph="② 同步命中 · 拿下王城 ✅"; else { ph="③ 敌方来袭 → ④ 卡间隙补满 ★"; }
+  $("phaselab").textContent=ph;
+  var ours=t>=anim.landAll; anim.castle.setAttribute("fill",ours?"#3a2f12":"#3a3320"); anim.castle.setAttribute("stroke",ours?C.ac:"#7d7350");
+  anim.whales.forEach(function(g){
+    var lblOp=cl(1-sg(t,anim.landAll-900,anim.landAll-300)); g.lbl.setAttribute("opacity",t<g.openAt?0.45:lblOp); g.line.setAttribute("opacity",t<g.land?0.16:0);
+    if(t<g.openAt){ g.dot.setAttribute("opacity",.35);g.txt.setAttribute("opacity",.35);g.ring.setAttribute("opacity",0); setPos(g.dot,g.px,g.py);setPos(g.txt,g.px,g.py+3); g.join.forEach(function(j){j.setAttribute("opacity",0);}); }
+    else if(t<g.gEnd){ g.dot.setAttribute("opacity",1);g.txt.setAttribute("opacity",1); var gp=sg(t,g.openAt,g.gEnd); g.ring.setAttribute("opacity",.95); g.ring.setAttribute("stroke-dashoffset",((2*Math.PI*12)*(1-gp)).toFixed(1));
+      setPos(g.dot,g.px,g.py);setPos(g.txt,g.px,g.py+3);
+      g.join.forEach(function(j,k){var js=g.openAt+150+k*350,jp=sg(t,js,js+600);j.setAttribute("opacity",jp>0&&jp<1?.95:0);setPos(j,lerp(g.px+30+k*7,g.px,jp),lerp(g.py-24+k*15,g.py,jp));}); }
+    else if(t<g.land){ g.ring.setAttribute("opacity",0); g.join.forEach(function(j){j.setAttribute("opacity",0);}); var mp=sg(t,g.gEnd,g.land); g.dot.setAttribute("opacity",1);g.txt.setAttribute("opacity",1);
+      var x=lerp(g.px,cx,mp),y=lerp(g.py,cy,mp); setPos(g.dot,x,y);setPos(g.txt,x,y+3); }
+    else { g.dot.setAttribute("opacity",0);g.txt.setAttribute("opacity",0);g.ring.setAttribute("opacity",0); }
+  });
+  if(t>=anim.landAll&&t<anim.landAll+700){ var ip=sg(t,anim.landAll,anim.landAll+700); anim.imp.setAttribute("stroke",C.ac2);anim.imp.setAttribute("opacity",1-ip);anim.imp.setAttribute("r",16+ip*36); } else anim.imp.setAttribute("opacity",0);
+  anim.enemies.forEach(function(en){
+    if(t>=en.land-1800&&t<en.land){ var ep=sg(t,en.land-1800,en.land); en.dot.setAttribute("opacity",1);en.txt.setAttribute("opacity",1); var x=lerp(en.ex,cx,ep),y=lerp(en.ey,cy,ep); setPos(en.dot,x,y);setPos(en.txt,x,y+3);
+      en.cd.setAttribute("opacity",1);setPos(en.cd,x,y-11);en.cd.textContent="落地 "+((en.land-t)/1000).toFixed(1)+"s"; }
+    else { en.dot.setAttribute("opacity",0);en.txt.setAttribute("opacity",0);en.cd.setAttribute("opacity",0); }
+    if(t>=en.land&&t<en.land+450){ var rp=sg(t,en.land,en.land+450); anim.imp.setAttribute("stroke",C.bad);anim.imp.setAttribute("opacity",1-rp);anim.imp.setAttribute("r",14+rp*26); }
+    var on=t>=en.refillLaunch&&t<en.refillArrive; en.burst.forEach(function(d,k){ if(on){var p=sg(t,en.refillLaunch,en.refillArrive);var ox=(k%3-1)*7,oy=(Math.floor(k/3)-0.5)*9;d.setAttribute("opacity",.95);setPos(d,lerp(anim.bx+ox,cx+ox,p),lerp(anim.by+oy,cy+oy,p));}else d.setAttribute("opacity",0); });
+    if(t>=en.refillArrive-150&&t<en.refillArrive+400){ var gp2=0.5+0.5*Math.sin(t/40); anim.glow.setAttribute("opacity",.5+.4*gp2); anim.glow.setAttribute("r",24+4*gp2); }
+  });
+  if(!anim.enemies.some(function(en){return t>=en.refillArrive-150&&t<en.refillArrive+400;})) anim.glow.setAttribute("opacity",0);
+  anim.bar.setAttribute("width",(50*barVal(t)).toFixed(1)); anim.bar.setAttribute("fill",barVal(t)<0.7?C.ac:C.ok);
+}
+function setPos(el,x,y){ if(el.tagName==="text"){el.setAttribute("x",x);el.setAttribute("y",y);} else {el.setAttribute("cx",x);el.setAttribute("cy",y);} }
+
+/* playback */
+var tNow=0,playing=true,lastTs=null;
+function frame(ts){ if(lastTs==null)lastTs=ts; var dt=ts-lastTs; lastTs=ts; if(!anim){requestAnimationFrame(frame);return;}
+  if(playing){ tNow=(tNow+dt)%anim.T; var sc=$("scrub"); sc.max=Math.round(anim.T); sc.value=Math.round(tNow); }
+  renderAnim(tNow); requestAnimationFrame(frame); }
+
+/* ---------- clock ---------- */
+function tick(){var d=new Date();$("utc").textContent=pad(d.getUTCHours())+":"+pad(d.getUTCMinutes())+":"+pad(d.getUTCSeconds());
+  $("loc").textContent=pad(d.getHours())+":"+pad(d.getMinutes())+":"+pad(d.getSeconds());var h=d.getUTCHours();
+  $("cstat").textContent=(h>=12&&h<18)?"城堡战进行中":(h>=10&&h<22)?"战斗阶段中":"未开始";}
+
+/* ---------- wire ---------- */
+$("lockBtn").addEventListener("click",doLogin);
+$("logoutBtn").addEventListener("click",doLogout);
+$("pubBtn").addEventListener("click",publishPlan);
+$("pubBtn2").addEventListener("click",publishPlan);
+$("viewtabs").addEventListener("click",function(e){var b=e.target.closest("[data-v]");if(!b)return;view=b.getAttribute("data-v");applyAdminUI();});
+$("sideSeg").addEventListener("click",function(e){var b=e.target.closest("[data-v]");if(!b||!admin)return;st.side=b.getAttribute("data-v");seg("sideSeg",st.side);rebuildStage();renderHome();});
+$("tacticsEdit").addEventListener("input",function(){st.tactics=this.value;renderTactics();});
+$("addWhale").addEventListener("click",function(){st.castleWhales.push(newWhale("",1,0,[],""));renderWhales();renderStagger();rebuildStage();renderHome();});
+$("addEnemy").addEventListener("click",function(){st.enemyWhales.push(newEnemy("",1,0));renderEnemies();rebuildStage();renderHome();});
+["me_mm","me_ss"].forEach(function(id){$(id).addEventListener("input",function(){renderRefillPanel();renderMeAndOrder();});});
+$("scrub").addEventListener("input",function(){playing=false;$("pp").textContent="▶";tNow=+$("scrub").value;renderAnim(tNow);});
+$("pp").addEventListener("click",function(){playing=!playing;$("pp").textContent=playing?"⏸":"▶";lastTs=null;});
+
+/* ---------- init ---------- */
+buildStageBase();
+loadAuth(); applyAdminUI(); loadPlan();
+tick(); setInterval(tick,500);
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
