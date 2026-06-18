@@ -394,7 +394,7 @@ var C={ac:"#E9A82E",ac2:"#FFC558",ok:"#36D17A",bad:"#FF5247",blue:"#5BA8FF",t3:"
 
 var st={ side:"right", tactics:"", castleWhales:[], turretLeaders:["","","",""], enemyWhales:[], giftCodes:[] };
 var admin=false, adminName="", baseUpdatedAt=null, uid=1, view="home", roster=[];
-var LS_KEY="rocks1406_admin", LS_FID="rocks1406_fid", LS_REDEEMED="rocks1406_redeemed";
+var LS_KEY="rocks1406_admin", LS_FID="rocks1406_fid", LS_REDEEMED="rocks1406_redeemed", LS_ROSTER="rocks1406_roster";
 var GIFT_URL="https://ks-giftcode.centurygame.com/";
 
 function newWhale(n,mm,ss,joiners,req){return {id:uid++,name:n||"",mm:mm||0,ss:ss==null?0:ss,joiners:(joiners||[]).slice(),requirement:req||""};}
@@ -531,13 +531,25 @@ function renderRoster(){ var box=$("rosterList"); if(!box) return; box.innerHTML
     el.addEventListener("input",function(e){var k=e.target.getAttribute("data-k");if(!k)return; m[k]= (k==="fid"? e.target.value.replace(/\D/g,"") : e.target.value); scheduleSave();});
     el.querySelector(".del").addEventListener("click",function(){roster.splice(idx,1);renderRoster();scheduleSave();});
     box.appendChild(el); }); }
-function loadRoster(){ fetch(WBASE+"/roster",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:"666"})})
-  .then(function(r){return r.json();}).then(function(j){ rosterLoaded=true; if(!rosterDirty){ roster=(j&&j.roster)||[]; renderRoster(); } }).catch(function(){ renderRoster(); }); }
+function lsRoster(){ try{return JSON.parse(localStorage.getItem(LS_ROSTER)||"[]");}catch(e){return [];} }
+function loadRoster(){
+  // 1) instant from this browser — the admin's list must never visibly vanish
+  var local=lsRoster();
+  if(!rosterDirty && local.length){ roster=local; renderRoster(); }
+  // 2) reconcile with cloud (tolerant of Cloudflare KV eventual-consistency / stale empty reads)
+  fetch(WBASE+"/roster",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:"666"})})
+   .then(function(r){return r.json();}).then(function(j){ rosterLoaded=true; if(rosterDirty) return;
+     var cloud=(j&&j.roster)||[];
+     if(cloud.length){ roster=cloud; try{localStorage.setItem(LS_ROSTER,JSON.stringify(cloud));}catch(e){} renderRoster(); }
+     else if(local.length){ roster=local; renderRoster(); saveRosterNow(true); }   // cloud empty/stale but we have it locally -> heal cloud
+     else { roster=[]; renderRoster(); } })
+   .catch(function(){ if(!rosterDirty && local.length){ roster=local; renderRoster(); } }); }
 function setSaveStatus(t){ var s=$("rosterSave"); if(s) s.textContent=t; }
-function scheduleSave(){ rosterDirty=true; setSaveStatus("保存中…"); clearTimeout(rosterSaveT); rosterSaveT=setTimeout(saveRosterNow,700); }
-function saveRosterNow(){ fetch(WBASE+"/roster",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:"666",roster:roster})})
-   .then(function(r){return r.json();}).then(function(j){ setSaveStatus((j&&j.ok)?"已自动保存到云端 ✓":"保存失败，请重试"); })
-   .catch(function(){ setSaveStatus("保存失败（网络）"); }); }
+function scheduleSave(){ rosterDirty=true; try{localStorage.setItem(LS_ROSTER,JSON.stringify(roster));}catch(e){} setSaveStatus("保存中…"); clearTimeout(rosterSaveT); rosterSaveT=setTimeout(function(){saveRosterNow(false);},700); }
+function saveRosterNow(silent){ try{localStorage.setItem(LS_ROSTER,JSON.stringify(roster));}catch(e){}
+  fetch(WBASE+"/roster",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:"666",roster:roster})})
+   .then(function(r){return r.json();}).then(function(j){ setSaveStatus((j&&j.ok)?"已保存（云端+本机）✓":"已存本机，云端稍后重试"); })
+   .catch(function(){ setSaveStatus("已存本机，云端失败（稍后重试）"); }); }
 function loadAutoCodes(){ var box=$("autoCodes"); if(!box) return; box.textContent="加载中…";
   fetch(WBASE+"/codes",{cache:"no-store"}).then(function(r){return r.json();}).then(function(j){ var cs=(j&&j.codes)||[];
     box.innerHTML= cs.length? '<div class="chips">'+cs.map(function(c){return '<span class="chip" style="background:var(--acb);border-color:var(--gold-line);color:var(--ac2)">'+esc(c)+'</span>';}).join("")+'</div>' : '<span class="hint">暂无可用码</span>'; })
