@@ -145,6 +145,20 @@
     background:radial-gradient(circle at 35% 30%,#FFE9B0,var(--ac));border:2px solid #1a1206;cursor:pointer;
     box-shadow:0 2px 8px rgba(236,174,54,.6)}
   .ctrl input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;background:var(--ac);border:2px solid #1a1206;cursor:pointer}
+  /* hero input */
+  .card.hero{border:1px solid var(--gold-line);background:linear-gradient(180deg,rgba(236,174,54,.11),var(--surface));
+    box-shadow:0 0 0 1px rgba(236,174,54,.12),0 1px 0 rgba(255,240,210,.06) inset,var(--shadow)}
+  .hero .herohead{font:800 16px/1.3 var(--font);color:var(--ac2);letter-spacing:.2px;display:flex;align-items:center;gap:9px}
+  .hero .herohead .step{background:linear-gradient(180deg,var(--ac2),var(--ac));color:var(--ac-on);border-radius:8px;width:23px;height:23px;
+    display:inline-flex;align-items:center;justify-content:center;font:800 13px/1 var(--mono);flex:0 0 auto;box-shadow:0 3px 10px -4px rgba(236,174,54,.7)}
+  .hero .herosub{font-size:12px;color:var(--t2);margin:7px 0 12px;line-height:1.55}
+  .hero .herosub b{color:var(--ac2)}
+  .hero .mmss input{width:66px;font-size:23px;padding:13px 4px}
+  .hero .mmss .c{font-size:22px}
+  /* map legend (moved out of the map) */
+  .maplegend{display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;justify-content:center;font-size:11.5px;color:var(--t2);
+    margin:0 0 11px;padding:9px 12px;background:linear-gradient(180deg,var(--surface-hi),var(--surface));border:1px solid var(--line);border-radius:10px}
+  .maplegend .ml-note{flex-basis:100%;text-align:center;color:var(--t3);font-size:10.5px;margin-top:3px;letter-spacing:.2px}
 
   /* ---- refill panel (enemy = crimson accent) ---- */
   .erow{position:relative;background:linear-gradient(180deg,var(--surface-hi),var(--surface));border:1px solid var(--line);
@@ -246,8 +260,6 @@
       <button class="lockbtn" id="lockBtn">🔒 管理</button>
     </span>
   </div>
-  <div class="castlephase">战斗阶段 <b>10:00–22:00 UTC</b> ｜ 城堡战 <b>12:00–18:00 UTC</b> ｜ <b id="cstat">—</b></div>
-
   <div class="viewtabs hide" id="viewtabs">
     <button data-v="admin" class="on">🔧 配置</button>
     <button data-v="home">👁 主页预览</button>
@@ -255,8 +267,9 @@
 
   <!-- ===================== 玩家主页 ===================== -->
   <section id="home">
-    <div class="card" style="padding:12px 14px">
-      <div class="lab" style="margin-top:0">① 填一次：我到王城的行军时间</div>
+    <div class="card hero">
+      <div class="herohead"><span class="step">①</span>先填这一个：你到王城的行军时间</div>
+      <div class="herosub">游戏里开一次集结、看一眼到王城的行军时间填进来 —— 下方「补兵时机尺」就会告诉你 <b>该几点发补兵</b>。</div>
       <div class="mmss"><input id="me_mm" type="number" min="0" value="1"><span class="u">分</span><span class="c">:</span><input id="me_ss" type="number" min="0" max="59" value="20"><span class="u">秒</span><span style="margin-left:auto;font-size:11px;color:var(--t3)">通常 1 分多</span></div>
     </div>
 
@@ -264,8 +277,8 @@
       <span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
       <svg viewBox="0 0 400 230" id="svg"></svg>
       <div class="phaselab" id="phaselab"></div>
-      <div class="leg">🟡我方鲸<br>🔴敌方鲸<br>🟢加入/补兵</div>
     </div>
+    <div class="maplegend"><span>🟡 我方鲸鱼</span><span>🔴 敌方鲸鱼</span><span>🟢 加入者 / 补兵</span><span class="ml-note">图中数字 = 鲸鱼到王城的行军时间</span></div>
     <div class="ctrl"><button id="pp">⏸</button><input id="scrub" type="range" min="0" max="1000" value="0"></div>
 
     <div class="card">
@@ -285,7 +298,7 @@
       <div class="guide">
         <div class="g atk"><div class="h">进攻轮</div>加入分配给你的车 → 看上方发车顺序/动画 → <b>同步命中</b>。攻击阵容默认 <b>步50/骑20/弓30</b>（敌步兵墙多则切 30/20/50）。</div>
         <div class="g def"><div class="h">防守轮</div>拿下后<b>立刻换防御英雄 + 改比例 步60/骑40</b>；按"补兵时机尺"在敌每车落地瞬间补满；最强号常驻当驻防队长。</div>
-        <div class="g rem"><div class="h">通用提醒</div>开打前后<b>多刷新本网站看时间</b>；改了兵种/英雄要回来重看自己的行军/发兵时刻。</div>
+        <div class="g rem"><div class="h">通用提醒</div>开打前后<b>多刷新本网站看时间</b>。</div>
       </div>
     </div>
 
@@ -451,12 +464,13 @@ function renderRefillPanel(){ var box=$("refillPanel"); box.innerHTML="";
 function renderOrder(){
   var rows=computeStagger(), ob=$("orderBox");
   if(!rows.length){ ob.innerHTML='<span class="hint">管理员尚未发布攻城车。</span>'; return; }
+  var baseName=esc((rows[0].whale.name)||"最远车");
   ob.innerHTML=rows.map(function(r,i){
     var w=r.whale;
     var jn=(w.joiners&&w.joiners.length)?(' · 加入者：'+w.joiners.map(esc).join("、")):'';
     var req=(w.requirement&&w.requirement.trim())?(' · <span style="color:var(--ac2)">要求：'+esc(w.requirement)+'</span>'):'';
     var warn=r.warn?(' <span style="color:var(--bad)">⚠'+r.warn+'</span>'):'';
-    return (i+1)+'. <b>'+(esc(w.name)||("车"+(i+1)))+'</b> 行军'+mmss(r.march)+' · '+(r.delay===0?'最先开集结':('最远车后 '+mmss(r.delay)+' 开'))+jn+req+warn;
+    return (i+1)+'. <b>'+(esc(w.name)||("车"+(i+1)))+'</b> 行军'+mmss(r.march)+' · '+(r.delay===0?'最先开集结':(baseName+' 集结后 '+mmss(r.delay)+' 开'))+jn+req+warn;
   }).join("<br>");
 }
 function renderTactics(){ var c=$("tacticsCard"); if(st.tactics&&st.tactics.trim()){ c.classList.remove("hide"); $("tacticsView").textContent=st.tactics; } else c.classList.add("hide"); }
@@ -549,7 +563,7 @@ function rebuildStage(){ if(!svgEl) buildStageBase(); else svgEl.innerHTML="";
     g.join=[0,1,2].map(function(){var d=E("circle",{cx:px,cy:py,r:2.6,fill:C.ok,opacity:0});svgEl.appendChild(d);return d;});
     g.dot=E("circle",{cx:px,cy:py,r:8.5,fill:C.ac}); svgEl.appendChild(g.dot);
     g.txt=E("text",{x:px,y:py+3,"text-anchor":"middle",fill:C.on,"font-size":8.5,"font-weight":800}); g.txt.textContent=g.name.slice(0,2); svgEl.appendChild(g.txt);
-    g.lbl=E("text",{x:px,y:py-15,"text-anchor":"middle",fill:"#cbb98a","font-size":9,"font-weight":600}); g.lbl.textContent=mmss(x.m); svgEl.appendChild(g.lbl);
+    g.lbl=E("text",{x:px,y:py-15,"text-anchor":"middle",fill:"#cbb98a","font-size":9,"font-weight":600}); g.lbl.textContent="行军"+mmss(x.m); svgEl.appendChild(g.lbl);
     return g;
   });
   var Ed=st.enemyWhales.map(function(e){return {e:e,m:march(e)};}); if(!Ed.length) Ed=[{e:{name:"敌A"},m:70}];
@@ -608,7 +622,7 @@ function frame(ts){ if(lastTs==null)lastTs=ts; var dt=ts-lastTs; lastTs=ts; if(!
 /* ---------- clock ---------- */
 function tick(){var d=new Date();$("utc").textContent=pad(d.getUTCHours())+":"+pad(d.getUTCMinutes())+":"+pad(d.getUTCSeconds());
   $("loc").textContent=pad(d.getHours())+":"+pad(d.getMinutes())+":"+pad(d.getSeconds());var h=d.getUTCHours();
-  $("cstat").textContent=(h>=12&&h<18)?"城堡战进行中":(h>=10&&h<22)?"战斗阶段中":"未开始";}
+  var cs=$("cstat"); if(cs) cs.textContent=(h>=12&&h<18)?"城堡战进行中":(h>=10&&h<22)?"战斗阶段中":"未开始";}
 
 /* ---------- wire ---------- */
 $("lockBtn").addEventListener("click",doLogin);
