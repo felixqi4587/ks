@@ -166,9 +166,8 @@
     </div>
 
     <div class="card">
-      <h2>⚔️ 我什么时候发车</h2>
-      <div class="meRes idle" id="meRes"><div class="hl">—</div><div class="big">—</div><div class="s">—</div></div>
-      <div class="lab">发车顺序（给鲸鱼/加入者）</div>
+      <h2>⚔️ 攻城发车顺序 & 分工</h2>
+      <p class="hint">普通玩家不用自己开车——找到你被分配/符合要求的车，看到它开集结就立刻加入。</p>
       <div class="order" id="orderBox"></div>
     </div>
 
@@ -176,7 +175,7 @@
       <h2>📋 分轮战斗指南</h2>
       <div class="guide">
         <div class="g atk"><div class="h">进攻轮</div>加入分配给你的车 → 看上方发车顺序/动画 → <b>同步命中</b>。攻击阵容默认 <b>步50/骑20/弓30</b>（敌步兵墙多则切 30/20/50）。</div>
-        <div class="g def"><div class="h">防守轮</div>拿下后<b>立刻换防御英雄 + 改比例约 步60/骑20/弓20</b>；按"补兵时机尺"在敌每车落地瞬间补满；最强号常驻当驻防队长。</div>
+        <div class="g def"><div class="h">防守轮</div>拿下后<b>立刻换防御英雄 + 改比例 步60/骑40</b>；按"补兵时机尺"在敌每车落地瞬间补满；最强号常驻当驻防队长。</div>
         <div class="g rem"><div class="h">通用提醒</div>开打前后<b>多刷新本网站看时间</b>；改了兵种/英雄要回来重看自己的行军/发兵时刻。</div>
       </div>
     </div>
@@ -340,18 +339,15 @@ function renderRefillPanel(){ var box=$("refillPanel"); box.innerHTML="";
       '<div class="cue">'+(c.ready?esc(c.text):'<span style="color:var(--t3)">'+esc(c.text)+'</span>')+'</div>'+
       (c.ready?'<div class="note">补兵在他落地后≈'+DELTA+'秒到，正好补满 ✓</div>':'');
     box.appendChild(el); }); }
-function renderMeAndOrder(){
-  var rows=computeStagger(), my=myMarchSec(), res=$("meRes");
-  var base=rows.length?rows[0].march:0;
-  if(!rows.length){ res.className="meRes idle"; res.querySelector(".hl").textContent="还没有车队"; res.querySelector(".big").textContent="—"; res.querySelector(".s").textContent="等管理发布攻城车"; }
-  else if(my<=0){ res.className="meRes idle"; res.querySelector(".hl").textContent="先填你的行军"; res.querySelector(".big").textContent="—"; res.querySelector(".s").textContent="到王城几分几秒"; }
-  else { var delay=base-my; res.className="meRes go";
-    if(delay<=0){ res.querySelector(".hl").textContent="你（同）最远 → 最先开"; res.querySelector(".big").textContent="最先发"; res.querySelector(".s").textContent="若你单独开车，你第一个开集结；若加入，看你那辆车开集结时立刻加入。"; }
-    else { res.querySelector(".hl").textContent="你在最远车之后开集结"; res.querySelector(".big").textContent="晚 "+mmss(delay); res.querySelector(".s").textContent="最远车("+mmss(base)+")开集结后 "+mmss(delay)+" 你再开 · 同时命中。加入者看车开集结即加入。"; } }
-  var ob=$("orderBox");
-  if(!rows.length){ ob.innerHTML='<span class="hint">—</span>'; }
-  else ob.innerHTML=rows.map(function(r,i){
-    return (i+1)+". <b>"+(esc(r.whale.name)||("车"+(i+1)))+"</b> 行军"+mmss(r.march)+" · "+(r.delay===0?"最先开集结":("最远车后 "+mmss(r.delay)+" 开"))+(r.warn?(' <span style="color:var(--bad)">⚠'+r.warn+'</span>'):"");
+function renderOrder(){
+  var rows=computeStagger(), ob=$("orderBox");
+  if(!rows.length){ ob.innerHTML='<span class="hint">管理员尚未发布攻城车。</span>'; return; }
+  ob.innerHTML=rows.map(function(r,i){
+    var w=r.whale;
+    var jn=(w.joiners&&w.joiners.length)?(' · 加入者：'+w.joiners.map(esc).join("、")):'';
+    var req=(w.requirement&&w.requirement.trim())?(' · <span style="color:var(--ac2)">要求：'+esc(w.requirement)+'</span>'):'';
+    var warn=r.warn?(' <span style="color:var(--bad)">⚠'+r.warn+'</span>'):'';
+    return (i+1)+'. <b>'+(esc(w.name)||("车"+(i+1)))+'</b> 行军'+mmss(r.march)+' · '+(r.delay===0?'最先开集结':('最远车后 '+mmss(r.delay)+' 开'))+jn+req+warn;
   }).join("<br>");
 }
 function renderTactics(){ var c=$("tacticsCard"); if(st.tactics&&st.tactics.trim()){ c.classList.remove("hide"); $("tacticsView").textContent=st.tactics; } else c.classList.add("hide"); }
@@ -362,7 +358,7 @@ function renderTurretFold(){ var box=$("turretFold"); box.innerHTML="";
   st.turretLeaders.forEach(function(h,i){ var el=document.createElement("div"); el.className="struct";
     el.innerHTML='<div class="ico">'+structIcon(i+1)+'</div><div class="nm">炮塔 '+(i+1)+'</div><div class="ph">'+(h?esc(h):'<span style="color:var(--t3)">未分配</span>')+'</div>';
     box.appendChild(el); }); }
-function renderHome(){ renderRefillPanel(); renderMeAndOrder(); renderTactics(); renderTurretFold(); }
+function renderHome(){ renderRefillPanel(); renderOrder(); renderTactics(); renderTurretFold(); }
 
 /* ---------- render: admin ---------- */
 function seg(id,val){var s=$(id);if(s)s.querySelectorAll("button").forEach(function(b){b.classList.toggle("on",b.getAttribute("data-v")===String(val));});}
@@ -380,8 +376,8 @@ function renderWhales(){ var box=$("whaleList"); box.innerHTML="";
     el.addEventListener("input",function(e){var k=e.target.getAttribute("data-k");if(!k)return;var v=e.target.value;
       if(k==="mm")v=Math.max(0,+v||0); if(k==="ss")v=Math.min(59,Math.max(0,+v||0)); w[k]=v; renderStagger(); renderHome(); });
     el.querySelector(".del").addEventListener("click",function(){st.castleWhales.splice(idx,1);renderWhales();renderStagger();rebuildStage();renderHome();});
-    el.querySelector("[data-add]").addEventListener("click",function(){var inp=el.querySelector("[data-addj]");var nm=(inp.value||"").trim();if(!nm)return;w.joiners.push(nm);inp.value="";renderWhales();});
-    el.querySelectorAll(".chip b").forEach(function(x){x.addEventListener("click",function(){w.joiners.splice(+x.getAttribute("data-j"),1);renderWhales();});});
+    el.querySelector("[data-add]").addEventListener("click",function(){var inp=el.querySelector("[data-addj]");var nm=(inp.value||"").trim();if(!nm)return;w.joiners.push(nm);inp.value="";renderWhales();renderHome();});
+    el.querySelectorAll(".chip b").forEach(function(x){x.addEventListener("click",function(){w.joiners.splice(+x.getAttribute("data-j"),1);renderWhales();renderHome();});});
     box.appendChild(el); });
 }
 function renderStagger(){ var rows=computeStagger(); var p=$("staggerPreview");
@@ -515,7 +511,7 @@ $("sideSeg").addEventListener("click",function(e){var b=e.target.closest("[data-
 $("tacticsEdit").addEventListener("input",function(){st.tactics=this.value;renderTactics();});
 $("addWhale").addEventListener("click",function(){st.castleWhales.push(newWhale("",1,0,[],""));renderWhales();renderStagger();rebuildStage();renderHome();});
 $("addEnemy").addEventListener("click",function(){st.enemyWhales.push(newEnemy("",1,0));renderEnemies();rebuildStage();renderHome();});
-["me_mm","me_ss"].forEach(function(id){$(id).addEventListener("input",function(){renderRefillPanel();renderMeAndOrder();});});
+["me_mm","me_ss"].forEach(function(id){$(id).addEventListener("input",function(){renderRefillPanel();});});
 $("scrub").addEventListener("input",function(){playing=false;$("pp").textContent="▶";tNow=+$("scrub").value;renderAnim(tNow);});
 $("pp").addEventListener("click",function(){playing=!playing;$("pp").textContent=playing?"⏸":"▶";lastTs=null;});
 
