@@ -228,15 +228,25 @@
     opacity:0;transition:opacity .26s,transform .26s;pointer-events:none}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
+  /* ---- gift codes ---- */
+  .gcrow{background:linear-gradient(180deg,var(--surface-hi),var(--surface));border:1px solid var(--line);
+    border-left:3px solid var(--ac);border-radius:12px;padding:12px;margin-bottom:10px}
+  .gcrow.done{opacity:.55;border-left-color:var(--ok)}
+  .gccode{font:800 20px/1 var(--mono);color:var(--ac2);letter-spacing:1.5px;word-break:break-all;text-shadow:0 0 14px rgba(255,210,122,.3)}
+  .gcmeta{font-size:11.5px;color:var(--t2);margin-top:5px}
+  .gcrow .gcbtn{margin-top:11px}
+  .gcchk{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--t2);margin-top:9px;cursor:pointer}
+  .gcchk input{width:auto}
+
   /* ---- entrance reveal ---- */
   @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-  .top,.statusbar,.castlephase,.viewtabs,#home>*,#admin>*{animation:rise .5s cubic-bezier(.2,.7,.2,1) both}
+  .top,.statusbar,.castlephase,.viewtabs,#home>*,#admin>*,#gift>*{animation:rise .5s cubic-bezier(.2,.7,.2,1) both}
   .statusbar{animation-delay:.04s}.castlephase{animation-delay:.08s}.viewtabs{animation-delay:.1s}
-  #home>*:nth-child(1),#admin>*:nth-child(1){animation-delay:.12s}
-  #home>*:nth-child(2),#admin>*:nth-child(2){animation-delay:.17s}
-  #home>*:nth-child(3),#admin>*:nth-child(3){animation-delay:.22s}
-  #home>*:nth-child(4),#admin>*:nth-child(4){animation-delay:.27s}
-  #home>*:nth-child(n+5),#admin>*:nth-child(n+5){animation-delay:.32s}
+  #home>*:nth-child(1),#admin>*:nth-child(1),#gift>*:nth-child(1){animation-delay:.12s}
+  #home>*:nth-child(2),#admin>*:nth-child(2),#gift>*:nth-child(2){animation-delay:.17s}
+  #home>*:nth-child(3),#admin>*:nth-child(3),#gift>*:nth-child(3){animation-delay:.22s}
+  #home>*:nth-child(4),#admin>*:nth-child(4),#gift>*:nth-child(4){animation-delay:.27s}
+  #home>*:nth-child(n+5),#admin>*:nth-child(n+5),#gift>*:nth-child(n+5){animation-delay:.32s}
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
@@ -312,6 +322,36 @@
       <div id="turretFold" style="padding-bottom:8px"></div>
       <p class="hint">炮塔车加入是自由的，玩家自己加。</p>
     </details>
+
+    <button class="btn amber full" id="giftEntry" style="margin-top:2px">🎁 礼包码一键兑换</button>
+  </section>
+
+  <!-- ===================== 礼包码 ===================== -->
+  <section id="gift" class="hide">
+    <button class="lockbtn" id="giftBack" style="margin-bottom:13px">← 返回主页</button>
+    <div class="card hero">
+      <div class="herohead"><span class="step">🎁</span>礼包码一键兑换</div>
+      <div class="herosub">点「复制并打开官网」→ 在官网粘贴码、填 Player ID、过验证码、确认。<b>全程在你自己浏览器完成</b>，不经过我们的服务器。</div>
+    </div>
+    <div class="card">
+      <div class="lab" style="margin-top:0">你的 Player ID（游戏内点左上角头像可看到）</div>
+      <div class="row"><input id="gc_fid" inputmode="numeric" placeholder="例如 12345678"><button class="btn" id="gcCopyFid" style="flex:0 0 auto;padding:11px 14px">复制</button></div>
+      <p class="hint" style="margin-top:7px">*只存在你自己手机里，不上传。</p>
+    </div>
+    <div class="card">
+      <h2>🎟 可用礼包码</h2>
+      <p class="hint">区分大小写、会过期，以游戏内为准。一码每个账号一次。</p>
+      <div id="giftList"></div>
+    </div>
+    <div class="card">
+      <h2>📋 三步兑换</h2>
+      <div class="guide">
+        <div class="g atk"><div class="h">① 登录</div>在官网粘贴/输入你的 Player ID → 点 Login（确认是你的角色）。</div>
+        <div class="g rem"><div class="h">② 粘贴礼包码</div>礼包码已自动复制好，直接粘贴。</div>
+        <div class="g def"><div class="h">③ 验证码 + 确认</div>输入图形验证码 → 点 Confirm，奖励进游戏邮箱。<b>验证码必须你本人输入</b>，官方反作弊谁都跳不过。</div>
+      </div>
+    </div>
+    <p class="foot">🎁 本工具不会替你兑换，只是帮你一键复制礼包码并打开 Century Games 官方兑换页。Player ID、兑换、验证码都在你自己的浏览器、由你本人完成——全程不经过我们的服务器。非官方，与 Century Games 无关。</p>
   </section>
 
   <!-- ===================== 管理配置页 ===================== -->
@@ -349,6 +389,13 @@
       <button class="add" id="addEnemy">＋ 加敌鲸</button>
     </div>
 
+    <div class="card">
+      <h2><span class="n">6</span>礼包码（全王国可见）</h2>
+      <p class="hint">填可用礼包码 + 备注/截止（可选）。区分大小写。发布后玩家在「礼包码」页一键复制并打开官网兑换。</p>
+      <div id="giftEdit"></div>
+      <button class="add" id="addGift">＋ 加礼包码</button>
+    </div>
+
     <button class="btn amber full" id="pubBtn2">发布到全王国</button>
     <div class="ver" id="verLine"></div>
   </section>
@@ -365,9 +412,10 @@ var GATHER=300, DELTA=2;
 var $=function(i){return document.getElementById(i);}, NS="http://www.w3.org/2000/svg";
 var C={ac:"#E9A82E",ac2:"#FFC558",ok:"#36D17A",bad:"#FF5247",blue:"#5BA8FF",t3:"rgba(250,240,220,.34)",on:"#1A1206"};
 
-var st={ side:"right", tactics:"", castleWhales:[], turretLeaders:["","","",""], enemyWhales:[] };
+var st={ side:"right", tactics:"", castleWhales:[], turretLeaders:["","","",""], enemyWhales:[], giftCodes:[] };
 var admin=false, adminName="", baseUpdatedAt=null, uid=1, view="home";
-var LS_KEY="rocks1406_admin";
+var LS_KEY="rocks1406_admin", LS_FID="rocks1406_fid", LS_REDEEMED="rocks1406_redeemed";
+var GIFT_URL="https://ks-giftcode.centurygame.com/";
 
 function newWhale(n,mm,ss,joiners,req){return {id:uid++,name:n||"",mm:mm||0,ss:ss==null?0:ss,joiners:(joiners||[]).slice(),requirement:req||""};}
 function newEnemy(n,mm,ss){return {id:uid++,name:n||"",mm:mm||0,ss:ss==null?0:ss};}
@@ -404,15 +452,18 @@ function refillCue(enemy,myMarchSec){
 function serialize(){return {v:6,side:st.side,tactics:st.tactics,
   castleWhales:st.castleWhales.map(function(w){return {name:w.name,mm:w.mm,ss:w.ss,joiners:w.joiners,requirement:w.requirement};}),
   turretLeaders:st.turretLeaders.slice(0,4),
-  enemyWhales:st.enemyWhales.map(function(e){return {name:e.name,mm:e.mm,ss:e.ss};})};}
+  enemyWhales:st.enemyWhales.map(function(e){return {name:e.name,mm:e.mm,ss:e.ss};}),
+  giftCodes:st.giftCodes.map(function(g){return {code:(g.code||"").trim(),label:g.label||"",expires:g.expires||""};}).filter(function(g){return g.code;})};}
 function applyPlan(p){ if(!p||p.v!==6) return false;
   st.side=p.side==="left"?"left":"right"; st.tactics=p.tactics||"";
   st.castleWhales=(p.castleWhales||[]).map(function(w){return newWhale(w.name,w.mm,w.ss,w.joiners||[],w.requirement||"");});
   st.turretLeaders=[0,1,2,3].map(function(i){return (p.turretLeaders&&p.turretLeaders[i])||"";});
   st.enemyWhales=(p.enemyWhales||[]).map(function(e){return newEnemy(e.name,e.mm,e.ss);});
+  st.giftCodes=(p.giftCodes||[]).map(function(g){return {code:(g.code||"").trim(),label:g.label||"",expires:g.expires||""};});
   return true; }
 function seedDefaults(){ if(!st.castleWhales.length) st.castleWhales=[newWhale("鲸a",1,30,[],"TG5 步兵营"),newWhale("鲸b",1,15,[],"")];
-  if(!st.enemyWhales.length) st.enemyWhales=[newEnemy("敌A",1,10),newEnemy("敌B",0,50)]; }
+  if(!st.enemyWhales.length) st.enemyWhales=[newEnemy("敌A",1,10),newEnemy("敌B",0,50)];
+  if(!st.giftCodes.length) st.giftCodes=[{code:"PICNIC2026",label:"",expires:""},{code:"AJISAI26JP",label:"",expires:""}]; }
 function setNet(s,t){$("netdot").className="dot"+(s?(" "+s):"");$("netlab").textContent=t;}
 function showVer(by,at){$("verLine").textContent=at?("当前版本："+(by||"—")+" 于 "+clk(Date.parse(at))+" UTC 发布"):"尚未发布过";}
 function loadPlan(){ setNet("","连接云端中…");
@@ -439,15 +490,20 @@ function doLogin(){ var pw=prompt("管理密码："); if(pw==null) return; if(pw
   try{ localStorage.setItem(LS_KEY,JSON.stringify({ok:true,name:nm})); }catch(e){}
   view="admin"; applyAdminUI(); toast("已进入管理 · "+(nm||"匿名")); }
 function doLogout(){ admin=false; adminName=""; try{localStorage.removeItem(LS_KEY);}catch(e){} view="home"; applyAdminUI(); toast("已退出管理"); }
+function showView(v){ view=v;
+  $("home").classList.toggle("hide",v!=="home");
+  $("admin").classList.toggle("hide",v!=="admin");
+  $("gift").classList.toggle("hide",v!=="gift");
+  $("viewtabs").querySelectorAll("button").forEach(function(b){b.classList.toggle("on",b.getAttribute("data-v")===v);});
+  window.scrollTo(0,0);
+}
 function applyAdminUI(){
   $("pubBtn").classList.toggle("hide",!admin);
   $("logoutBtn").classList.toggle("hide",!admin);
   $("lockBtn").classList.toggle("hide",admin);
   $("viewtabs").classList.toggle("hide",!admin);
-  if(!admin) view="home";
-  $("home").classList.toggle("hide",view!=="home");
-  $("admin").classList.toggle("hide",view!=="admin");
-  $("viewtabs").querySelectorAll("button").forEach(function(b){b.classList.toggle("on",b.getAttribute("data-v")===view);});
+  if(!admin && view==="admin") view="home";
+  showView(view);
   rebuild();
 }
 
@@ -521,9 +577,38 @@ function renderEnemies(){ var box=$("enemyList"); box.innerHTML="";
       if(k==="mm")v=Math.max(0,+v||0); if(k==="ss")v=Math.min(59,Math.max(0,+v||0)); en[k]=v; rebuildStage(); renderHome(); });
     el.querySelector(".del").addEventListener("click",function(){st.enemyWhales.splice(idx,1);renderEnemies();rebuildStage();renderHome();});
     box.appendChild(el); }); }
-function renderAdmin(){ seg("sideSeg",st.side); $("tacticsEdit").value=st.tactics; renderWhales(); renderStagger(); renderTurretEdit(); renderEnemies(); }
+/* ---------- gift codes ---------- */
+function getRedeemed(){ try{return JSON.parse(localStorage.getItem(LS_REDEEMED)||"[]");}catch(e){return [];} }
+function setRedeemed(a){ try{localStorage.setItem(LS_REDEEMED,JSON.stringify(a));}catch(e){} }
+function manualCopy(t){ try{window.prompt("复制下面的内容：",t);}catch(e){} }
+function copyText(t){ if(navigator.clipboard&&navigator.clipboard.writeText){return navigator.clipboard.writeText(t).catch(function(){manualCopy(t);});} manualCopy(t); return Promise.resolve(); }
+function openGift(code){ window.open(GIFT_URL,"_blank","noopener"); copyText(code).then(function(){toast(code+" 已复制 · 正在打开官网");}); }
+function renderGiftCodes(){ var box=$("giftList"); if(!box) return; box.innerHTML="";
+  var redeemed=getRedeemed(), live=st.giftCodes.map(function(g){return g.code;});
+  var pruned=redeemed.filter(function(c){return live.indexOf(c)>=0;});
+  if(pruned.length!==redeemed.length){ setRedeemed(pruned); redeemed=pruned; }
+  if(!st.giftCodes.length){ box.innerHTML='<p class="hint">管理员尚未发布礼包码。</p>'; return; }
+  st.giftCodes.forEach(function(g){ var done=redeemed.indexOf(g.code)>=0;
+    var el=document.createElement("div"); el.className="gcrow"+(done?" done":"");
+    el.innerHTML='<div class="gccode">'+esc(g.code)+'</div>'+
+      '<div class="gcmeta">'+(g.label?esc(g.label):'')+(g.expires?(g.label?' · ':'')+'截止 '+esc(g.expires):'')+(done?' · <span style="color:var(--ok)">✓ 已兑换</span>':'')+'</div>'+
+      '<button class="btn amber full gcbtn">📋 复制并打开官网</button>'+
+      '<label class="gcchk"><input type="checkbox" '+(done?'checked':'')+'> 标记已兑换（仅本机记录）</label>';
+    el.querySelector(".gcbtn").addEventListener("click",function(){openGift(g.code);});
+    el.querySelector(".gcchk input").addEventListener("change",function(e){var r=getRedeemed(),i=r.indexOf(g.code);
+      if(e.target.checked&&i<0)r.push(g.code); else if(!e.target.checked&&i>=0)r.splice(i,1); setRedeemed(r); renderGiftCodes();});
+    box.appendChild(el); }); }
+function renderGiftEdit(){ var box=$("giftEdit"); if(!box) return; box.innerHTML="";
+  st.giftCodes.forEach(function(g,idx){ var el=document.createElement("div"); el.className="whale";
+    el.innerHTML='<div class="r1"><input class="nm" placeholder="礼包码(区分大小写)" value="'+esc(g.code)+'" data-k="code"><button class="del">×</button></div>'+
+      '<div class="row" style="margin-top:6px"><input placeholder="备注(可选)" value="'+esc(g.label)+'" data-k="label"><input placeholder="截止(可选)" value="'+esc(g.expires)+'" data-k="expires" style="flex:0 0 104px"></div>';
+    el.addEventListener("input",function(e){var k=e.target.getAttribute("data-k");if(!k)return;g[k]=e.target.value;renderGiftCodes();});
+    el.querySelector(".del").addEventListener("click",function(){st.giftCodes.splice(idx,1);renderGiftEdit();renderGiftCodes();});
+    box.appendChild(el); }); }
 
-function rebuild(){ renderHome(); if(admin) renderAdmin(); rebuildStage(); }
+function renderAdmin(){ seg("sideSeg",st.side); $("tacticsEdit").value=st.tactics; renderWhales(); renderStagger(); renderTurretEdit(); renderEnemies(); renderGiftEdit(); }
+
+function rebuild(){ renderHome(); renderGiftCodes(); if(admin) renderAdmin(); rebuildStage(); }
 
 /* ===================== battle animation ===================== */
 var svgEl, cx=196, cy=104, anim=null;
@@ -634,12 +719,18 @@ $("sideSeg").addEventListener("click",function(e){var b=e.target.closest("[data-
 $("tacticsEdit").addEventListener("input",function(){st.tactics=this.value;renderTactics();});
 $("addWhale").addEventListener("click",function(){st.castleWhales.push(newWhale("",1,0,[],""));renderWhales();renderStagger();rebuildStage();renderHome();});
 $("addEnemy").addEventListener("click",function(){st.enemyWhales.push(newEnemy("",1,0));renderEnemies();rebuildStage();renderHome();});
+$("addGift").addEventListener("click",function(){st.giftCodes.push({code:"",label:"",expires:""});renderGiftEdit();renderGiftCodes();});
+$("giftEntry").addEventListener("click",function(){showView("gift");});
+$("giftBack").addEventListener("click",function(){showView("home");});
+$("gc_fid").addEventListener("input",function(){try{localStorage.setItem(LS_FID,this.value);}catch(e){}});
+$("gcCopyFid").addEventListener("click",function(){var v=($("gc_fid").value||"").trim();if(!v){toast("先填 Player ID");return;}copyText(v).then(function(){toast("Player ID 已复制 ✓");});});
 ["me_mm","me_ss"].forEach(function(id){$(id).addEventListener("input",function(){renderRefillPanel();});});
 $("scrub").addEventListener("input",function(){playing=false;$("pp").textContent="▶";tNow=+$("scrub").value;renderAnim(tNow);});
 $("pp").addEventListener("click",function(){playing=!playing;$("pp").textContent=playing?"⏸":"▶";lastTs=null;});
 
 /* ---------- init ---------- */
 buildStageBase();
+try{ var _fid=localStorage.getItem(LS_FID); if(_fid) $("gc_fid").value=_fid; }catch(e){}
 loadAuth(); applyAdminUI(); loadPlan();
 tick(); setInterval(tick,500);
 requestAnimationFrame(frame);
