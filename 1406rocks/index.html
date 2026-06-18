@@ -292,31 +292,22 @@
     <div class="maplegend"><span>🟡 我方鲸鱼</span><span>🔴 敌方鲸鱼</span><span>🟢 加入者 / 补兵</span><span class="ml-note">图中数字 = 鲸鱼到王城的行军时间</span></div>
     <div class="ctrl"><button id="pp">⏸</button><input id="scrub" type="range" min="0" max="1000" value="0"></div>
 
-    <div class="card">
-      <h2>🛡 补兵时机尺（按你的行军算）</h2>
+    <details open>
+      <summary>🛡 补兵时机尺（按你的行军算）</summary>
       <p class="hint">挑当场正在来袭的那条敌鲸，照大字发兵。补兵带纯兵、可加速。</p>
       <div id="refillPanel"></div>
-    </div>
+    </details>
 
-    <div class="card">
-      <h2>⚔️ 攻城发车顺序 & 分工</h2>
+    <details>
+      <summary>⚔️ 攻城发车顺序 & 分工</summary>
       <p class="hint">普通玩家不用自己开车——找到你被分配/符合要求的车，看到它开集结就立刻加入。</p>
       <div class="order" id="orderBox"></div>
-    </div>
+    </details>
 
-    <div class="card">
-      <h2>📋 分轮战斗指南</h2>
-      <div class="guide">
-        <div class="g atk"><div class="h">进攻轮</div>加入分配给你的车 → 看上方发车顺序/动画 → <b>同步命中</b>。攻击阵容默认 <b>步50/骑20/弓30</b>（敌步兵墙多则切 30/20/50）。</div>
-        <div class="g def"><div class="h">防守轮</div>拿下后<b>立刻换防御英雄 + 改比例 步60/骑40</b>；按"补兵时机尺"在敌每车落地瞬间补满；最强号常驻当驻防队长。</div>
-        <div class="g rem"><div class="h">通用提醒</div>开打前后<b>多刷新本网站看时间</b>。</div>
-      </div>
-    </div>
-
-    <div class="card hide" id="tacticsCard">
-      <h2>📌 本次战术安排</h2>
+    <details class="hide" id="tacticsCard">
+      <summary>📌 本次战术安排</summary>
       <div id="tacticsView" style="font-size:13.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;color:var(--tx)"></div>
-    </div>
+    </details>
 
     <details>
       <summary>炮塔分配（4 个集结者）</summary>
