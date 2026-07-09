@@ -1,0 +1,4 @@
+.gitnexus
+.DS_Store
+node_modules/
+.wrangler/
