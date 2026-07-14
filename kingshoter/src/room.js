@@ -13,6 +13,19 @@ import {
   registerPlayer,
   removePlayerAtomic
 } from "./room-player.js";
+import {
+  bindCoreSocketIdentity,
+  coreAttachmentMatchesAck,
+  deliveryAckError,
+  normalizeCoreSocketAttachment,
+  normalizeDeviceId,
+  pruneDevices,
+  recordCommandAck,
+  registryMatchesAck,
+  removePlayerDelivery,
+  startCommandDelivery,
+  touchDevice
+} from "./room-delivery.js";
 
 function defaultRoom() {
   return {
@@ -57,6 +70,11 @@ export class Room {
     this.state = state;
     this.env = env;
     this.room = null;
+    this.roomName = String(state && state.id && state.id.name || "").slice(0, 48);
+    this.devices = [];
+    this.deliveryAcks = [];
+    this._deliveryLoaded = false;
+    this._deliveryLoadPromise = null;
     state.blockConcurrencyWhile(async () => {
       this.room = (await state.storage.get("room")) || defaultRoom();
       this.room.players = normalizePlayerRecords(this.room.players);
@@ -75,10 +93,13 @@ export class Room {
   }
 
   async fetch(request) {
+    await this.ensureDeliveryLoaded();
     if (request.headers.get("Upgrade") === "websocket") {
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
-      this.state.acceptWebSocket(server);            // Hibernation API
+      const requestedRoom = String(new URL(request.url).searchParams.get("room") || this.roomName || "").slice(0, 48);
+      if (!this.roomName) this.roomName = requestedRoom;
+      this.attachSocket(server, requestedRoom);      // Hibernation API + merge-safe identity base
       server.send(this.stateMsg());
       return new Response(null, { status: 101, webSocket: client });
     }
@@ -120,6 +141,77 @@ export class Room {
     for (const ws of this.state.getWebSockets()) { try { ws.send(msg); } catch (e) {} }
   }
   async persist() { await this.state.storage.put("room", this.room); }
+  async persistAll() {
+    await this.state.storage.put({ room: this.room, devices: this.devices, deliveryAcks: this.deliveryAcks });
+  }
+  async ensureDeliveryLoaded() {
+    if (this._deliveryLoaded) return;
+    if (!this.state || !this.state.storage) { this._deliveryLoaded = true; return; }
+    if (!this._deliveryLoadPromise) {
+      this._deliveryLoadPromise = (async () => {
+        const stored = await this.state.storage.get(["devices", "deliveryAcks"]);
+        this.devices = (stored && typeof stored.get === "function" && Array.isArray(stored.get("devices"))) ? stored.get("devices") : [];
+        this.deliveryAcks = (stored && typeof stored.get === "function" && Array.isArray(stored.get("deliveryAcks"))) ? stored.get("deliveryAcks") : [];
+        this._deliveryLoaded = true;
+      })();
+    }
+    try { await this._deliveryLoadPromise; } finally { if (!this._deliveryLoaded) this._deliveryLoadPromise = null; }
+  }
+  attachSocket(server, roomName) {
+    this.state.acceptWebSocket(server);
+    this.writeSocketAttachment(server, { roomName, pid: "", deviceId: "", soundReady: false });
+  }
+  readSocketAttachment(ws) {
+    let raw = null;
+    try { raw = ws.deserializeAttachment(); } catch (error) {}
+    const source = raw && typeof raw === "object" ? raw : {};
+    return { ...source, ...normalizeCoreSocketAttachment(source, source.roomName || this.roomName) };
+  }
+  writeSocketAttachment(ws, patch) {
+    const current = this.readSocketAttachment(ws);
+    const merged = { ...current, ...(patch && typeof patch === "object" ? patch : {}) };
+    if (current.pid || current.deviceId) {
+      merged.pid = current.pid;
+      merged.deviceId = current.deviceId;
+    }
+    const next = { ...merged, ...normalizeCoreSocketAttachment(merged, merged.roomName || this.roomName) };
+    ws.serializeAttachment(next);
+    return next;
+  }
+  observeDevice(ws, message) {
+    const pid = normalizeRoutingKey(message && message.pid);
+    if (!pid || !Object.prototype.hasOwnProperty.call(this.room.players, pid)) {
+      return { ok: false, error: 'player_missing' };
+    }
+    const result = bindCoreSocketIdentity(this.readSocketAttachment(ws), this.devices, message, this.nowMs());
+    if (!result.ok) return result;
+    this.writeSocketAttachment(ws, result.attachment);
+    const attachment = this.readSocketAttachment(ws);
+    const siblingReady = this.state.getWebSockets().some(socket => {
+      const candidate = socket === ws ? attachment : this.readSocketAttachment(socket);
+      return candidate.pid === attachment.pid && candidate.deviceId === attachment.deviceId && candidate.soundReady === true;
+    });
+    this.devices = touchDevice(result.devices, { ...attachment, soundReady: siblingReady }, this.nowMs());
+    return { ok: true };
+  }
+  async releaseSocketDevice(ws) {
+    const attachment = this.readSocketAttachment(ws);
+    if (!attachment.pid || !attachment.deviceId) return;
+    const before = this.devices;
+    const siblings = this.state.getWebSockets().filter(socket => socket !== ws).map(socket => this.readSocketAttachment(socket))
+      .filter(candidate => candidate.pid === attachment.pid && candidate.deviceId === attachment.deviceId);
+    if (siblings.length) {
+      this.devices = touchDevice(this.devices, {
+        ...attachment,
+        soundReady: siblings.some(candidate => candidate.soundReady === true)
+      }, this.nowMs());
+    } else {
+      this.devices = pruneDevices(this.devices, this.nowMs()).filter(device =>
+        !(normalizeDeviceId(device.deviceId) === attachment.deviceId && normalizeRoutingKey(device.pid) === attachment.pid)
+      );
+    }
+    try { await this.persistAll(); } catch (error) { this.devices = before; }
+  }
   async authOK(pw) {
     if (!pw) return false;
     if (pw === this.env.MASTER) return true;
@@ -129,7 +221,50 @@ export class Room {
   nowMs() { return Date.now(); }
 
   async webSocketMessage(ws, raw) {
+    await this.ensureDeliveryLoaded();
     let m; try { m = JSON.parse(raw); } catch (e) { return; }
+
+    if (m.t === "deviceStatus") {
+      const observation = this.observeDevice(ws, m);
+      if (!observation.ok) return ws.send(JSON.stringify({ t: "error", source: "deviceStatus", error: observation.error }));
+      this.room.players[normalizeRoutingKey(m.pid)].lastSeen = this.now();
+      await this.persistAll();
+      const attachment = this.readSocketAttachment(ws);
+      ws.send(JSON.stringify({
+        t: "deviceStatusSaved", pid: attachment.pid, deviceId: attachment.deviceId, soundReady: attachment.soundReady
+      }));
+      this.broadcast(); return;
+    }
+
+    if (m.t === "deliveryAck") {
+      const attachment = this.readSocketAttachment(ws);
+      if (!coreAttachmentMatchesAck(attachment, m) || !registryMatchesAck(this.devices, attachment, this.nowMs())) {
+        return ws.send(JSON.stringify(deliveryAckError(m, "bad_delivery_identity")));
+      }
+      let command = null;
+      for (const kingdom of [1, 2]) {
+        const candidate = this.room.live.commands[kingdom];
+        if (candidate && candidate.id === String(m.commandId || "")) { command = candidate; break; }
+      }
+      const previousAcks = this.deliveryAcks;
+      const previousDelivery = command && Array.isArray(command.delivery) ? command.delivery.map(value => ({ ...value })) : command && command.delivery;
+      const result = recordCommandAck(command, this.deliveryAcks, m, this.nowMs());
+      if (!result.ok) return ws.send(JSON.stringify(deliveryAckError(m, result.error)));
+      if (result.changed) {
+        this.deliveryAcks = result.ackRecords;
+        try {
+          await this.persistAll();
+        } catch (error) {
+          this.deliveryAcks = previousAcks;
+          command.delivery = previousDelivery;
+          return ws.send(JSON.stringify(deliveryAckError(m, "delivery_persist_failed")));
+        }
+        try { this.broadcast(); } catch (error) {}
+      }
+      const { atMs, ...savedAck } = result.savedAck;
+      try { ws.send(JSON.stringify({ t: "deliveryAckSaved", ...savedAck })); } catch (error) {}
+      return;
+    }
 
     if (m.t === "setMarch" || m.t === "registerPlayer") {
       const pid = normalizeRoutingKey(m.pid);
@@ -138,17 +273,25 @@ export class Room {
       if (!result.ok) return ws.send(JSON.stringify(Object.assign({ t: "error" }, result)));
       // cap roster so a long-running room can't grow unbounded over a season — evict oldest lastSeen, but NEVER an active/staged captain
       const total = Object.keys(this.room.players).length;
+      let privateDeliveryChanged = false;
       if (total > 150) {
         const protect = activeCommandPids(this.room.live, Math.floor(this.nowMs() / 1000));
         for (const k of [1, 2]) {
           const staged = this.room.live.staged[k];
           if (staged && Array.isArray(staged.pairs)) staged.pairs.forEach(pair => protect.add(pair && pair.pid));
         }
-        Object.keys(this.room.players).filter(k => !protect.has(k))
+        const evicted = Object.keys(this.room.players).filter(k => !protect.has(k))
           .sort((a, b) => (this.room.players[a].lastSeen || "") < (this.room.players[b].lastSeen || "") ? -1 : 1)
-          .slice(0, total - 150).forEach(k => { delete this.room.players[k]; });
+          .slice(0, total - 150);
+        evicted.forEach(k => {
+          delete this.room.players[k];
+          const privateState = removePlayerDelivery(this.devices, this.deliveryAcks, k);
+          if (privateState.devices.length !== this.devices.length || privateState.ackRecords.length !== this.deliveryAcks.length) privateDeliveryChanged = true;
+          this.devices = privateState.devices; this.deliveryAcks = privateState.ackRecords;
+        });
       }
-      await this.persist(); this.broadcast(); return;
+      if (privateDeliveryChanged) await this.persistAll(); else await this.persist();
+      this.broadcast(); return;
     }
 
     if (m.t === "updateOwnMarch") {
@@ -183,7 +326,9 @@ export class Room {
         if (result.error === "player_missing") return;   // idempotent cleanup: another commander may have removed it already
         return ws.send(JSON.stringify({ t: "error", error: result.error, pid: result.pid }));
       }
-      await this.persist(); this.broadcast(); return;
+      const privateState = removePlayerDelivery(this.devices, this.deliveryAcks, result.pid);
+      this.devices = privateState.devices; this.deliveryAcks = privateState.ackRecords;
+      await this.persistAll(); this.broadcast(); return;
     }
 
     if (m.t === "setConfig") {
@@ -230,17 +375,23 @@ export class Room {
         let expiresUTC = anchorUTC + 30;
         if (type === "ping") expiresUTC = anchorUTC + 6;
         else if (type === "double_rally" && Array.isArray(payload.pairs) && payload.pairs.length) expiresUTC = Math.max(...payload.pairs.map(p => (+p.pressUTC || anchorUTC) + GATHER + (+p.march || 0))) + 30;
-        this.room.live.commands[kd] = { id: crypto.randomUUID(), type, kingdom: kd, anchorUTC, expiresUTC, payload, text: clampStr(c.text, 200), at: this.now() };
+        const command = { id: crypto.randomUUID(), type, kingdom: kd, anchorUTC, expiresUTC, payload, text: clampStr(c.text, 200), at: this.now() };
+        command.delivery = startCommandDelivery(command, this.devices, this.nowMs());
+        this.room.live.commands[kd] = command;
       }
       this.room.live.staged[kd] = null;   // a real order supersedes that kingdom's staged pre-warning
       this.room.live.mode = (this.room.live.commands[1] || this.room.live.commands[2]) ? "live" : "idle";
-      await this.persist(); await this.scheduleExpiry(); this.broadcast(); return;
+      await this.persistAll(); await this.scheduleExpiry(); this.broadcast(); return;
     }
 
     if (m.t === "stage") {   // commander pre-warns the picked captains (before the actual fire) so a whale who stepped away can stand by
       if (!(await this.authOK(m.password))) return ws.send(JSON.stringify({ t: "error", error: "bad_password" }));
       const s = m.staged || {};
       const kd = clampInt(s.kingdom, 1, 2);
+      const liveCommand = this.room.live.commands[kd];
+      if (liveCommand && Number(liveCommand.expiresUTC) > Math.floor(this.nowMs() / 1000)) {
+        return ws.send(JSON.stringify({ t: "stageSuperseded", kingdom: kd, commandId: liveCommand.id }));
+      }
       const pairs = (Array.isArray(s.pairs) ? s.pairs : []).slice(0, 2).map(p => ({ pid: clampStr(p && p.pid, 24), role: (p && p.role) === "main" ? "main" : "weak" }));
       if (pairs.some(p => !p.pid || !Object.prototype.hasOwnProperty.call(this.room.players, p.pid))) return ws.send(JSON.stringify({ t: "error", error: "player_missing" }));
       const otherKingdom = kd === 1 ? 2 : 1;
@@ -273,12 +424,16 @@ export class Room {
     if (m.t === "hb") {   // app-level heartbeat: keep this player "fresh" so eviction never targets someone who's present.
       const pid = clampStr(m.pid, 24);
       if (pid && this.room.players[pid]) {
+        if (m.deviceId != null || typeof m.soundReady === "boolean") {
+          const observation = this.observeDevice(ws, m);
+          if (!observation.ok) return ws.send(JSON.stringify({ t: "error", error: observation.error }));
+        }
         this.room.players[pid].lastSeen = this.now();
         // fan the freshness out (and PERSIST it) at most once per 20s per room — otherwise the commander's
         // sync pill decays to 0/2 between mutations, and a hibernating DO would reload stale lastSeen from
         // storage and mark everyone absent even though they're all connected
         const t = Date.now();
-        if (!this._lastHbCast || t - this._lastHbCast > 20000) { this._lastHbCast = t; await this.persist(); this.broadcast(); }
+        if (!this._lastHbCast || t - this._lastHbCast > 20000) { this._lastHbCast = t; await this.persistAll(); this.broadcast(); }
       }
       return;
     }
@@ -295,6 +450,6 @@ export class Room {
     return s;
   }
 
-  async webSocketClose(ws) { try { ws.close(); } catch (e) {} this.broadcast(); }
+  async webSocketClose(ws) { await this.ensureDeliveryLoaded(); await this.releaseSocketDevice(ws); try { ws.close(); } catch (e) {} this.broadcast(); }
   async webSocketError(ws) { this.broadcast(); }
 }

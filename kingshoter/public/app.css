@@ -381,7 +381,7 @@ details summary:before{content:"▸ ";color:var(--mint)} details[open] summary:b
 .fire:disabled{opacity:.45;filter:grayscale(.35);pointer-events:none}
 /* dominant commander console + one filled primary */
 .syncpill{text-align:center;font:900 13px/1 var(--font);color:var(--brown2);margin:8px 0 2px}
-.syncpill.allgo{color:var(--green-deep)}
+.syncpill.allgo{color:var(--mint-deep)}
 /* situation: timeline + radar, one card, always expanded — nothing left to accidentally fold */
 .situation{display:flex;flex-direction:column;background:var(--paper);border:2px solid var(--line);border-radius:var(--r-lg);padding:14px 14px 10px;margin-bottom:14px;box-shadow:var(--shadow);min-height:clamp(300px,44svh,420px)}
 body.cmdmode .situation{min-height:clamp(320px,48svh,460px)}
@@ -452,6 +452,7 @@ details.cdefense summary{min-height:44px;display:flex;align-items:center;padding
 /* key-moment emphasis (scale inner .d so the centering transform is preserved) */
 /* commander captain slots: explicit SACRIFICE / MAIN cells + one-tap ⇄ swap (no more guessing which is which) */
 .slots{display:grid;grid-template-columns:minmax(0,1fr) 44px minmax(0,1fr);gap:8px;align-items:stretch;margin:6px 0 4px}
+.slots.frozen{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
 .slot{flex:1;min-width:0;border:2px dashed var(--line-hi);border-radius:14px;padding:8px 10px;background:var(--cream);text-align:center}
 .slot.filled{border-style:solid}
 .slot.weak.filled{border-color:var(--coral);background:linear-gradient(180deg,#fdeeee,var(--paper))}
@@ -464,6 +465,13 @@ details.cdefense summary{min-height:44px;display:flex;align-items:center;padding
 .slot .sv.empty{color:var(--brown3);font-weight:700}
 .slot .sx{flex:0 0 44px;width:44px;min-height:44px;border:0;border-radius:10px;background:transparent;cursor:pointer;color:var(--coral);font-weight:900;font-size:18px}
 .slot .ss{font:700 9px/1.3 var(--font);color:var(--brown3);margin-top:4px}
+.slot.frozen{box-shadow:inset 0 0 0 1px rgba(121,79,39,.08)}
+.delivery{display:block;margin-top:6px;border-radius:999px;padding:4px 6px;background:rgba(121,79,39,.08);color:var(--brown2);font:900 10px/1.1 var(--font)}
+.delivery.sent{background:rgba(15,161,147,.1);color:var(--mint-deep)}
+.delivery.received{background:rgba(90,158,30,.14);color:var(--green-deep)}
+.delivery.received.partial{background:rgba(224,169,44,.18);color:#8d6400}
+.delivery.missing{background:rgba(224,90,90,.12);color:var(--coral)}
+.delivery.expired{background:rgba(121,79,39,.08);color:var(--brown3)}
 .swapbtn{align-self:center;width:44px;height:44px;border:2px solid var(--line);background:var(--paper);color:var(--mint-deep);border-radius:12px;font:900 18px/1 var(--font);cursor:pointer;-webkit-user-select:none;user-select:none;touch-action:manipulation}
 .swapbtn:active{transform:rotate(180deg)} .swapbtn:disabled{opacity:.4;cursor:default}
 /* live-timeline legend: gather 5:00 → march → land */

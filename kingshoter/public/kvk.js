@@ -24,6 +24,10 @@
   var commanderMarchStatus = "", commanderMarchStatusTone = "", commanderMarchOriginPid = "";
   var pendingCommanderMarchMutation = null, commanderMarchStale = false, commanderMarchRefreshAfterSnapshot = -1, roomSnapshotSequence = 0;
   var myProfile = null, deviceId = window.getRoomDeviceId(ROOM);
+  var pendingDeliveryAcks = Object.create(null), confirmedDeliveryAcks = Object.create(null), rejectedDeliveryAcks = Object.create(null);
+  var DELIVERY_ACK_RETRY_DELAYS_MS = [1200, 2400, 5000, 10000, 15000], deliveryStatusTimer = 0;
+  var lastDeviceStatusSignature = "", lastDeviceStatusGeneration = -1;
+  var DEVICE_STATUS_RETRY_MS = 1200, lastDeviceStatusSentSignature = "", lastDeviceStatusSentGeneration = -1, lastDeviceStatusSentAt = 0;
   try { myProfile = JSON.parse(localStorage.getItem(LS("me")) || "null"); } catch (e) {}
   if (myProfile && myProfile.pid) {
     myProfile = Object.assign({}, myProfile, {
@@ -43,6 +47,7 @@
   var dAnim = null, dRaf = null, dPlaying = false, dLastTs = null, dTNow = 0;
   var truthLang = "";
   var ac = null, keepAudio = null, keepAlive = false, soundReady = false, syncedOK = false;
+  var syncAttempt = 0, lastAcceptedClockOffset = Number(window.clockOffset) || 0;
   var isIOS = /iP(hone|od|ad)/.test(navigator.userAgent || "") || (navigator.platform === "MacIntel" && (navigator.maxTouchPoints || 0) > 1);
   var isAndroid = /android/i.test(navigator.userAgent || "");
   var $ = window.$;
@@ -78,6 +83,7 @@
       cancelq: "再按一次取消当前指令", cancelled: "已取消", staged_line: "🛡️ 你是{k}{r}车头 · 待命，等指挥发令",
       as_on: "🔊 后台提醒已开 · 可切回游戏", as_warn: "⚠️ 声音被系统暂停 · 点一下恢复", bgtest: "🔒 测后台", bgtest_on: "锁屏切到游戏——马上来一整套 10 秒倒数示范 🔔", 
       ready_btn: "✅ 我已就位", ready_done: "✓ 已就位", notready: "有车头还没点「就位」，仍可发", readyon: "✓ 已告诉指挥你就位", readyline: "就位 {n}/{m}", rally_live: "该王国还有进行中的集结，先取消再发 refill", cap_absent: "有车头掉线了，仍可发", syncp: "{n}/{m} 已对时·在线", syncp_pick: "先点 2 个车头", land_cap: "落地",
+      delivery_sent: "已发送", delivery_received: "已收到 ✓", delivery_received_count: "已收到 {n}/{m}", delivery_missing: "未确认", delivery_expired: "已过期",
       settings: "⚙️ 提醒设置", bgtest2: "🔔 实测锁屏 / 切游戏提醒", cmdlink: "🔓 我是指挥 → 解锁", marchlab: "到王城行军时间", marchtip2: "游戏里开一次集结，看那个秒数填进来",
       cancel_k: "✖ 取消 {k} 的集结", legend: "● 你 ○ 队友 · 每环 30 秒，越外越远", unlocking: "验证密码中…", checklist_done: "都填好了，等指挥发车就行",
       tab_atk: "进攻", tab_def: "防守", dpanel: "🛡️ 补兵时机（按你的行军算）", dpanelhint: "挑当场来袭的那条敌鲸，照大字发兵。时间线上=敌方（集结→🔴落地），下=我方（🟢发兵→行军→补满✓）。补兵约在敌落地后 1 秒到，把它弹回去。",
@@ -120,6 +126,7 @@
       cancelq: "Tap again to cancel the order", cancelled: "Cancelled", staged_line: "🛡️ You're the {k} {r} captain · stand by",
       as_on: "🔊 Alerts on — you can switch to the game", as_warn: "⚠️ Sound paused by the OS — tap to resume", bgtest: "🔒 Test bg", bgtest_on: "Lock & switch to the game — a full 10s countdown demo starts now 🔔", 
       ready_btn: "✅ I'm ready", ready_done: "✓ Ready", notready: "A captain hasn't tapped Ready — firing anyway", readyon: "✓ Told the commander you're ready", readyline: "Ready {n}/{m}", rally_live: "A rally is still live in this kingdom — cancel it before a refill", cap_absent: "A captain went offline — firing anyway", syncp: "{n}/{m} synced & present", syncp_pick: "Pick 2 captains", land_cap: "LAND",
+      delivery_sent: "Sent", delivery_received: "Received ✓", delivery_received_count: "Received {n}/{m}", delivery_missing: "No confirmation", delivery_expired: "Expired",
       settings: "⚙️ Alert settings", bgtest2: "🔔 Test lock-screen / in-game alert", cmdlink: "🔓 I'm the commander → unlock", marchlab: "March time to the castle", marchtip2: "in-game: open a rally on the castle, read that number",
       cancel_k: "✖ Cancel {k}'s rally", legend: "● you ○ mates · 30s per ring, outer = farther", unlocking: "checking password…", checklist_done: "All set — just wait for the commander",
       tab_atk: "Attack", tab_def: "Defense", dpanel: "🛡️ When to refill (for your march)", dpanelhint: "Pick the incoming whale and follow the big text. Above the line = enemy (gather → 🔴 hits), below = you (🟢 send → march → reinforced✓). Your reinforcement lands ~1s after they hit — bounces them back.",
@@ -261,7 +268,7 @@
   function scheduleBeeps(key, targetSec, windowMs) {
     ensureAudio(); if (!ac || ac.state !== "running") return;
     var win = windowMs || 360000, nowMs = window.serverNow();   // long default horizon: an arg-less call must never silently swallow a >12s cue (the core-promise bug)
-    for (var pk in scheduledBeeps) if (scheduledBeeps[pk].t < nowMs - 4000) delete scheduledBeeps[pk];   // prune past cues so the map can't grow over a 6h session (and so two-kingdom keys never collide)
+    for (var pk in scheduledBeeps) if (scheduledBeeps[pk].t < nowMs - 4000) { stopCue(scheduledBeeps[pk]); delete scheduledBeeps[pk]; }   // stop before pruning: a clock correction can make a still-booked WebAudio node look expired
     var lg = L() ? "en" : "zh";
     [10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0].forEach(function (off) {
       var k = key + ":" + off, tMs = (targetSec - off) * 1000; if (scheduledBeeps[k]) return;
@@ -306,10 +313,10 @@
   }
   // clock offset drifted (post-suspend resync)? re-book future cues on the corrected clock — a booked oscillator can't be moved, only killed+rebooked
   function rebookCuesOnDrift() {
-    var nowMs = window.serverNow(), moved = false;
+    var moved = false;
     for (var k in scheduledBeeps) {
       var e = scheduledBeeps[k];
-      if (e.t > nowMs + 400 && Math.abs((e.off || 0) - window.clockOffset) > 300) { stopCue(e); delete scheduledBeeps[k]; moved = true; }
+      if (Math.abs((e.off || 0) - window.clockOffset) > 300) { stopCue(e); delete scheduledBeeps[k]; moved = true; }
     }
     if (moved) scheduleAllCues();
   }
@@ -329,9 +336,174 @@
       stopCue(cue); delete scheduledBeeps[k];
     }
   }
+  function hasFuturePersonalCue(baseKey) {
+    var nowMs = window.serverNow();
+    return Object.keys(scheduledBeeps).some(function (key) {
+      var cue = scheduledBeeps[key];
+      return key.indexOf(baseKey + ":") === 0 && cue && cue.t > nowMs - 150 && cue.nodes && cue.nodes.length > 0;
+    });
+  }
+  function sendDeviceStatus(messageType, force) {
+    if (!sock || !myPid || !deviceId) return false;
+    var type = messageType || "deviceStatus", ready = audioAlive();
+    var generation = Number(sock.connectionGeneration || 0);
+    var signature = myPid + ":" + deviceId + ":" + (ready ? "1" : "0");
+    if (type === "deviceStatus" && !force && generation === lastDeviceStatusGeneration && signature === lastDeviceStatusSignature) return true;
+    var nowMs = Date.now();
+    if (type === "deviceStatus" && !force && generation === lastDeviceStatusSentGeneration && signature === lastDeviceStatusSentSignature && nowMs - lastDeviceStatusSentAt < DEVICE_STATUS_RETRY_MS) return true;
+    var sent = sock.send({ t: type, pid: myPid, deviceId: deviceId, soundReady: ready });
+    if (sent && type === "deviceStatus") {
+      lastDeviceStatusSentGeneration = generation; lastDeviceStatusSentSignature = signature; lastDeviceStatusSentAt = nowMs;
+    }
+    return sent;
+  }
+  function deliveryAckKey(value) {
+    return String(value && value.commandId || "") + ":" + String(value && value.pid || "") + ":" + String(value && value.deviceId || "");
+  }
+  function sameDeliveryAck(a, b) {
+    return !!a && !!b && a.commandId === b.commandId && a.pid === b.pid && a.deviceId === b.deviceId &&
+      a.outcome === b.outcome && Number(a.targetUTC) === Number(b.targetUTC) && Number(a.scheduledAtMs) === Number(b.scheduledAtMs);
+  }
+  function clearPendingDeliveryAck(key) {
+    var entry = pendingDeliveryAcks[key];
+    if (entry && entry.timer) clearTimeout(entry.timer);
+    delete pendingDeliveryAcks[key];
+  }
+  function clearAllPendingDeliveryAcks() {
+    Object.keys(pendingDeliveryAcks).forEach(clearPendingDeliveryAck);
+  }
+  function rejectPendingDeliveryAck(message) {
+    if (!message || message.source !== "deliveryAck") return false;
+    var key = deliveryAckKey(message), entry = pendingDeliveryAcks[key];
+    if (!entry) return false;
+    var error = String(message.error || ""), generation = sock ? Number(sock.connectionGeneration || 0) : -1;
+    if (error === "delivery_persist_failed") return false;
+    var terminal = ["ack_target_missing", "ack_conflict", "invalid_ack", "invalid_ack_target"].indexOf(error) >= 0;
+    if (!terminal && error !== "bad_delivery_identity") return false;
+    rejectedDeliveryAcks[key] = {
+      payload: entry.payload,
+      error: error,
+      generation: generation,
+      terminal: terminal,
+      deadlineMs: entry.deadlineMs
+    };
+    clearPendingDeliveryAck(key);
+    if (error === "bad_delivery_identity") {
+      lastDeviceStatusSignature = ""; lastDeviceStatusGeneration = -1;
+      lastDeviceStatusSentSignature = ""; lastDeviceStatusSentGeneration = -1; lastDeviceStatusSentAt = 0;
+      setTimeout(function () { sendDeviceStatus("deviceStatus", true); }, 0);
+    }
+    return true;
+  }
+  function resumeRejectedDeliveryAck(key, rejected) {
+    if (!rejected || rejected.terminal || confirmedDeliveryAcks[key]) return false;
+    delete rejectedDeliveryAcks[key];
+    pendingDeliveryAcks[key] = {
+      payload: rejected.payload, timer: 0, lastGeneration: -1, attempts: 0,
+      deadlineMs: rejected.deadlineMs
+    };
+    return sendPendingDeliveryAck(key, true);
+  }
+  function clearAllDeliveryAckState() {
+    clearAllPendingDeliveryAcks(); confirmedDeliveryAcks = Object.create(null); rejectedDeliveryAcks = Object.create(null);
+  }
+  function pausePendingDeliveryAckTimers() {
+    Object.keys(pendingDeliveryAcks).forEach(function (key) {
+      var entry = pendingDeliveryAcks[key];
+      if (entry.timer) { clearTimeout(entry.timer); entry.timer = 0; }
+    });
+  }
+  function pruneDeliveryAckState() {
+    if (!room) return;
+    var ids = liveCommands(room).map(function (command) { return command.id; }), nowMs = window.serverNow();
+    Object.keys(pendingDeliveryAcks).forEach(function (key) {
+      var entry = pendingDeliveryAcks[key];
+      if (ids.indexOf(entry.payload.commandId) < 0 || nowMs > entry.deadlineMs || entry.payload.pid !== myPid || entry.payload.deviceId !== deviceId) clearPendingDeliveryAck(key);
+    });
+    Object.keys(confirmedDeliveryAcks).forEach(function (key) {
+      if (ids.indexOf(confirmedDeliveryAcks[key].commandId) < 0) delete confirmedDeliveryAcks[key];
+    });
+    Object.keys(rejectedDeliveryAcks).forEach(function (key) {
+      var rejected = rejectedDeliveryAcks[key];
+      if (!rejected.payload || ids.indexOf(rejected.payload.commandId) < 0 || nowMs > rejected.deadlineMs) delete rejectedDeliveryAcks[key];
+    });
+  }
+  function sendPendingDeliveryAck(key, force) {
+    var entry = pendingDeliveryAcks[key];
+    if (!entry || confirmedDeliveryAcks[key] || (!force && entry.timer)) return false;
+    var nowMs = window.serverNow(), generation = sock ? Number(sock.connectionGeneration || 0) : -1;
+    if (nowMs > entry.deadlineMs) { clearPendingDeliveryAck(key); return false; }
+    if (entry.lastGeneration !== generation) { entry.lastGeneration = generation; entry.attempts = 0; }
+    if (entry.timer) { clearTimeout(entry.timer); entry.timer = 0; }
+    var sent = !!(sock && sock.send(entry.payload));
+    if (sent) entry.attempts += 1;
+    var retryDelay = DELIVERY_ACK_RETRY_DELAYS_MS[Math.min(Math.max(entry.attempts - 1, 0), DELIVERY_ACK_RETRY_DELAYS_MS.length - 1)];
+    if (nowMs < entry.deadlineMs) {
+      retryDelay = Math.min(retryDelay, Math.max(250, entry.deadlineMs - nowMs));
+      entry.timer = setTimeout(function () { entry.timer = 0; sendPendingDeliveryAck(key, true); }, retryDelay);
+    }
+    return sent;
+  }
+  function acknowledgeClassicCommand(command, target) {
+    if (!sock || !target || !target.mine || !myPid || !deviceId) return false;
+    if (!syncedOK) return false;
+    sendDeviceStatus();   // same socket, ordered before ACK; refreshes a context that resumed just in time
+    var nowMs = window.serverNow();
+    var outcome = Number(target.anchor) * 1000 <= nowMs ? "expired" : hasFuturePersonalCue(command.id + "-me") ? "scheduled" : "";
+    if (!outcome) return false;
+    var payload = Object.freeze({
+      t: "deliveryAck", commandId: command.id, pid: myPid, deviceId: deviceId,
+      outcome: outcome, targetUTC: target.anchor, scheduledAtMs: nowMs
+    });
+    var key = deliveryAckKey(payload);
+    if (confirmedDeliveryAcks[key]) return true;
+    var rejected = rejectedDeliveryAcks[key], generation = Number(sock.connectionGeneration || 0);
+    if (rejected && !rejected.terminal && rejected.generation !== generation) {
+      return resumeRejectedDeliveryAck(key, rejected);
+    }
+    if (rejected) return false;
+    if (!pendingDeliveryAcks[key]) {
+      pendingDeliveryAcks[key] = {
+        payload: payload, timer: 0, lastGeneration: -1, attempts: 0,
+        deadlineMs: Math.max(nowMs + 10000, Number(target.anchor) * 1000 + 30000)
+      };
+    }
+    return sendPendingDeliveryAck(key, false);
+  }
+  function handleDeliveryAckSaved(message) {
+    if (!message || message.t !== "deliveryAckSaved") return false;
+    var key = deliveryAckKey(message), entry = pendingDeliveryAcks[key];
+    if (!entry || !sameDeliveryAck(entry.payload, message)) return false;
+    if (entry.timer) clearTimeout(entry.timer);
+    confirmedDeliveryAcks[key] = entry.payload;
+    delete pendingDeliveryAcks[key];
+    return true;
+  }
+  function handleDeviceStatusSaved(message) {
+    if (!message || message.t !== "deviceStatusSaved" || message.pid !== myPid || message.deviceId !== deviceId) return false;
+    lastDeviceStatusGeneration = sock ? Number(sock.connectionGeneration || 0) : -1;
+    lastDeviceStatusSignature = myPid + ":" + deviceId + ":" + (message.soundReady === true ? "1" : "0");
+    lastDeviceStatusSentGeneration = lastDeviceStatusGeneration;
+    lastDeviceStatusSentSignature = lastDeviceStatusSignature;
+    lastDeviceStatusSentAt = Date.now();
+    if (message.soundReady !== true) return true;
+    Object.keys(rejectedDeliveryAcks).forEach(function (key) {
+      var rejected = rejectedDeliveryAcks[key], payload = rejected && rejected.payload;
+      if (rejected && !rejected.terminal && payload && payload.pid === myPid && payload.deviceId === deviceId) {
+        resumeRejectedDeliveryAck(key, rejected);
+      }
+    });
+    return true;
+  }
+  function retryPendingDeliveryAcks(force) {
+    Object.keys(pendingDeliveryAcks).forEach(function (key) {
+      var entry = pendingDeliveryAcks[key], generation = sock ? Number(sock.connectionGeneration || 0) : -1;
+      if (force || entry.lastGeneration !== generation) sendPendingDeliveryAck(key, true);
+    });
+  }
   function scheduleAllCues(win) {
     if (!room) return;
-    reconcileCues();
+    reconcileCues(); pruneDeliveryAckState();
     var personal = false, cmds = liveCommands(room);
     cmds.forEach(function (c) {
       if (c.type === "ping") return;
@@ -342,6 +514,7 @@
         var countdownLead = Number(c.payload && c.payload.leadSeconds);
         if (!Number.isFinite(countdownLead) || countdownLead < 1 || countdownLead > 120) countdownLead = 10;
         if (c.type === "double_rally" && Number.isFinite(firstPress) && tg.anchor > firstPress) schedulePrepareCue(c.id + "-me", tg.anchor, countdownLead, win);
+        acknowledgeClassicCommand(c, tg);
       }
     });
     var canJoin = shouldBookJoinAudio();
@@ -361,7 +534,8 @@
     try { if (window.speechSynthesis) { loadVoices(); var u = new SpeechSynthesisUtterance(" "); u.volume = 0; speechSynthesis.speak(u); } } catch (e) {}
     var g = $("soundGate"); if (g) g.style.display = "none";
     var rv = $("roomView"); if (rv) rv.classList.remove("presound");   // step ① done → unlock the rest of the page
-    paintHero(); paintAudioStatus();
+    sendDeviceStatus(); paintHero(); paintAudioStatus();
+    setTimeout(function () { sendDeviceStatus(); scheduleAllCues(); }, 0);
     if (!silent) { beepConfirm(); window.toast(tk("soundon")); }
   }
 
@@ -477,13 +651,14 @@
   }
   setInterval(tick, 200);
   // backgrounding freezes timers → pre-queue ALL live cues on the audio clock now (survives the freeze). Returning → resume audio + reconnect + reschedule.
-  function onResume() { resumeAudio(); keepAwake(); if (sock && !sock.connected) sock.kick(); window.syncClock().then(function (r) { updateSync(r); scheduleAllCues(); }); }   // re-sync the clock on return so post-suspend drift can't mis-time the GO, then reschedule on the fresh offset
+  function onResume() { beginClockSync(); resumeAudio(); keepAwake(); if (sock && !sock.connected) sock.kick(); else sendDeviceStatus(); retryPendingDeliveryAcks(true); }   // re-sync the clock on return so post-suspend drift can't mis-time the GO, then reschedule on the fresh offset
   document.addEventListener("visibilitychange", function () {
     syncBedVol();   // raise the keep-alive bed to a faint level only now that we're backgrounded; silent again on return
     if (document.visibilityState === "hidden") { if (!room) return; ensureAudio(); scheduleAllCues(); }
     else onResume();
   });
   window.addEventListener("pageshow", onResume);
+  window.addEventListener("pagehide", pausePendingDeliveryAckTimers);
   document.addEventListener("resume", onResume);   // Page Lifecycle: Android un-freezes the tab → reconnect + re-arm immediately
   // sticky fire dock yields while any input has focus (iOS keyboard would otherwise shove it over the whale editor)
   function focusNeedsFireDockYield(target) {
@@ -492,7 +667,7 @@
   document.addEventListener("focusin", function (e) { var fd = $("fireDock"); if (fd && focusNeedsFireDockYield(e.target)) fd.classList.add("nofix"); });
   document.addEventListener("focusout", function () { setTimeout(function () { var fd = $("fireDock"); if (fd && !focusNeedsFireDockYield(document.activeElement)) fd.classList.remove("nofix"); }, 0); });
   window.addEventListener("focus", function () { resumeAudio(); });
-  setInterval(function () { if (sock) { if (!sock.connected) sock.kick(); else sock.send({ t: "hb", pid: myPid }); } if (soundReady) { resumeAudio(); scheduleAllCues(); } try { if (window.speechSynthesis && speechSynthesis.paused) speechSynthesis.resume(); } catch (e) {} }, 25000);   // heartbeat: keep the WS warm, keep me un-evictable, self-heal audio + a stuck TTS queue (desktop Chrome), re-arm cues
+  setInterval(function () { if (soundReady) { resumeAudio(); scheduleAllCues(); } if (sock) { if (!sock.connected) sock.kick(); else sendDeviceStatus("hb", true); } try { if (window.speechSynthesis && speechSynthesis.paused) speechSynthesis.resume(); } catch (e) {} }, 25000);   // heartbeat: keep the WS warm, keep me un-evictable, self-heal audio + a stuck TTS queue (desktop Chrome), re-arm cues
 
   /* ---------- map: radar (space) + synced timeline (time), ONE data source so they never desync ---------- */
   var CX = 180, CY = 66, ATK_GATHER = 300, mapS = { mode: null, raf: null, t0: 0, span: 1, domain: 90, live: false };   // ATK_GATHER: rally gather 5:00 — on the timeline so the landing time is REAL
@@ -1250,31 +1425,69 @@
     var ready = cur.length === 2 && cur.some(function (pick) { return pick.role === "weak"; }) && cur.some(function (pick) { return pick.role === "main"; });
     var fd = $("fireDouble"); if (fd) fd.disabled = !ready;
   }
+  function deliveryForPlayer(command, pid) {
+    if (!command || !Array.isArray(command.delivery)) return null;
+    var delivery = command.delivery.filter(function (value) { return value && value.pid === pid; })[0];
+    if (!delivery) return null;
+    var expected = Math.max(0, Number(delivery.expected) || 0);
+    var received = Math.max(0, Number(delivery.received) || 0);
+    var expired = Math.max(0, Number(delivery.expired) || 0);
+    if (received > 0) {
+      var partial = expected > received;
+      return {
+        kind: "received",
+        complete: !partial,
+        text: expected > 1 ? tkf("delivery_received_count", { n: received, m: expected }) : tk("delivery_received")
+      };
+    }
+    if (expired > 0) return { kind: "expired", complete: false, text: tk("delivery_expired") };
+    var createdAt = Date.parse(command.at || ""), ageMs = Number.isFinite(createdAt) ? window.serverNow() - createdAt : Infinity;
+    if (ageMs < 1500) return { kind: "sent", complete: false, text: tk("delivery_sent") };
+    return { kind: "missing", complete: false, text: tk("delivery_missing") };
+  }
+  function armDeliveryStatusTimer(command) {
+    if (deliveryStatusTimer) { clearTimeout(deliveryStatusTimer); deliveryStatusTimer = 0; }
+    if (!command || !Array.isArray(command.delivery)) return;
+    var createdAt = Date.parse(command.at || ""), ageMs = Number.isFinite(createdAt) ? window.serverNow() - createdAt : Infinity;
+    var waiting = command.delivery.some(function (value) { return value && !(Number(value.received) > 0) && !(Number(value.expired) > 0); });
+    if (waiting && ageMs < 1500) {
+      deliveryStatusTimer = setTimeout(function () { deliveryStatusTimer = 0; renderSlots(); }, Math.max(20, 1510 - Math.max(0, ageMs)));
+    }
+  }
   // explicit role slots: who's SACRIFICE (lands first, eats the garrison) vs MAIN (+1s behind) is never a guess.
   // Tap a filled slot's × to unpick; ⇄ swaps roles in one tap (the roster-badge tap still works too).
   function renderSlots(kingdom) {
     var box = $("pickSlots"); if (!box) return;
     var selectedKingdom = kingdom || fireKingdom, cur = pickedByK[selectedKingdom], players = (room && room.players) || {}, counts = duplicateNameCounts(players);
-    var weakPick = cur.filter(function (x) { return x.role === "weak"; })[0], mainPick = cur.filter(function (x) { return x.role === "main"; })[0];
-    var weak = weakPick && canonicalPick(weakPick.pid, "weak", players), main = mainPick && canonicalPick(mainPick.pid, "main", players);
+    var liveCommand = room && room.live && room.live.commands && room.live.commands[selectedKingdom];
+    var livePairs = liveCommand && liveCommand.payload && Array.isArray(liveCommand.payload.pairs) ? liveCommand.payload.pairs : [];
+    var frozen = cur.length === 0 && livePairs.length > 0, source = frozen ? livePairs : cur;
+    var weakPick = source.filter(function (x) { return x.role === "weak"; })[0], mainPick = source.filter(function (x) { return x.role === "main"; })[0];
+    var weak = frozen ? weakPick : weakPick && canonicalPick(weakPick.pid, "weak", players);
+    var main = frozen ? mainPick : mainPick && canonicalPick(mainPick.pid, "main", players);
+    box.classList.toggle("frozen", frozen);
     function cell(role, c) {
       var parts = c ? playerDisplayParts(c.pid, players, counts) : null;
-      return '<div class="slot ' + role + (c ? " filled" : "") + '"' + (c ? ' data-pid="' + window.esc(c.pid) + '"' : "") + '>'
+      var status = frozen && c ? deliveryForPlayer(liveCommand, c.pid) : null;
+      var deliveryClass = status ? "delivery " + status.kind + (status.kind === "received" && !status.complete ? " partial" : "") : "";
+      return '<div class="slot ' + role + (c ? " filled" : "") + (frozen ? " frozen" : "") + '"' + (c ? ' data-pid="' + window.esc(c.pid) + '"' : "") + '>'
         + '<div class="sl">' + tk(role === "weak" ? "slot_weak" : "slot_main") + '</div>'
-        + (c ? '<div class="sv"><span class="slot-name">' + window.esc(parts.name) + '</span>' + (parts.suffix ? '<span class="roster-name-suffix">' + window.esc(parts.suffix) + '</span>' : '') + ' <small>' + window.mmss(c.march || 0) + '</small><button type="button" class="sx" data-pid="' + window.esc(c.pid) + '" aria-label="' + window.esc(tkf("remove_aria", { n: parts.name })) + '">×</button></div>'
+        + (c ? '<div class="sv"><span class="slot-name">' + window.esc(parts.name) + '</span>' + (parts.suffix ? '<span class="roster-name-suffix">' + window.esc(parts.suffix) + '</span>' : '') + ' <small>' + window.mmss(c.march || 0) + '</small>' + (frozen ? '' : '<button type="button" class="sx" data-pid="' + window.esc(c.pid) + '" aria-label="' + window.esc(tkf("remove_aria", { n: parts.name })) + '">×</button>') + '</div>'
              : '<div class="sv empty">' + tk("slot_empty") + '</div>')
-        + '<div class="ss">' + tk(role === "weak" ? "slot_weak_sub" : "slot_main_sub") + '</div></div>';
+        + '<div class="ss">' + tk(role === "weak" ? "slot_weak_sub" : "slot_main_sub") + '</div>'
+        + (status ? '<span class="' + deliveryClass + '">' + window.esc(status.text) + '</span>' : '') + '</div>';
     }
-    box.innerHTML = cell("weak", weak) + '<button class="swapbtn" id="swapRoles" title="⇄" aria-label="' + window.esc(tk("slot_swap_tip")) + '"' + (cur.length === 2 ? "" : " disabled") + '>⇄</button>' + cell("main", main);
+    box.innerHTML = cell("weak", weak) + (frozen ? "" : '<button class="swapbtn" id="swapRoles" title="⇄" aria-label="' + window.esc(tk("slot_swap_tip")) + '"' + (cur.length === 2 ? "" : " disabled") + '>⇄</button>') + cell("main", main);
     box.querySelectorAll(".sx").forEach(function (x) {
       x.onclick = function () { var pid = x.getAttribute("data-pid"); commitPicks(pickedByK[fireKingdom].filter(function (p) { return p.pid !== pid; })); };
     });
     var sw = $("swapRoles"); if (sw) sw.onclick = function () { commitPicks(pickedByK[fireKingdom].map(function (pick) { return { pid: pick.pid, role: pick.role === "main" ? "weak" : "main" }; })); window.toast(tk("slot_swap_tip")); };
+    armDeliveryStatusTimer(frozen ? liveCommand : null);
   }
   // hard sync gate that does NOT waste the commander's confirm tap: if unsynced, resync then auto-fire on success
-  function gateSync(fn) { if (syncedOK) return fn(); window.toast(tk("notsynced")); window.syncClock().then(function (r) { updateSync(r); if (syncedOK) fn(); else window.toast(tk("notconn")); }); }
+  function gateSync(fn) { if (syncedOK) return fn(); window.toast(tk("notsynced")); beginClockSync(function (ok) { if (ok) fn(); else window.toast(tk("notconn")); }); }
   function fireDouble() {
-    var cur = pickedByK[fireKingdom]; if (cur.length < 2) { window.toast(tk("need2")); return; }
+    var commandKingdom = fireKingdom, cur = pickedByK[commandKingdom]; if (cur.length < 2) { window.toast(tk("need2")); return; }
     var weakPick = cur.filter(function (x) { return x.role === "weak"; })[0], mainPick = cur.filter(function (x) { return x.role === "main"; })[0];
     var weak = weakPick && canonicalPick(weakPick.pid, "weak", room && room.players), main = mainPick && canonicalPick(mainPick.pid, "main", room && room.players);
     if (!weak || !main || weak.pid === main.pid) { window.toast(tk("need2")); return; }   // belt+braces: never fire the same player as both roles
@@ -1285,9 +1498,16 @@
       var now = window.serverNow() / 1000, off = (main.march - weak.march) - 1, pm, ps;
       if (off >= 0) { pm = now + lead; ps = pm + off; } else { ps = now + lead; pm = ps - off; }
       var pairs = [{ pid: weak.pid, name: weak.name, role: "weak", march: weak.march, pressUTC: ps }, { pid: main.pid, name: main.name, role: "main", march: main.march, pressUTC: pm }];
-      var ok = sock.send({ t: "cmd", password: roomPw, cmd: { type: "double_rally", kingdom: fireKingdom, anchorUTC: Math.min(pm, ps), payload: { pairs: pairs, firstPress: Math.min(pm, ps), kingdom: fireKingdom, leadSeconds: lead } } });
+      var ok = sock.send({ t: "cmd", password: roomPw, cmd: { type: "double_rally", kingdom: commandKingdom, anchorUTC: Math.min(pm, ps), payload: { pairs: pairs, firstPress: Math.min(pm, ps), kingdom: commandKingdom, leadSeconds: lead } } });
+      if (ok) consumeStageForFire(commandKingdom);
       window.toast(ok ? tk("fired") : tk("notconn"));
     });
+  }
+
+  function consumeStageForFire(kingdom) {
+    queuedStageByK[kingdom] = null;
+    if (pendingStageMutation && pendingStageMutation.kingdom === kingdom) pendingStageMutation = null;
+    stageFocusByK[kingdom] = "";
   }
 
   function renderTruthTexts() {
@@ -1483,6 +1703,7 @@
     if (!deviceId) deviceId = window.getRoomDeviceId(ROOM);
     nicknameDraftRoutingKey = ""; cancelIdentityLookup();
     pendingRegistrationProfile = null; registrationPending = false; ownPlayerSeen = true;
+    sendDeviceStatus();
     if (settleUI) {
       draftActive = false; showInCard(myProfile); window.toast(tk("updated") + " · " + window.mmss(myProfile.march));
       if (viewMode === "defense") renderDefense();
@@ -1505,7 +1726,21 @@
     }
     return true;
   }
+  function handleStageSuperseded(message) {
+    if (!message || message.t !== "stageSuperseded") return false;
+    var kingdom = Number(message.kingdom);
+    if (kingdom !== 1 && kingdom !== 2) return true;
+    consumeStageForFire(kingdom);
+    serverStagedByK[kingdom] = [];
+    var live = room && room.live && room.live.commands && room.live.commands[kingdom];
+    if (live && live.id === message.commandId) pickedByK[kingdom] = [];
+    if (room) renderRoster();
+    return true;
+  }
   function handleSocketMessage(message) {
+    if (handleStageSuperseded(message)) return;
+    if (handleDeviceStatusSaved(message)) return;
+    if (handleDeliveryAckSaved(message)) return;
     if (handleCommanderMarchAck(message)) return;
     if (!message || message.t !== "playerMarchSaved" || !pendingMarchMutation || message.mutationId !== pendingMarchMutation.mutationId) return;
     pendingMarchMutation.ackSeen = true;
@@ -1513,9 +1748,12 @@
   }
   function clearOwnProfile() {
     registrationPending = false; pendingRegistrationProfile = null; pendingMarchMutation = null;
+    clearAllDeliveryAckState(); lastDeviceStatusSignature = ""; lastDeviceStatusGeneration = -1;
+    lastDeviceStatusSentSignature = ""; lastDeviceStatusSentGeneration = -1; lastDeviceStatusSentAt = 0;
     saveProfile(null); draftActive = true; ownPlayerSeen = false;
     try { localStorage.removeItem("kvk:" + ROOM + ":delivery-device:v1"); } catch (e) {}
     deviceId = "";
+    if (sock && typeof sock.refresh === "function") setTimeout(function () { sock.refresh(); }, 0);
     resetIdentityDraft();
     $("fillCard").classList.remove("hide"); $("youChip").classList.add("hide");
   }
@@ -1571,7 +1809,7 @@
   function connect() {
     sock = new window.RoomSocket(ROOM, onState);
     sock.onMessage = handleSocketMessage;
-    sock.onOpen = function () { initialStateSeen = false; registrationPending = false; setNet(true); window.syncClock().then(updateSync); };
+    sock.onOpen = function () { initialStateSeen = false; registrationPending = false; setNet(true); sendDeviceStatus(); retryPendingDeliveryAcks(true); beginClockSync(); };
     sock.onClose = function () {
       initialStateSeen = false; registrationPending = false;
       if (pendingMarchMutation && !pendingMarchMutation.ackSeen) pendingMarchMutation = null;
@@ -1582,6 +1820,8 @@
       setNet(false);
     };
     sock.onError = function (m) {
+      if (rejectPendingDeliveryAck(m)) return;
+      if (m && m.source === "deviceStatus" && ["invalid_device_identity", "socket_identity_locked", "device_owned_by_other_pid"].indexOf(m.error) >= 0) return;
       if (handleCommanderMarchProtocolError(m)) return;
       if (handlePlayerProtocolError(m)) return;
       if (handleRemovalProtocolError(m)) return;
@@ -1610,7 +1850,18 @@
     else { dot.className = "cdot on"; lab.textContent = tkf("online_n", { n: presenceN }); }
   }
   function setNet(on) { connFlag = on; paintChrome(); }
-  function updateSync(r) { if (r) syncedOK = r.rtt != null; paintChrome(); rebookCuesOnDrift(); }   // post-suspend resync: future beeps re-book on the corrected clock
+  function beginClockSync(done) {
+    var attempt = ++syncAttempt;
+    syncedOK = false; paintChrome();
+    return window.syncClock().then(function (result) {
+      if (attempt !== syncAttempt) { window.clockOffset = lastAcceptedClockOffset; return false; }
+      lastAcceptedClockOffset = Number(window.clockOffset) || 0;
+      updateSync(result);
+      if (done) done(syncedOK);
+      return syncedOK;
+    });
+  }
+  function updateSync(r) { if (r) syncedOK = r.rtt != null; paintChrome(); rebookCuesOnDrift(); if (syncedOK) scheduleAllCues(); }   // post-suspend resync: future beeps re-book on the corrected clock, then ACK only the corrected schedule
   var lastStagedKey = "", lastMyMarch = 0;
   function onState(r) {
     var freshRoomSnapshot = r !== room, settledStageFocusPid = "";
@@ -1656,7 +1907,9 @@
       var canonical = nextPlayers[myProfile.pid];
       if (canonical) {
         var canonicalRevision = Number.isInteger(canonical.marchRevision) ? canonical.marchRevision : 0;
+        var becameCanonical = !ownPlayerSeen;
         ownPlayerSeen = true; registrationPending = false;
+        if (becameCanonical) sendDeviceStatus("deviceStatus", true);
         adoptCanonicalPlayer(myProfile.pid, canonical);
         if (pendingMarchMutation && pendingMarchMutation.pid === myProfile.pid &&
             canonical.march === pendingMarchMutation.requestedMarch &&
@@ -1677,7 +1930,7 @@
       var gone = liveCommands(room).filter(function (c) { return myTarget(c).anchor > nowS - 1 && newIds.indexOf(c.id) < 0; });
       if (gone.some(function (c) { return myTarget(c).mine; })) { beepCancelled(); window.toast(tk("order_cancelled")); }
     }
-    room = r; if (!pendingStageMutation) pumpStageQueue(); reconcileCommanderMarchState(nextPlayers); setNet(true); if (pendingUnlock && r.updatedBy && r.updatedBy === pendingTok) unlockedOK(); presenceN = r.presence || 1; paintChrome(); paintHero(); syncMap(); renderRoster(); if (settledStageFocusPid) restoreRosterFocus(settledStageFocusPid); scheduleAllCues(); paintAudioStatus();
+    room = r; if (firstSnapshot) sendDeviceStatus(); if (!pendingStageMutation) pumpStageQueue(); reconcileCommanderMarchState(nextPlayers); setNet(true); if (pendingUnlock && r.updatedBy && r.updatedBy === pendingTok) unlockedOK(); presenceN = r.presence || 1; paintChrome(); paintHero(); syncMap(); renderRoster(); if (settledStageFocusPid) restoreRosterFocus(settledStageFocusPid); scheduleAllCues(); paintAudioStatus();
     var ew = (r.config && r.config.enemyWhales) || [], key = JSON.stringify(ew);
     if (key !== lastWhalesKey) {
       lastWhalesKey = key; enemyWhales = ew; setBadge(); if (viewMode === "defense") renderDefense();   // only re-render (resets the radar) when the whale list actually changed, not on every heartbeat
@@ -1905,7 +2158,7 @@
   }
 
   /* ---------- bootstrap (after every definition; no fragile load-order) ---------- */
-  window.startClock(); window.syncClock().then(updateSync); setInterval(function () { window.syncClock().then(updateSync); }, 180000);
+  window.startClock(); beginClockSync(); setInterval(beginClockSync, 180000);
   if (!ROOM) { window.onLangChange = function () { renderStatics(); showJoin(); }; showJoin(); window.initI18n(); return; }   // join gate re-translates on 中/EN toggle too
   try { localStorage.setItem("kingshoter_lastroom", JSON.stringify({ room: ROOM })); } catch (e) {}
   $("roomView").classList.remove("hide");

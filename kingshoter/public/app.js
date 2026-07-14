@@ -129,10 +129,11 @@ window.getRoomDeviceId = (room) => {
   const key = `kvk:${String(room)}:delivery-device:v1`;
   let value = '';
   try { value = localStorage.getItem(key) || ''; } catch (e) {}
-  if (!/^[0-9a-f-]{36}$/i.test(value)) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
     value = crypto.randomUUID();
-    try { localStorage.setItem(key, value); } catch (e) {}
   }
+  value = value.toLowerCase();
+  try { localStorage.setItem(key, value); } catch (e) {}
   return value;
 };
 

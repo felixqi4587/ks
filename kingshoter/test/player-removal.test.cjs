@@ -23,12 +23,12 @@ test('authenticated player removal deletes only its target and broadcasts once',
 
   assert.equal(h.room.room.players['001'], undefined);
   assert.equal(h.room.room.players.kimchi.name, 'Kimchi');
-  assert.deepEqual(h.calls, ['persist', 'broadcast']);
+  assert.deepEqual(h.calls, ['persistAll', 'broadcast']);
   assert.deepEqual(h.sent, []);
 
   await h.room.webSocketMessage(h.ws, JSON.stringify({ t: 'hb', pid: '001' }));
   assert.equal(h.room.room.players['001'], undefined, 'a deleted player heartbeat cannot recreate its profile');
-  assert.deepEqual(h.calls, ['persist', 'broadcast']);
+  assert.deepEqual(h.calls, ['persistAll', 'broadcast']);
 });
 
 test('authenticated removal clears every staged reference atomically', async () => {
@@ -45,7 +45,7 @@ test('authenticated removal clears every staged reference atomically', async () 
   assert.equal(h.room.room.live.staged[1], null);
   assert.equal(h.room.room.live.staged[2], null);
   assert.deepEqual(h.sent, []);
-  assert.deepEqual(h.calls, ['persist', 'broadcast']);
+  assert.deepEqual(h.calls, ['persistAll', 'broadcast']);
 });
 
 test('only a future live command protects a captain from removal', async () => {
@@ -95,7 +95,7 @@ test('a command expiring exactly now no longer protects a captain', async () => 
 
   assert.equal(h.room.room.players['001'], undefined);
   assert.deepEqual(h.sent, []);
-  assert.deepEqual(h.calls, ['persist', 'broadcast']);
+  assert.deepEqual(h.calls, ['persistAll', 'broadcast']);
 });
 
 test('removing an already absent player is an idempotent silent no-op', async () => {

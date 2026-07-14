@@ -237,3 +237,23 @@ test('getRoomDeviceId tolerates unavailable localStorage', () => {
   assert.match(value, /^[0-9a-f-]{36}$/i);
   assert.equal(uuidCalls, 1);
 });
+
+test('getRoomDeviceId replaces a malformed 36-character value with a canonical UUID', () => {
+  const storage = createStorage();
+  storage.values.set('kvk:qa-kvk-malformed:delivery-device:v1', '------------------------------------');
+  const replacement = '00000000-0000-4000-8000-000000000099';
+  const { window } = loadApp({ localStorage: storage, crypto: { randomUUID: () => replacement } });
+
+  assert.equal(window.getRoomDeviceId('qa-kvk-malformed'), replacement);
+  assert.equal(storage.values.get('kvk:qa-kvk-malformed:delivery-device:v1'), replacement);
+});
+
+test('getRoomDeviceId canonicalizes a stored uppercase UUID for exact ACK matching', () => {
+  const storage = createStorage();
+  const key = 'kvk:qa-kvk-uppercase:delivery-device:v1';
+  storage.values.set(key, 'ABCDEF00-0000-4000-8000-000000000099');
+  const { window } = loadApp({ localStorage: storage });
+
+  assert.equal(window.getRoomDeviceId('qa-kvk-uppercase'), 'abcdef00-0000-4000-8000-000000000099');
+  assert.equal(storage.values.get(key), 'abcdef00-0000-4000-8000-000000000099');
+});

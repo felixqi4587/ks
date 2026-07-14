@@ -65,6 +65,8 @@ test('registration keeps the 150-player cap without evicting active or staged ca
     staged: { kingdom: 1, pairs: [{ pid: '001', role: 'weak' }] },
     nowMs: 1_000_000
   });
+  h.room.devices = [{ pid: '002', deviceId: '00000000-0000-4000-8000-000000000099', soundReady: true, lastSeenMs: 999_999 }];
+  h.room.deliveryAcks = [{ commandId: 'old', pid: '002', deviceId: '00000000-0000-4000-8000-000000000099', outcome: 'scheduled', atMs: 999_999 }];
   await h.room.webSocketMessage(h.ws, JSON.stringify({
     t: 'registerPlayer', pid: 'new-player', name: 'New', march: 35, identityMode: 'playerId'
   }));
@@ -74,7 +76,9 @@ test('registration keeps the 150-player cap without evicting active or staged ca
   assert.ok(h.room.room.players['149']);
   assert.ok(h.room.room.players['new-player']);
   assert.equal(h.room.room.players['002'], undefined);
-  assert.deepEqual(h.calls, ['persist', 'broadcast']);
+  assert.equal(h.room.devices.length, 0);
+  assert.equal(h.room.deliveryAcks.length, 0);
+  assert.deepEqual(h.calls, ['persistAll', 'broadcast']);
 });
 
 test('player and commander updates acknowledge mutationId and broadcast canonical revision', async () => {
