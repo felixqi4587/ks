@@ -26,6 +26,18 @@ import {
   startCommandDelivery,
   touchDevice
 } from "./room-delivery.js";
+import {
+  DELIVERY_ACK_WINDOW_MS,
+  DELIVERY_ARMED_LEASE_MS,
+  DELIVERY_PROBE_INTERVAL_MS,
+  DELIVERY_STORAGE_KEY,
+  DELIVERY_VERSION,
+  defaultDeliveryState,
+  isQaRoomName,
+  normalizeDeliveryAttachment,
+  normalizeDeliveryState,
+  publicDeliverySummary
+} from "./delivery.js";
 
 function defaultRoom() {
   return {
@@ -71,6 +83,7 @@ export class Room {
     this.env = env;
     this.room = null;
     this.roomName = String(state && state.id && state.id.name || "").slice(0, 48);
+    this.delivery = defaultDeliveryState(this.roomName);
     this.devices = [];
     this.deliveryAcks = [];
     this._deliveryLoaded = false;
@@ -79,6 +92,9 @@ export class Room {
       this.room = (await state.storage.get("room")) || defaultRoom();
       this.room.players = normalizePlayerRecords(this.room.players);
       this.normalizeLive();
+      let storedDelivery = null;
+      try { storedDelivery = await state.storage.get(DELIVERY_STORAGE_KEY); } catch (error) {}
+      this.delivery = normalizeDeliveryState(storedDelivery || this.delivery, this.nowMs());
     });
   }
 
@@ -100,6 +116,7 @@ export class Room {
       const requestedRoom = String(new URL(request.url).searchParams.get("room") || this.roomName || "").slice(0, 48);
       if (!this.roomName) this.roomName = requestedRoom;
       this.attachSocket(server, requestedRoom);      // Hibernation API + merge-safe identity base
+      this.initializeReliableAttachment(server);
       server.send(this.stateMsg());
       return new Response(null, { status: 101, webSocket: client });
     }
@@ -116,6 +133,10 @@ export class Room {
     let changed = false;
     for (const k of [1, 2]) { const c = cmds[k]; if (c && c.expiresUTC && nowS >= c.expiresUTC) { cmds[k] = null; changed = true; } }
     if (changed) r.live = Object.assign({}, r.live, { commands: cmds, mode: r.live.sim ? r.live.mode : ((cmds[1] || cmds[2]) ? "live" : "idle") });
+    if (isQaRoomName(this.roomName) && this.delivery) {
+      const summary = publicDeliverySummary(this.delivery, this.nowMs());
+      if (summary.commands.length) r.deliveryShadow = summary;
+    }
     return r;
   }
   // wake the DO at the soonest command expiry so connected idle clients get a fresh "back to idle" broadcast (not just on the next mutation)
@@ -178,6 +199,106 @@ export class Room {
     ws.serializeAttachment(next);
     return next;
   }
+  readReliableAttachment(ws) {
+    const core = this.readSocketAttachment(ws);
+    return { ...core, ...normalizeDeliveryAttachment(core, core.roomName || this.roomName) };
+  }
+  writeReliableAttachment(ws, patch) {
+    const current = this.readReliableAttachment(ws);
+    const allowed = {};
+    for (const field of [
+      "view", "shadow", "audioArmed", "armedUntilMs", "lastProbeId", "probeExpiresAtMs", "nextProbeAtMs"
+    ]) {
+      if (patch && typeof patch === "object" && Object.prototype.hasOwnProperty.call(patch, field)) allowed[field] = patch[field];
+    }
+    const normalized = normalizeDeliveryAttachment({ ...current, ...allowed }, current.roomName || this.roomName);
+    this.writeSocketAttachment(ws, {
+      v: normalized.v,
+      qa: normalized.qa,
+      view: normalized.view,
+      shadow: normalized.shadow,
+      audioArmed: normalized.audioArmed,
+      armedUntilMs: normalized.armedUntilMs,
+      lastProbeId: normalized.lastProbeId,
+      probeExpiresAtMs: normalized.probeExpiresAtMs,
+      nextProbeAtMs: normalized.nextProbeAtMs
+    });
+    return this.readReliableAttachment(ws);
+  }
+  initializeReliableAttachment(ws) {
+    return this.writeReliableAttachment(ws, {
+      view: "player",
+      shadow: false,
+      audioArmed: false,
+      armedUntilMs: 0,
+      lastProbeId: "",
+      probeExpiresAtMs: 0,
+      nextProbeAtMs: 0
+    });
+  }
+  deliveryError(ws, error) {
+    return ws.send(JSON.stringify({ t: "error", error }));
+  }
+  async persistDelivery() {
+    await this.state.storage.put(DELIVERY_STORAGE_KEY, this.delivery);
+  }
+  issueDeliveryProbe(ws, attachment, nowMs) {
+    const probeId = crypto.randomUUID();
+    const expiresAtMs = nowMs + DELIVERY_ACK_WINDOW_MS;
+    const next = this.writeReliableAttachment(ws, {
+      lastProbeId: probeId,
+      probeExpiresAtMs: expiresAtMs,
+      nextProbeAtMs: nowMs + DELIVERY_PROBE_INTERVAL_MS
+    });
+    try {
+      ws.send(JSON.stringify({
+        t: "deliveryShadowProbe",
+        v: DELIVERY_VERSION,
+        probeId,
+        sentAtMs: nowMs,
+        expiresAtMs
+      }));
+    } catch (error) {}
+    return next;
+  }
+  async handleDeliveryShadowMessage(ws, message) {
+    const attachment = this.readReliableAttachment(ws);
+    if (!attachment.qa) return this.deliveryError(ws, "qa_room_required");
+    if (message.t === "deliveryShadowHello") {
+      if (message.v !== DELIVERY_VERSION || message.shadow !== true ||
+          !attachment.pid || !attachment.deviceId || attachment.soundReady !== true ||
+          message.pid !== attachment.pid || message.deviceId !== attachment.deviceId) {
+        return this.deliveryError(ws, "core_identity_mismatch");
+      }
+      const initialized = this.writeReliableAttachment(ws, {
+        view: message.view,
+        shadow: true,
+        audioArmed: false,
+        armedUntilMs: 0,
+        lastProbeId: "",
+        probeExpiresAtMs: 0,
+        nextProbeAtMs: 0
+      });
+      this.delivery.roomName = initialized.roomName;
+      this.issueDeliveryProbe(ws, initialized, this.nowMs());
+      await this.persistDelivery();
+      await this.scheduleExpiry();
+      return;
+    }
+    if (message.t === "deliveryShadowProbeAck") {
+      const nowMs = this.nowMs();
+      if (!attachment.shadow || message.v !== DELIVERY_VERSION || !attachment.lastProbeId ||
+          message.probeId !== attachment.lastProbeId || nowMs > attachment.probeExpiresAtMs) return;
+      const audioArmed = message.audioArmed === true;
+      this.writeReliableAttachment(ws, {
+        audioArmed,
+        armedUntilMs: audioArmed ? nowMs + DELIVERY_ARMED_LEASE_MS : 0,
+        lastProbeId: "",
+        probeExpiresAtMs: 0
+      });
+      await this.scheduleExpiry();
+    }
+  }
   observeDevice(ws, message) {
     const pid = normalizeRoutingKey(message && message.pid);
     if (!pid || !Object.prototype.hasOwnProperty.call(this.room.players, pid)) {
@@ -223,6 +344,10 @@ export class Room {
   async webSocketMessage(ws, raw) {
     await this.ensureDeliveryLoaded();
     let m; try { m = JSON.parse(raw); } catch (e) { return; }
+
+    if (typeof m.t === "string" && m.t.startsWith("deliveryShadow")) {
+      return this.handleDeliveryShadowMessage(ws, m);
+    }
 
     if (m.t === "deviceStatus") {
       const observation = this.observeDevice(ws, m);
