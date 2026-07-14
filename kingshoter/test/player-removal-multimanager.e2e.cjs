@@ -1,9 +1,10 @@
 const assert = require('node:assert/strict');
 const { chromium } = require('playwright');
+const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard } = require('./support/qa-kvk.cjs');
 
 const base = process.env.BASE || 'http://127.0.0.1:8791';
-const room = `remove-multi-${Date.now()}`;
-const url = `${base}/kvk?room=${room}&notour=1`;
+const room = makeQaRoom('player-removal-multi');
+const url = qaRoomUrl(base, room, { notour: 1 });
 
 async function unlock(page, password) {
   await page.locator('#soundGate').click().catch(() => {});
@@ -17,28 +18,39 @@ async function rowClick(page, pid) {
   await page.locator(`#roster .rp[data-pid="${pid}"]`).evaluate(el => el.click());
 }
 
+async function openRemove(page, pid) {
+  await page.locator(`#roster .roster-actions[data-pid="${pid}"]`).click();
+  await page.locator('#rosterActionsMenu [data-action="remove"]').click();
+  await page.locator('#removePlayerOvl').waitFor({ state: 'visible' });
+}
+
 (async () => {
   const browser = await chromium.launch({ headless: true, channel: 'chrome' });
-  const a = await (await browser.newContext({ viewport: { width: 390, height: 1100 }, locale: 'en-US' })).newPage();
-  const b = await (await browser.newContext({ viewport: { width: 390, height: 1100 }, locale: 'en-US' })).newPage();
+  const contextA = await browser.newContext({ viewport: { width: 390, height: 1100 }, locale: 'en-US' });
+  const contextB = await browser.newContext({ viewport: { width: 390, height: 1100 }, locale: 'en-US' });
+  await Promise.all([installQaWebSocketGuard(contextA, room), installQaWebSocketGuard(contextB, room)]);
+  const a = await contextA.newPage();
+  const b = await contextB.newPage();
   const errors = [];
   a.on('pageerror', error => errors.push(`A: ${error.message}`));
   b.on('pageerror', error => errors.push(`B: ${error.message}`));
 
   try {
     await Promise.all([a.goto(url), b.goto(url)]);
+    assertQaRoomName(room);
     await a.evaluate(roomName => new Promise(resolve => {
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
       const ws = new WebSocket(`${proto}://${location.host}/api/ws?room=${encodeURIComponent(roomName)}`);
       let sent = false;
       ws.onopen = () => {
-        ws.send(JSON.stringify({ t: 'setMarch', pid: '001', name: 'Test 001', march: 32, alliance: '' }));
-        ws.send(JSON.stringify({ t: 'setMarch', pid: 'kimchi', name: 'Kimchi', march: 40, alliance: '' }));
+        for (const [pid, name, march] of [['001', 'Test 001', 32], ['kimchi', 'Kimchi', 40], ['hml', 'HML', 45]]) {
+          ws.send(JSON.stringify({ t: 'setMarch', pid, name, march, alliance: '' }));
+        }
         sent = true;
       };
       ws.onmessage = event => {
         const message = JSON.parse(event.data);
-        if (sent && message.t === 'state' && message.room.players['001'] && message.room.players.kimchi) { ws.close(); resolve(); }
+        if (sent && message.t === 'state' && ['001', 'kimchi', 'hml'].every(pid => message.room.players[pid])) { ws.close(); resolve(); }
       };
     }), room);
 
@@ -46,36 +58,71 @@ async function rowClick(page, pid) {
     await rowClick(a, '001');
     await rowClick(a, 'kimchi');
     await a.waitForFunction(() => document.querySelectorAll('#roster .rp.sel').length === 2);
-    assert.equal(await a.locator('#fireDouble').isDisabled(), false, 'manager A can fire with two valid picks');
 
     await unlock(b, 'multi-remove-password');
     await b.waitForFunction(() => document.querySelectorAll('#roster .rp.sel').length === 2, null, { timeout: 5000 });
-    await rowClick(b, '001');
-    await rowClick(b, 'kimchi');
-    await b.waitForFunction(() => document.querySelectorAll('#roster .rp.sel').length === 0);
-    assert.equal(await a.locator('#roster .rp.sel').count(), 2, 'manager A still has local picks after B clears shared staging');
+    await openRemove(b, '001');
+    assert.match(await b.locator('#removePlayerImpact').textContent(), /Kingdom 1.*Sacrifice/i, 'dialog lists canonical staged impact');
 
-    b.once('dialog', dialog => dialog.accept());
-    await b.locator('#roster .rpi[data-pid="001"] .rpdel').click();
-    await b.locator('#roster .rp[data-pid="001"]').waitFor({ state: 'detached', timeout: 5000 });
-    await a.locator('#roster .rp[data-pid="001"]').waitFor({ state: 'detached', timeout: 5000 });
+    await a.locator('#roster .roster-role[data-pid="001"]').click();
+    await b.waitForFunction(() => /Kingdom 1.*Main/i.test(document.querySelector('#removePlayerImpact')?.textContent || ''), null, { timeout: 5000 });
+    await b.locator('#removePlayerConfirm').click();
+    assert.equal(await b.locator('#roster .rp[data-pid="001"]').count(), 1, 'changed impact requires a fresh confirmation click');
+    assert.match(await b.locator('#removePlayerStatus').textContent(), /changed|review|again/i);
+    await b.locator('#removePlayerConfirm').click();
+    await Promise.all([
+      b.locator('#roster .rp[data-pid="001"]').waitFor({ state: 'detached', timeout: 5000 }),
+      a.locator('#roster .rp[data-pid="001"]').waitFor({ state: 'detached', timeout: 5000 })
+    ]);
+    assert.doesNotMatch(await a.locator('#pickSlots').textContent(), /Test 001/);
+    assert.equal(await a.locator('#fireDouble').isDisabled(), true, 'removal prunes every manager and disables ghost Fire');
 
-    assert.doesNotMatch(await a.locator('#pickSlots').textContent(), /Test 001/, 'deleted captain is pruned from another manager’s local slots');
-    assert.equal(await a.locator('#fireDouble').isDisabled(), true, 'another manager’s deletion disables fire until two real players are selected');
+    await rowClick(a, 'hml');
+    await a.waitForFunction(() => document.querySelectorAll('#roster .rp.sel').length === 2);
+    await b.waitForFunction(() => document.querySelectorAll('#roster .rp.sel').length === 2, null, { timeout: 5000 });
+    await openRemove(b, 'kimchi');
+    await a.locator('#fireDouble').click();
+    await a.waitForTimeout(250);
+    await a.locator('#fireDouble').click();
+    await b.waitForFunction(() => document.querySelector('#removePlayerConfirm')?.disabled === true && /live|active|cancel/i.test(document.querySelector('#removePlayerStatus')?.textContent || ''), null, { timeout: 5000 });
+    assert.equal(await b.locator('#roster .rp[data-pid="kimchi"]').count(), 1, 'Fire while the dialog is open disables confirmation without deleting');
+    await b.locator('#removePlayerCancel').click();
 
-    b.once('dialog', dialog => dialog.accept());
-    await b.locator('#roster .rpi[data-pid="kimchi"] .rpdel').click();
-    await b.locator('#roster .rp[data-pid="kimchi"]').waitFor({ state: 'detached', timeout: 5000 });
-    await a.locator('#roster .rp[data-pid="kimchi"]').waitFor({ state: 'detached', timeout: 5000 });
-    assert.doesNotMatch(await a.locator('#pickSlots').textContent(), /Kimchi/, 'deleting the final player clears stale role slots in the empty roster state');
-    assert.equal((await a.locator('#pickCnt').textContent()).trim(), '0/2', 'empty roster reports zero selected captains');
-    assert.equal(await a.locator('#fireDouble').isDisabled(), true, 'empty roster keeps Fire disabled');
+    await b.locator('#roster .roster-actions[data-pid="kimchi"]').click();
+    const removeItem = b.locator('#rosterActionsMenu [data-action="remove"]');
+    assert.equal(await removeItem.getAttribute('aria-disabled'), 'true', 'active player removal remains focusable but unavailable');
+    await removeItem.focus();
+    assert.equal(await b.evaluate(() => document.activeElement?.dataset.action), 'remove');
+    assert.match(await b.locator('#rosterActionsExplanation').textContent(), /live|active|cancel/i);
+
+    assertQaRoomName(room);
+    const forced = await b.evaluate(({ roomName, password }) => new Promise((resolve, reject) => {
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      const ws = new WebSocket(`${proto}://${location.host}/api/ws?room=${encodeURIComponent(roomName)}`);
+      const timer = setTimeout(() => reject(new Error('forced removal timeout')), 4000);
+      let before = null;
+      ws.onmessage = event => {
+        const message = JSON.parse(event.data);
+        if (message.t === 'state' && !before) {
+          before = message.room.live;
+          ws.send(JSON.stringify({ t: 'removePlayer', password, pid: 'kimchi' }));
+        } else if (message.t === 'error') {
+          ws.close();
+          const verify = new WebSocket(`${proto}://${location.host}/api/ws?room=${encodeURIComponent(roomName)}`);
+          verify.onmessage = verifyEvent => {
+            const current = JSON.parse(verifyEvent.data);
+            if (current.t !== 'state') return;
+            clearTimeout(timer); verify.close(); resolve({ error: message, before, after: current.room.live });
+          };
+        }
+      };
+    }), { roomName: room, password: 'multi-remove-password' });
+    assert.deepEqual(forced.error, { t: 'error', error: 'player_in_live_command', pid: 'kimchi' });
+    assert.deepEqual(forced.after, forced.before, 'forced rejection preserves command, staging, and live metadata atomically');
+    assert.equal(await a.locator('#roster .rp[data-pid="kimchi"]').count(), 1, 'forced rejection preserves the live captain');
     assert.deepEqual(errors, []);
-    console.log('✓ cross-manager deletion prunes stale local picks and prevents ghost fire');
+    console.log(`✓ staged-aware multi-manager removal and live protection (${room})`);
   } finally {
     await browser.close();
   }
-})().catch(error => {
-  console.error(error);
-  process.exit(1);
-});
+})().catch(error => { console.error(error); process.exit(1); });

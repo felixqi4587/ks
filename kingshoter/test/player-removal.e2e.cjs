@@ -1,14 +1,39 @@
 const assert = require('node:assert/strict');
 const { chromium } = require('playwright');
+const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard } = require('./support/qa-kvk.cjs');
 
 const base = process.env.BASE || 'http://127.0.0.1:8791';
-const room = `remove-${Date.now()}`;
-const roomUrl = `${base}/kvk?room=${room}&notour=1`;
+const room = makeQaRoom('player-removal');
+const roomUrl = qaRoomUrl(base, room, { notour: 1 });
 
 (async () => {
   const browser = await chromium.launch({ headless: true, channel: 'chrome' });
-  const manager = await (await browser.newContext({ viewport: { width: 390, height: 1100 }, locale: 'en-US' })).newPage();
-  const observer = await (await browser.newContext({ viewport: { width: 390, height: 1100 }, locale: 'en-US' })).newPage();
+  const managerContext = await browser.newContext({ viewport: { width: 390, height: 1100 }, locale: 'en-US' });
+  const observerContext = await browser.newContext({ viewport: { width: 390, height: 1100 }, locale: 'en-US' });
+  let removePackets = 0;
+  let dropFirstAbsentState = false;
+  await Promise.all([
+    installQaWebSocketGuard(managerContext, room, {
+      shouldDropClientMessage({ data }) {
+        try { if (JSON.parse(String(data)).t === 'removePlayer') removePackets += 1; } catch (_) {}
+        return false;
+      },
+      shouldDropServerMessage({ data }) {
+        if (!dropFirstAbsentState) return false;
+        try {
+          const message = JSON.parse(String(data));
+          if (message.t === 'state' && !message.room.players['001']) {
+            dropFirstAbsentState = false;
+            return true;
+          }
+        } catch (_) {}
+        return false;
+      }
+    }),
+    installQaWebSocketGuard(observerContext, room)
+  ]);
+  const manager = await managerContext.newPage();
+  const observer = await observerContext.newPage();
   const errors = [];
   manager.on('pageerror', error => errors.push(`manager: ${error.message}`));
   observer.on('pageerror', error => errors.push(`observer: ${error.message}`));
@@ -16,12 +41,44 @@ const roomUrl = `${base}/kvk?room=${room}&notour=1`;
   try {
     const meKey = `kingshoter_r_${room}_me`;
     await manager.addInitScript(({ key }) => {
-      if (!sessionStorage.getItem('player-removal-seeded')) {
-        localStorage.setItem(key, JSON.stringify({ pid: '001', name: 'Test 001', march: 32 }));
-        sessionStorage.setItem('player-removal-seeded', '1');
-      }
+      localStorage.setItem(key, JSON.stringify({ pid: '001', name: 'Test 001', march: 32 }));
+      const nativeSend = WebSocket.prototype.send;
+      WebSocket.prototype.send = function (data) {
+        let message = null;
+        try { message = JSON.parse(String(data)); } catch (_) {}
+        if (message && message.t === 'setPlayerMarch' && window.__holdMarchBadPassword) {
+          window.__holdMarchBadPassword = false;
+          window.__heldMarchSocket = this;
+          window.__heldMarchMutation = message.mutationId;
+          return;
+        }
+        if (message && message.t === 'removePlayer' && window.__removeSendMode === 'fail') {
+          window.__removeSendMode = '';
+          throw new Error('simulated remove send failure');
+        }
+        if (message && message.t === 'removePlayer' && window.__removeSendMode === 'wrongpw') {
+          window.__removeSendMode = '';
+          message.password = 'definitely-wrong';
+          data = JSON.stringify(message);
+        }
+        if (message && message.t === 'removePlayer' && window.__removeSendMode === 'unscoped') {
+          window.__removeSendMode = '';
+          nativeSend.call(this, JSON.stringify({
+            t: 'stage', password: message.password,
+            staged: { kingdom: 1, pairs: [{ pid: 'missing-player', role: 'weak' }] }
+          }));
+          setTimeout(() => this.close(), 150);
+          return;
+        }
+        nativeSend.call(this, data);
+        if (message && message.t === 'removePlayer' && window.__removeSendMode === 'close') {
+          window.__removeSendMode = '';
+          window.__processedRemovalSocket = this;
+        }
+      };
     }, { key: meKey });
     await Promise.all([manager.goto(roomUrl), observer.goto(roomUrl)]);
+    assertQaRoomName(room);
     await observer.evaluate(roomName => new Promise(resolve => {
       window.__roomStates = [];
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -34,6 +91,7 @@ const roomUrl = `${base}/kvk?room=${room}&notour=1`;
       window.__observerSocket = ws;
     }), room);
 
+    assertQaRoomName(room);
     await manager.evaluate(roomName => new Promise(resolve => {
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
       const ws = new WebSocket(`${proto}://${location.host}/api/ws?room=${encodeURIComponent(roomName)}`);
@@ -51,7 +109,7 @@ const roomUrl = `${base}/kvk?room=${room}&notour=1`;
 
     await manager.waitForFunction(() => document.querySelectorAll('#roster .rp').length === 2, null, { timeout: 5000 });
     assert.equal(await manager.locator('#console').isVisible(), false, 'commander console starts locked');
-    assert.equal(await manager.locator('#roster .rpdel:visible').count(), 0, 'delete controls are not visible before unlock');
+    assert.equal(await manager.locator('#roster .roster-actions:visible').count(), 0, 'player actions are not visible before unlock');
 
     await manager.locator('#soundGate').click().catch(() => {});
     await manager.locator('#cmdUnlock').click();
@@ -59,50 +117,174 @@ const roomUrl = `${base}/kvk?room=${room}&notour=1`;
     await manager.locator('#pwGo').click();
     await manager.locator('#console').waitFor({ state: 'visible', timeout: 5000 });
 
-    const untouched = manager.locator('#roster .rp[data-pid="kimchi"]');
-    await untouched.evaluate(el => el.click());
-    assert.match(await untouched.getAttribute('class'), /\bsel\b/, 'existing captain selection still works');
-    await untouched.evaluate(el => el.click());
-    assert.doesNotMatch(await untouched.getAttribute('class'), /\bsel\b/, 'existing captain unselection still works');
-
     const target = manager.locator('#roster .rp[data-pid="001"]');
-    const remove = manager.locator('#roster .rpi[data-pid="001"] .rpdel[data-pid="001"]');
-    await remove.waitFor({ state: 'visible', timeout: 3000 });
-    assert.equal(await remove.getAttribute('aria-label'), 'Remove Test 001 from this room');
-    const removeBox = await remove.boundingBox();
-    assert.ok(removeBox && removeBox.width >= 44 && removeBox.height >= 44, 'delete control keeps a 44px mobile touch target');
+    const actions = manager.locator('#roster .roster-actions[data-pid="001"]');
+    const actionBox = await actions.boundingBox();
+    assert.ok(actionBox && actionBox.width >= 44 && actionBox.height >= 44, 'actions trigger keeps a 44px mobile touch target');
+    assert.equal(await actions.getAttribute('aria-haspopup'), 'menu');
+    assert.equal(await actions.getAttribute('aria-controls'), 'rosterActionsMenu');
 
-    let cancelledPrompt = '';
-    manager.once('dialog', async dialog => {
-      cancelledPrompt = dialog.message();
-      await dialog.dismiss();
-    });
-    await remove.click();
-    assert.match(cancelledPrompt, /Remove Test 001 from this room\?/);
-    assert.equal(await target.count(), 1, 'cancelling confirmation keeps the player');
-    assert.equal(await target.getAttribute('class'), 'rp', 'delete click never also selects the captain');
+    await actions.click();
+    const menu = manager.locator('#rosterActionsMenu');
+    const dialog = manager.locator('#removePlayerOvl');
+    await menu.waitFor({ state: 'visible' });
+    assert.deepEqual(await menu.locator('[role="menuitem"]').evaluateAll(nodes => nodes.map(node => node.dataset.action)), ['edit-march', 'remove']);
+    await menu.locator('[data-action="edit-march"]').focus();
+    await manager.keyboard.press('ArrowDown');
+    assert.equal(await manager.evaluate(() => document.activeElement && document.activeElement.dataset.action), 'remove', 'menu supports roving keyboard focus');
+    await manager.keyboard.press('Home');
+    assert.equal(await manager.evaluate(() => document.activeElement && document.activeElement.dataset.action), 'edit-march');
+    await manager.keyboard.press('End');
+    assert.equal(await manager.evaluate(() => document.activeElement && document.activeElement.dataset.action), 'remove');
+    await manager.keyboard.press('Escape');
+    assert.equal(await menu.isVisible(), false, 'Escape dismisses the actions menu');
+    assert.equal(await actions.getAttribute('aria-expanded'), 'false');
 
-    let confirmation = '';
-    manager.once('dialog', async dialog => {
-      confirmation = dialog.message();
-      await dialog.accept();
-    });
-    const reload = manager.waitForEvent('load', { timeout: 5000 });
-    await remove.click();
-    await reload;
+    await actions.click();
+    await manager.locator('#t_cmd').click();
+    assert.equal(await menu.isVisible(), false, 'outside pointer dismissal closes the menu');
+
+    await actions.click();
+    await menu.locator('[data-action="remove"]').focus();
+    assertQaRoomName(room);
+    await manager.evaluate(roomName => {
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      const ws = new WebSocket(`${proto}://${location.host}/api/ws?room=${encodeURIComponent(roomName)}`);
+      ws.onopen = () => { ws.send(JSON.stringify({ t: 'hb', pid: '001' })); setTimeout(() => ws.close(), 300); };
+    }, room);
+    await manager.waitForTimeout(450);
+    assert.equal(await manager.evaluate(() => document.activeElement?.dataset.action), 'remove', 'heartbeat rerender preserves menu focus');
+    await manager.keyboard.press('Escape');
+
+    await actions.click();
+    await menu.locator('[data-action="edit-march"]').click();
+    await manager.locator('#commanderMarchInput').fill('0:36');
+    assertQaRoomName(room);
+    await manager.evaluate(roomName => {
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      const ws = new WebSocket(`${proto}://${location.host}/api/ws?room=${encodeURIComponent(roomName)}`);
+      ws.onopen = () => { ws.send(JSON.stringify({ t: 'ready', pid: 'kimchi', ready: true })); setTimeout(() => ws.close(), 300); };
+    }, room);
+    await manager.waitForTimeout(450);
+    assert.equal(await manager.locator('#commanderMarchInput').inputValue(), '0:36', 'room snapshots preserve a dirty march draft');
+    await manager.locator('#commanderMarchCancel').click();
+
+    await actions.click();
+    await menu.locator('[data-action="edit-march"]').click();
+    await manager.locator('#commanderMarchInput').fill('0:36');
+    await manager.evaluate(() => { window.__holdMarchBadPassword = true; });
+    await manager.locator('#commanderMarchSave').click();
+    await manager.locator('#roster .roster-actions[data-pid="kimchi"]').click();
+    await menu.locator('[data-action="remove"]').click();
+    await dialog.waitFor({ state: 'visible' });
+    await manager.evaluate(() => window.__heldMarchSocket.dispatchEvent(new MessageEvent('message', {
+      data: JSON.stringify({ t: 'error', error: 'bad_password', mutationId: window.__heldMarchMutation })
+    })));
+    await manager.locator('#console').waitFor({ state: 'hidden', timeout: 5000 });
+    assert.equal(await dialog.isVisible(), false, 'mutation-scoped bad password also closes removal UI');
+    await manager.waitForFunction(() => document.activeElement?.id === 'cmdUnlock');
+    assert.equal(await manager.locator('#roster .rp[data-pid="kimchi"]').count(), 1, 'credential failure never mutates the removal target');
+    await manager.locator('#cmdUnlock').click();
+    await manager.locator('#pwInput').fill('remove-test-password');
+    await manager.locator('#pwGo').click();
     await manager.locator('#console').waitFor({ state: 'visible', timeout: 5000 });
-    assert.match(confirmation, /Remove Test 001 from this room\?/);
+    await manager.locator('#commanderMarchCancel').click();
+
+    await actions.click();
+    await menu.locator('[data-action="remove"]').click();
+    await dialog.waitFor({ state: 'visible' });
+    assert.equal(await dialog.getAttribute('role'), 'dialog');
+    assert.equal(await dialog.getAttribute('aria-modal'), 'true');
+    assert.equal(await manager.evaluate(() => document.activeElement && document.activeElement.id), 'removePlayerCancel', 'Cancel receives initial focus');
+    await manager.keyboard.press('Shift+Tab');
+    assert.equal(await manager.evaluate(() => document.activeElement && document.activeElement.id), 'removePlayerConfirm', 'dialog traps backward Tab');
+    await manager.keyboard.press('Tab');
+    assert.equal(await manager.evaluate(() => document.activeElement && document.activeElement.id), 'removePlayerCancel', 'dialog traps forward Tab');
+    await manager.locator('#removePlayerCancel').click();
+    assert.equal(await target.count(), 1, 'cancelling confirmation keeps the player');
+    assert.equal(await manager.evaluate(() => document.activeElement && document.activeElement.dataset.pid), '001', 'Cancel returns focus to the current actions trigger');
+
+    await actions.click();
+    await menu.locator('[data-action="remove"]').click();
+    await manager.evaluate(() => { window.__removeSendMode = 'fail'; });
+    await manager.locator('#removePlayerConfirm').click();
+    assert.equal(removePackets, 0, 'a false send creates no pending removal request');
+    assert.equal(await target.count(), 1, 'false send keeps canonical player state');
+    assert.equal(await dialog.isVisible(), true, 'false send keeps the dialog retryable');
+    assert.match(await manager.locator('#removePlayerStatus').textContent(), /retry|not sent|connection/i);
+
+    await manager.evaluate(() => {
+      if (!window.__nativeRoomSocketSend) {
+        window.__nativeRoomSocketSend = RoomSocket.prototype.send;
+        RoomSocket.prototype.send = function (message) {
+          if (message?.t === 'removePlayer' && window.__refreshRemovalOnce) {
+            window.__refreshRemovalOnce = false;
+            setTimeout(() => this.refresh(), 0);
+            return true;
+          }
+          return window.__nativeRoomSocketSend.call(this, message);
+        };
+      }
+      window.__refreshRemovalOnce = true;
+    });
+    await manager.locator('#removePlayerConfirm').click();
+    await manager.waitForFunction(() => /retry/i.test(document.querySelector('#removePlayerStatus')?.textContent || ''), null, { timeout: 5000 });
+    assert.equal(await target.count(), 1, 'generation replacement with the player present becomes manually retryable');
+    assert.equal(removePackets, 0, 'refresh replacement never auto-resends');
+
+    await manager.evaluate(() => { window.__removeSendMode = 'unscoped'; });
+    await manager.locator('#removePlayerConfirm').click();
+    await manager.waitForTimeout(120);
+    assert.equal(await target.count(), 1, 'an unscoped player_missing error cannot prove removal');
+    assert.match(await manager.locator('#removePlayerStatus').textContent(), /waiting/i, 'unscoped errors do not settle the pending target');
+    await manager.waitForFunction(() => /unknown/i.test(document.querySelector('#removePlayerStatus')?.textContent || ''), null, { timeout: 1500 });
+    await manager.locator('#removePlayerCancel').click();
+    await manager.locator('#roster .roster-actions[data-pid="kimchi"]').click();
+    assert.equal(await manager.locator('#rosterActionsMenu [data-action="remove"]').getAttribute('aria-disabled'), 'true', 'another PID cannot overwrite an unresolved removal');
+    assert.match(await manager.locator('#rosterActionsExplanation').textContent(), /waiting|remov/i);
+    await manager.keyboard.press('Escape');
+    await manager.waitForFunction(() => document.querySelector('#cdot')?.classList.contains('on'), null, { timeout: 7000 });
+    await manager.locator('#roster .roster-actions[data-pid="001"]').click();
+    await manager.locator('#rosterActionsMenu [data-action="remove"]').click();
+    assert.match(await manager.locator('#removePlayerStatus').textContent(), /retry/i, 'reconnect with the player present becomes manually retryable');
+    assert.equal(removePackets, 0, 'reconnect with the player present does not auto-resend');
+    await manager.evaluate(() => { window.__removeSendMode = 'wrongpw'; });
+    await manager.locator('#removePlayerConfirm').click();
+    await manager.locator('#console').waitFor({ state: 'hidden', timeout: 5000 });
+    assert.equal(await dialog.isVisible(), false, 'bad password closes the removal surface');
+    assert.equal(await target.count(), 1, 'bad password never removes the player');
+    await manager.waitForFunction(() => document.activeElement && document.activeElement.id === 'cmdUnlock');
+    assert.equal(removePackets, 1, 'the scoped bad-password attempt is sent exactly once');
+
+    await manager.locator('#cmdUnlock').click();
+    await manager.locator('#pwInput').fill('remove-test-password');
+    await manager.locator('#pwGo').click();
+    await manager.locator('#console').waitFor({ state: 'visible', timeout: 5000 });
+    await manager.locator('#roster .roster-actions[data-pid="001"]').click();
+    await manager.locator('#rosterActionsMenu [data-action="remove"]').click();
+    dropFirstAbsentState = true;
+    await manager.evaluate(() => { window.__removeSendMode = 'close'; });
+    await manager.locator('#removePlayerConfirm').click();
+    const processedDeadline = Date.now() + 5000;
+    while (dropFirstAbsentState && Date.now() < processedDeadline) await manager.waitForTimeout(25);
+    assert.equal(dropFirstAbsentState, false, 'the server processed removal before the simulated result-losing disconnect');
+    await manager.evaluate(() => window.__processedRemovalSocket.close());
+    await manager.waitForFunction(() => /connection|reconnect|unknown/i.test(document.querySelector('#removePlayerStatus')?.textContent || ''), null, { timeout: 1500 });
+    await manager.locator('#roster .rp[data-pid="001"]').waitFor({ state: 'detached', timeout: 8000 });
+    assert.equal(removePackets, 2, 'close/reconnect never auto-resends a removal');
     assert.equal(await manager.evaluate(key => localStorage.getItem(key), meKey), null, 'deleting this device profile clears its reconnect registration');
-    assert.equal(await manager.locator('#roster .rp.sel').count(), 0, 'delete click never selects a captain');
-    assert.equal(await manager.locator('#roster .rp[data-pid="001"]').count(), 0, 'removed player stays absent after the deleting device reloads');
+    assert.equal(await manager.locator('#console').isVisible(), true, 'own-player removal preserves commander unlock');
     assert.equal(await manager.locator('#roster .rp[data-pid="kimchi"]').count(), 1, 'unrelated player remains');
 
     await observer.waitForFunction(() => {
       const state = window.__roomStates[window.__roomStates.length - 1];
       return state && !state.players['001'] && state.players.kimchi;
     }, null, { timeout: 5000 });
+    assert.equal(await manager.locator('link[href="app.css?v=28"]').count(), 1);
+    assert.equal(await manager.locator('script[src="app.js?v=10"]').count(), 1);
+    assert.equal(await manager.locator('script[src="kvk.js?v=38"]').count(), 1);
     assert.deepEqual(errors, []);
-    console.log('✓ authenticated roster deletion is confirmed and synchronized to another device');
+    console.log(`✓ removal actions, retry, reconnect, and inline synchronization (${room})`);
   } finally {
     await browser.close();
   }

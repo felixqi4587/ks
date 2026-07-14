@@ -92,9 +92,9 @@ async function assertLayout(page, width) {
     await page.locator('#pwGo').click();
     await page.locator('#console').waitFor({ state: 'visible' });
 
-    assert.equal(await page.locator('link[href="app.css?v=27"]').count(), 1);
+    assert.equal(await page.locator('link[href="app.css?v=28"]').count(), 1);
     assert.equal(await page.locator('script[src="app.js?v=10"]').count(), 1);
-    assert.equal(await page.locator('script[src="kvk.js?v=37"]').count(), 1);
+    assert.equal(await page.locator('script[src="kvk.js?v=38"]').count(), 1);
     await page.locator('#roster .roster-row').first().waitFor();
     assert.equal(await page.locator('#roster .roster-row').count(), 7);
     assert.equal(await page.locator('#rosterSearchWrap').isVisible(), true);
