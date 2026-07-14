@@ -1,0 +1,7 @@
+[
+  { "icon": "⚔️", "zh": "KvK 跨国战", "en": "KvK (Kingdom vs Kingdom)", "sched_zh": "按赛季，battle 日见游戏内公告", "sched_en": "Seasonal — battle day per in-game notice" },
+  { "icon": "🏟️", "zh": "竞技场", "en": "Arena", "sched_zh": "每日重置", "sched_en": "Daily reset" },
+  { "icon": "🐲", "zh": "火龙 / 巨兽", "en": "Dragon / Beast", "sched_zh": "活动期间每日固定时段", "sched_en": "Fixed daily windows during the event" },
+  { "icon": "🐻", "zh": "熊突 (Bear Hunt)", "en": "Bear Hunt", "sched_zh": "每周开放，联盟集结打", "sched_en": "Weekly — alliance rallies" },
+  { "icon": "🏰", "zh": "王城争夺", "en": "King's Castle contest", "sched_zh": "KvK battle 阶段", "sched_en": "During KvK battle phase" }
+]

@@ -1,0 +1,13 @@
+{
+  "name": "kingshoter",
+  "private": true,
+  "scripts": {
+    "test": "node --test test/*.test.cjs",
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
+  },
+  "devDependencies": {
+    "playwright": "^1.61.1",
+    "wrangler": "4.110.0"
+  }
+}

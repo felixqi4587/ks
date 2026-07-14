@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f8f8f0">
+<title>kingshoter · KvK 打法 & 词汇</title>
+<link rel="icon" href="/favicon.svg">
+<link rel="stylesheet" href="app.css?v=15">
+<style>
+  .term{margin-bottom:14px}
+  .term h2{display:flex;align-items:baseline;gap:8px;margin:0 0 2px}
+  .term h2 .en{font-size:12px;color:var(--brown3);font-weight:700}
+  .scene{background:radial-gradient(circle at 55% 40%,#eafaf7,#d7f1ec);border:2px solid #bfeee7;border-radius:var(--r);overflow:hidden;margin:8px 0}
+  .scene svg{display:block;width:100%;height:auto}
+  .term .def{font-size:13px;color:var(--brown2);line-height:1.6}
+  .term .def b{color:var(--brown)}
+  .term .cap{text-align:center;font:800 12px/1.4 var(--font);color:var(--mint-deep);min-height:18px;margin-top:4px}
+  .lead-in{font-size:13.5px;color:var(--brown2);line-height:1.7}
+  .legend-cap{font-size:12.5px;color:var(--brown2);font-weight:700;line-height:1.55;margin:0 0 6px}
+  text{font-family:var(--font)}
+</style>
+</head>
+<body>
+<div class="wrap"><main>
+  <div class="top"><div><h1 id="h1">KvK 打法 & 词汇</h1><div class="sub" id="sub">看动画，秒懂集结 / 反集结 / refill</div></div>
+    <div class="clock"><span id="utc">--:--:--</span><small><span data-i18n="utc_local">UTC · 本地</span> <span id="loc">--:--:--</span></small></div></div>
+  <div class="viewtabs">
+    <a href="index.html" data-i18n="nav_home">🏠 首页</a><a href="kvk.html" data-i18n="nav_kvk">⚔️ KvK 指挥</a>
+    <a href="codes.html" data-i18n="nav_codes">🎁 礼包码</a><a class="on" data-i18n="nav_guide">📖 词汇</a>
+  </div>
+  <div class="homebar"><div id="langtoggle" class="langtoggle"></div></div>
+  <div class="card"><p class="lead-in" id="leadin"></p></div>
+  <div class="card" id="legend"></div>
+  <div id="terms"></div>
+  <a class="btn amber full" href="kvk.html" id="goRoom" style="margin:6px 0 14px">⚔️ 去 KvK 指挥室</a>
+  <p class="foot" data-i18n="foot">Kingshot 玩家自制工具 · 非官方 ⚔️🐟</p>
+</main></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="app.js?v=8"></script>
+<script>
+(function () {
+  var L = function () { return lang === "en"; };
+  var NS = "http://www.w3.org/2000/svg";
+  function E(t, a) { var e = document.createElementNS(NS, t); for (var k in a) e.setAttribute(k, a[k]); return e; }
+  function triPts(cx, cy, W) { return cx + "," + (cy + W * 1.05) + " " + (cx - W) + "," + (cy - W * 0.78) + " " + (cx + W) + "," + (cy - W * 0.78); }
+
+  // ── actor factory ── side=shape (●ally / ▼enemy), role=size+crown. Body at origin; animate by tweening the group x/y.
+  function unit(svg, x, y, o) {
+    var g = E("g", {});
+    if (o.side === "ally") {
+      var r = o.role === "captain" ? 11 : 6;
+      g.appendChild(E("circle", { cx: 0, cy: 0, r: r, fill: "#19c8b9", stroke: "#fbf7ec", "stroke-width": 2 }));
+      if (o.role === "captain") {
+        g.appendChild(E("circle", { cx: 0, cy: 0, r: 8.5, fill: "none", stroke: "#0fa193", "stroke-width": 1.5 }));
+        g.appendChild(E("rect", { x: -7, y: -20, width: 14, height: 3, rx: 1.5, fill: "#794f27" }));
+        [[-6, -20, 2], [0, -22, 2.4], [6, -20, 2]].forEach(function (c) { g.appendChild(E("circle", { cx: c[0], cy: c[1], r: c[2], fill: "#794f27" })); });
+      }
+    } else {
+      g.appendChild(E("polygon", { points: o.role === "captain" ? "0,11.5 -11,-8.6 11,-8.6" : "0,6.6 -6.3,-4.9 6.3,-4.9", fill: "#e05a5a", stroke: "#fbf7ec", "stroke-width": 2, "stroke-linejoin": "round" }));
+      if (o.role === "captain") {
+        g.appendChild(E("polygon", { points: "0,8 -7.5,-5.6 7.5,-5.6", fill: "none", stroke: "#b23b3b", "stroke-width": 1.5, "stroke-linejoin": "round" }));
+        g.appendChild(E("polygon", { points: "-7,-15 -4,-21 -1,-15 0,-22 1,-15 4,-21 7,-15", fill: "#794f27" }));
+      }
+    }
+    svg.appendChild(g); g._sx = x; g._sy = y;
+    if (window.gsap) gsap.set(g, { x: x, y: y }); else g.setAttribute("transform", "translate(" + x + "," + y + ")");
+    return g;
+  }
+
+  // ── castle ── ownership: resident shape (circle/triangle/none) + stroke + fill tint
+  function castle(svg, cx, cy, owner) {
+    var g = E("g", {});
+    var body = E("rect", { x: cx - 20, y: cy - 16, width: 40, height: 32, rx: 8, fill: "#fce3b8", stroke: "#794f27", "stroke-width": 3 });
+    g.appendChild(body);
+    var merlons = [-20, -6, 8].map(function (dx) { var m = E("rect", { x: cx + dx + 1, y: cy - 23, width: 8, height: 9, rx: 2, fill: "#794f27" }); g.appendChild(m); return m; });
+    var rAlly = E("circle", { cx: cx, cy: cy + 2, r: 5, fill: "#19c8b9", stroke: "#fbf7ec", "stroke-width": 2, opacity: 0 });
+    var rEnemy = E("polygon", { points: triPts(cx, cy + 2, 5), fill: "#e05a5a", stroke: "#fbf7ec", "stroke-width": 2, "stroke-linejoin": "round", opacity: 0 });
+    g.appendChild(rAlly); g.appendChild(rEnemy); svg.appendChild(g);
+    var COL = { ally: "#5a9e1e", enemy: "#e05a5a", neutral: "#794f27" }, FILL = { ally: "#dff3c8", enemy: "#fbe0de", neutral: "#fce3b8" };
+    function tint(fill, stroke) { body.setAttribute("fill", fill); body.setAttribute("stroke", stroke); merlons.forEach(function (m) { m.setAttribute("fill", stroke); }); }
+    function setOwner(o) { tint(FILL[o], COL[o]); rAlly.setAttribute("opacity", o === "ally" ? 1 : 0); rEnemy.setAttribute("opacity", o === "enemy" ? 1 : 0); }
+    setOwner(owner || "neutral");
+    return { g: g, tint: tint, setOwner: setOwner };
+  }
+
+  var FX = function (i, t) { return t._sx; }, FY = function (i, t) { return t._sy; };
+  function reset(tl, arr) { tl.set(arr, { x: FX, y: FY, opacity: 1, scale: 1 }); return tl; }
+  var PULSE = { duration: .17, scale: 1.13, yoyo: true, repeat: 1, transformOrigin: "center" };
+
+  var TERMS = [
+    { zh: "集结", en: "Rally", icon: "⚔️",
+      defZh: "很多玩家把部队<b>一起</b>发到同一个目标。先<b>集结 5 分钟</b>(凑人),再<b>行军</b>过去。一波集结=一支合成大军。",
+      defEn: "Many players send troops to one target <b>together</b>. First a <b>5-min gather</b>, then they <b>march</b>. One rally = one combined army.",
+      capZh: ["① 队员(小圆)向集结者(大圆+皇冠)汇聚", "② 合成一军 → 行军夺城 🚩"],
+      capEn: ["① joiners (small ●) gather into the captain (big ●+crown)", "② merge into one army → take the castle 🚩"],
+      build: function (svg) {
+        var cap = unit(svg, 70, 105, { side: "ally", role: "captain" });
+        var js = [[48, 111], [62, 123], [78, 103], [40, 95]].map(function (p) { return unit(svg, p[0], p[1], { side: "ally", role: "joiner" }); });
+        var cs = castle(svg, 250, 52, "neutral");
+        return function (capEl, caps) {
+          var tl = gsap.timeline({ repeat: -1, repeatDelay: .7 }); reset(tl, [cap].concat(js)).set(cs.g, { scale: 1 });
+          tl.call(function () { cs.setOwner("neutral"); capEl.textContent = caps[0]; })
+            .to(js, { x: 70, y: 105, duration: .8, ease: "power2.in" })
+            .set(js, { opacity: 0 }).to(cap, PULSE)
+            .call(function () { capEl.textContent = caps[1]; })
+            .to(cap, { x: 250, y: 52, duration: 1.4, ease: "power1.inOut" })
+            .set(cap, { opacity: 0 }).call(function () { cs.setOwner("ally"); }).to(cs.g, PULSE)
+            .to({}, { duration: .7 });
+          return tl;
+        };
+      } },
+    { zh: "行军时间", en: "March time", icon: "⏱️",
+      defZh: "你的部队从你的城跑到王城要多久。<b>这就是你在网页上要填的数</b> —— 指挥靠它算你几点开车。",
+      defEn: "How long your troops take to reach the King's Castle. <b>This is the number you enter on the site</b> — the commander uses it to compute your launch time.",
+      capZh: ["你的部队(我方集结者)行军到王城…", "⏱️ 这段时间 = 你填的行军时间"],
+      capEn: ["your troops (ally captain) march to the castle…", "⏱️ that time = your march time"],
+      build: function (svg) {
+        castle(svg, 250, 60, "neutral"); var u = unit(svg, 60, 110, { side: "ally", role: "captain" });
+        var badge = E("g", { opacity: 0 }); badge.appendChild(E("rect", { x: -24, y: -13, width: 48, height: 18, rx: 9, fill: "#0f3b34" }));
+        var tx = E("text", { y: 0, "text-anchor": "middle", "font-size": 11, "font-weight": 900, fill: "#d7f5ee", "font-family": "monospace" }); tx.textContent = "1:30"; badge.appendChild(tx); svg.appendChild(badge);
+        return function (capEl, caps) {
+          var tl = gsap.timeline({ repeat: -1, repeatDelay: .6 }); reset(tl, [u]);
+          tl.set(badge, { opacity: 1 }).call(function () { capEl.textContent = caps[0]; })
+            .to({ p: 0 }, { p: 1, duration: 2.4, ease: "none", onUpdate: function () { var p = this.targets()[0].p, x = 60 + 190 * p, y = 110 - 50 * p; gsap.set(u, { x: x, y: y }); badge.setAttribute("transform", "translate(" + x + "," + (y - 22) + ")"); var s = Math.round(90 * (1 - p)); tx.textContent = Math.floor(s / 60) + ":" + (s % 60 < 10 ? "0" : "") + (s % 60); } })
+            .call(function () { capEl.textContent = caps[1]; }).to({}, { duration: 1 });
+          return tl;
+        };
+      } },
+    { zh: "双集结", en: "Double rally", icon: "⚔️⚔️",
+      defZh: "<b>你的两波集结</b>落地差 1 秒:<b>消耗车</b>(半透明)先到 1 秒拖垮守军,<b>主力车</b>随后落地夺城。守方几乎没机会补兵。",
+      defEn: "<b>Your two rallies</b> land 1 second apart: the <b>sacrifice</b> (faded) lands first to drain the garrison, the <b>main</b> lands next to capture. The defender barely has time to refill.",
+      capZh: ["两波都是你的(都是圆)，一起飞…", "消耗车先 1 秒落地(拖垮)→ 主力夺取 🚩"],
+      capEn: ["both are yours (both ●), flying in…", "sacrifice lands 1s first (drains) → main captures 🚩"],
+      build: function (svg) {
+        var cs = castle(svg, 250, 55, "neutral");
+        var sac = unit(svg, 52, 74, { side: "ally", role: "captain" }), main = unit(svg, 60, 118, { side: "ally", role: "captain" });
+        return function (capEl, caps) {
+          var tl = gsap.timeline({ repeat: -1, repeatDelay: .7 }); reset(tl, [sac, main]).set(cs.g, { scale: 1 });
+          tl.call(function () { cs.setOwner("neutral"); capEl.textContent = caps[0]; }).set(sac, { opacity: .7 })
+            .to(sac, { x: 250, y: 55, duration: 1.5, ease: "power1.inOut" }, "launch")
+            .to(main, { x: 250, y: 55, duration: 1.75, ease: "power1.inOut" }, "launch")
+            .call(function () { capEl.textContent = caps[1]; })
+            .set(sac, { opacity: 0 }).call(function () { cs.tint("#fbe0de", "#e05a5a"); })
+            .to({}, { duration: .35 })
+            .set(main, { opacity: 0 }).call(function () { cs.setOwner("ally"); }).to(cs.g, PULSE)
+            .to({}, { duration: 1 });
+          return tl;
+        };
+      } },
+    { zh: "反集结", en: "Counter-rally", icon: "🛡️",
+      defZh: "城堡被我方<b>联盟1</b>占着。敌人来集结夺城时,你有约 <b>1 分钟</b>窗口:让王城玩家 <b>refill</b> 补满。顶住 → 敌集结<b>解散</b>;万一没顶住,<b>联盟2 立刻反集结</b>,缩短对方占领时间。",
+      defEn: "Your <b>Alliance 1</b> holds the castle. When the enemy rallies it you get a ~<b>1-min</b> window — castle players <b>refill</b>. Hold → their rally <b>disbands</b>; if it falls, <b>Alliance 2 counter-rallies</b> at once to cut their hold time.",
+      capZh: ["我方(联盟1)占城 · 敌来集结(约1分钟 refill 窗口)", "联盟2 反集结落地 → 敌解散，守住 ✓"],
+      capEn: ["Alliance 1 holds · enemy rallies (~1-min refill window)", "Alliance 2 counter lands → enemy disbands, held ✓"],
+      build: function (svg) {
+        var cs = castle(svg, 160, 56, "ally");
+        var win = E("text", { x: 160, y: 102, "text-anchor": "middle", "font-size": 10, "font-weight": 800, fill: "#b8860b", opacity: 0 }); win.textContent = (L() ? "⏳ ~1 min — refill!" : "⏳ 约1分钟 — refill!"); svg.appendChild(win);
+        var en = unit(svg, 36, 60, { side: "enemy", role: "captain" }), a2 = unit(svg, 300, 108, { side: "ally", role: "captain" });
+        return function (capEl, caps) {
+          var tl = gsap.timeline({ repeat: -1, repeatDelay: .6 }); reset(tl, [en, a2]).set(cs.g, { scale: 1 }).set(win, { attr: { opacity: 0 } });
+          tl.call(function () { cs.setOwner("ally"); capEl.textContent = caps[0]; })
+            .to(en, { x: 112, y: 58, duration: 1.0, ease: "power1.out" })                 // enemy rally forms on our castle
+            .set(win, { attr: { opacity: 1 } }).to(win, { attr: { opacity: .35 }, duration: .5, yoyo: true, repeat: 2 })
+            .call(function () { capEl.textContent = caps[1]; }).set(win, { attr: { opacity: 0 } })
+            .to(a2, { x: 160, y: 56, duration: 1.0, ease: "power1.in" })                  // Alliance-2 counter-rally lands
+            .set(a2, { opacity: 0 }).set(en, { opacity: 0 }).to(cs.g, PULSE)              // enemy disbands, castle held
+            .to({}, { duration: .9 });
+          return tl;
+        };
+      } },
+    { zh: "对方的反集结", en: "Enemy's counter", icon: "❓",
+      defZh: "对方占着基地、又<b>习惯反集结</b>时:<b>预判</b>他们大约多久后反打,在那之后 <b>+30 秒</b>发动我们的集结。于是场上是<b>两波相差几分钟的双集结</b>——你正好踩着对方反集结的空档落地夺回。",
+      defEn: "When the enemy holds the base and <b>habitually counter-rallies</b>: <b>predict</b> roughly when they'll counter, then launch ours <b>+30 s</b> after that. You end up with <b>two double-rallies minutes apart</b> — yours landing right in the gap of their counter.",
+      capZh: ["对方占基地、爱反集结 → 预判他们多久后反打", "预判 +30 秒发动 → 两波错峰双集结夺回"],
+      capEn: ["enemy holds & counter-rallies → predict their timing", "launch +30s after → two staggered double-rallies retake"],
+      build: function (svg) {
+        var cs = castle(svg, 160, 56, "enemy");
+        var g = E("text", { x: 160, y: 102, "text-anchor": "middle", "font-size": 10, "font-weight": 800, fill: "#b8860b", opacity: 0 }); g.textContent = (L() ? "❓ guess their counter, then +30s" : "❓ 预判反打时间，再 +30秒"); svg.appendChild(g);
+        var a = unit(svg, 40, 112, { side: "ally", role: "captain" }), c = unit(svg, 300, 112, { side: "ally", role: "captain" });
+        return function (capEl, caps) {
+          var tl = gsap.timeline({ repeat: -1, repeatDelay: .6 }); reset(tl, [a, c]).set(cs.g, { scale: 1 }).set(g, { attr: { opacity: 0 } });
+          tl.call(function () { cs.setOwner("enemy"); capEl.textContent = caps[0]; })
+            .to(g, { attr: { opacity: 1 }, duration: .5, yoyo: true, repeat: 3 })
+            .call(function () { capEl.textContent = caps[1]; }).set(g, { attr: { opacity: 0 } })
+            .to(a, { x: 160, y: 56, duration: 1.15, ease: "power1.in" }, "wave")          // our double-rally, timed +30s after their counter
+            .to(c, { x: 160, y: 56, duration: 1.45, ease: "power1.in" }, "wave")
+            .set(a, { opacity: 0 }).set(c, { opacity: 0 }).call(function () { cs.setOwner("ally"); }).to(cs.g, PULSE)
+            .to({}, { duration: .9 });
+          return tl;
+        };
+      } },
+    { zh: "Refill 补兵", en: "Refill", icon: "💧",
+      defZh: "守城时,敌每波落地会削护盾。你在它<b>落地后约 1 秒补满</b>守军,就能把它弹回去。指挥的「refill 提醒」就是叫大家补这一下。",
+      defEn: "While holding, each enemy hit drops the garrison. <b>Refill ~1s after they land</b> and it bounces back. The commander's “refill call” tells everyone to top up right then.",
+      capZh: ["对方集结者(▼)落地 → 护盾掉", "约1秒后我方加入者(●)refill 补满 → 守住 ✓"],
+      capEn: ["enemy captain (▼) lands → garrison drops", "ally joiner (●) refills ~1s later → holds ✓"],
+      build: function (svg) {
+        var cs = castle(svg, 160, 50, "ally");
+        svg.appendChild(E("rect", { x: 120, y: 92, width: 80, height: 10, rx: 5, fill: "#eadfca" }));
+        var bar = E("rect", { x: 121, y: 93, width: 78, height: 8, rx: 4, fill: "#6fba2c" }); svg.appendChild(bar);
+        var en = unit(svg, 38, 56, { side: "enemy", role: "captain" }), fill = unit(svg, 284, 108, { side: "ally", role: "joiner" });
+        return function (capEl, caps) {
+          var tl = gsap.timeline({ repeat: -1, repeatDelay: .5 }); reset(tl, [en, fill]);
+          tl.call(function () { cs.setOwner("ally"); capEl.textContent = caps[0]; }).set(bar, { attr: { width: 78, fill: "#6fba2c" } })
+            .to(en, { x: 160, y: 50, duration: 1.1, ease: "power1.in" })
+            .set(en, { opacity: 0 }).to(bar, { attr: { width: 22, fill: "#e05a5a" }, duration: .25 })
+            .call(function () { capEl.textContent = caps[1]; })
+            .to(fill, { x: 160, y: 50, duration: 1.0, ease: "power1.in" })
+            .set(fill, { opacity: 0 }).to(bar, { attr: { width: 78, fill: "#6fba2c" }, duration: .3 })
+            .to({}, { duration: .9 });
+          return tl;
+        };
+      } }
+  ];
+
+  var TLS = [], IOS = [];
+  function clearAll() { TLS.forEach(function (t) { t.kill(); }); IOS.forEach(function (o) { o.disconnect(); }); TLS = []; IOS = []; $("terms").innerHTML = ""; $("legend").innerHTML = ""; }
+
+  function renderHeader() {
+    document.getElementById("h1").textContent = L() ? "KvK Playbook & Glossary" : "KvK 打法 & 词汇";
+    document.getElementById("sub").textContent = L() ? "Watch the animation — get rally / counter / refill instantly" : "看动画，秒懂集结 / 反集结 / refill";
+    document.getElementById("leadin").innerHTML = L()
+      ? "KvK is won at the <b>King's Castle</b>: whoever holds it scores. It's a tug-of-war of <b>rallies</b>. First learn the cast below, then each term is a short animation — leaders and members share the same words."
+      : "KvK 的胜负在<b>王城</b>:谁占着谁得分。整场就是一波波<b>集结</b>的拉锯。先认下面的「人」,再看每个词的动画,指挥和队员都用同一套话。";
+    document.getElementById("goRoom").textContent = L() ? "⚔️ Go to the KvK command room" : "⚔️ 去 KvK 指挥室";
+  }
+
+  function renderLegend() {
+    var box = $("legend");
+    var cap = document.createElement("p"); cap.className = "legend-cap";
+    cap.innerHTML = L() ? "<b>Meet the cast.</b> Works even color-blind: ● circle = us, ▼ triangle = them; big + crown = the rally captain."
+      : "<b>先认人。</b>色盲也能分:● 圆=我方,▼ 三角=对方;大号+皇冠=集结者(发起人)。";
+    box.appendChild(cap);
+    var wrap = document.createElement("div"); wrap.className = "scene"; var svg = E("svg", { viewBox: "0 0 320 158" }); wrap.appendChild(svg); box.appendChild(wrap);
+    [["ally", "captain", 42, L() ? ["Ally", "captain"] : ["我方", "集结者"]],
+     ["ally", "joiner", 116, L() ? ["Ally", "joiner"] : ["我方", "加入者"]],
+     ["enemy", "captain", 200, L() ? ["Enemy", "captain"] : ["对方", "集结者"]],
+     ["enemy", "joiner", 278, L() ? ["Enemy", "joiner"] : ["对方", "加入者"]]].forEach(function (a) {
+      unit(svg, a[2], 36, { side: a[0], role: a[1] });
+      var t1 = E("text", { x: a[2], y: 62, "text-anchor": "middle", "font-size": 9.5, "font-weight": 800, fill: "#5b4a32" }); t1.textContent = a[3][0];
+      var t2 = E("text", { x: a[2], y: 74, "text-anchor": "middle", "font-size": 9.5, "font-weight": 800, fill: "#5b4a32" }); t2.textContent = a[3][1];
+      svg.appendChild(t1); svg.appendChild(t2);
+    });
+    [[70, "neutral", L() ? "Neutral" : "中立(无人占)"], [160, "ally", L() ? "We hold" : "我方占领"], [250, "enemy", L() ? "They hold" : "对方占领"]].forEach(function (c) {
+      castle(svg, c[0], 112, c[1]); var t = E("text", { x: c[0], y: 142, "text-anchor": "middle", "font-size": 9.5, "font-weight": 800, fill: "#5b4a32" }); t.textContent = c[2]; svg.appendChild(t);
+    });
+  }
+
+  function renderTerms() {
+    var box = $("terms");
+    TERMS.forEach(function (term) {
+      var el = document.createElement("div"); el.className = "card term";
+      el.innerHTML = '<h2>' + term.icon + ' ' + (L() ? term.en : term.zh) + ' <span class="en">' + (L() ? term.zh : term.en) + '</span></h2>' +
+        '<div class="scene"><svg viewBox="0 0 320 130"></svg></div><div class="cap"></div>' +
+        '<div class="def">' + (L() ? term.defEn : term.defZh) + '</div>';
+      box.appendChild(el);
+      var svg = el.querySelector("svg"), capEl = el.querySelector(".cap"), caps = L() ? term.capEn : term.capZh;
+      if (!window.gsap) { capEl.textContent = caps[0]; return; }
+      var play = term.build(svg), tl = null;
+      var io = new IntersectionObserver(function (es) { es.forEach(function (e) { if (e.isIntersecting) { if (!tl) tl = play(capEl, caps); else tl.play(); } else if (tl) tl.pause(); }); }, { threshold: .3 });
+      io.observe(el); IOS.push(io); TLS.push({ kill: function () { if (tl) tl.kill(); } });
+    });
+  }
+
+  function renderAll() { clearAll(); renderLegend(); renderTerms(); }
+  window.onLangChange = function () { renderHeader(); renderAll(); };
+  renderHeader(); renderAll(); initI18n(); startClock();
+})();
+</script>
+</body>
+</html>

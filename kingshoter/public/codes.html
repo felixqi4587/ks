@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>kingshoter · 礼包码</title>
+<link rel="icon" href="/favicon.svg">
+<link rel="stylesheet" href="app.css?v=18">
+<style>
+  .code{display:flex;align-items:center;gap:10px;border:2px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:9px;background:var(--paper)}
+  .code .c{font:900 16px/1 var(--mono);color:var(--brown);flex:1;letter-spacing:.5px}
+  .code button{border:0;background:linear-gradient(180deg,var(--mint-hi),var(--mint));color:#fff;border-radius:10px;padding:9px 14px;font:800 12px/1 var(--font);cursor:pointer}
+</style>
+</head>
+<body>
+<div class="wrap"><main>
+  <div class="top"><div><h1 data-i18n="card_codes">礼包码查询</h1><div class="sub" data-i18n="card_codes_d">当前有效礼包码</div></div>
+    <div class="clock"><span id="utc">--:--:--</span><small><span data-i18n="utc_local">UTC · 本地</span> <span id="loc">--:--:--</span></small></div></div>
+  <div class="viewtabs">
+    <a href="index.html" data-i18n="nav_home">🏠 首页</a><a href="kvk.html" data-i18n="nav_kvk">⚔️ KvK 指挥</a>
+    <a class="on" data-i18n="nav_codes">🎁 礼包码</a><a href="guide.html" data-i18n="nav_guide">📖 词汇</a>
+  </div>
+  <div class="homebar" style="align-items:center;gap:9px">
+    <!-- 🐟 quiet salty fish — tap it 6 times and it takes you home -->
+    <span id="fishEgg" aria-hidden="true" style="display:inline-flex;color:var(--brown3);opacity:.75;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;cursor:pointer"><svg viewBox="0 0 64 48" width="26" height="19"><path d="M40 24 C40 12 22 10 12 16 C4 21 4 27 12 32 C22 38 40 36 40 24 Z" fill="currentColor"/><path d="M40 24 L58 12 L54 24 L58 36 Z" fill="currentColor"/><circle cx="20" cy="22" r="2.4" fill="var(--paper)"/></svg></span>
+    <div id="langtoggle" class="langtoggle"></div>
+  </div>
+  <div class="card"><p class="hint" id="redeemNote" style="margin:0 0 10px"></p><div id="list" class="hint">…</div></div>
+  <p class="foot" data-i18n="foot">Kingshot 玩家自制工具 · 非官方 ⚔️🐟</p>
+</main></div>
+<div class="toast" id="toast"></div>
+<script src="app.js?v=8"></script>
+<script>
+initI18n(); startClock();
+var CODES = null, CODES_ERR = false;
+var REDEEM = "https://ks-giftcode.centurygame.com/";
+function renderCodes() {
+  var box = $("list"); if (!box) return;
+  var note = $("redeemNote"); if (note) { var n = (CODES && CODES.length) || 0, cnt = lang === "zh" ? ("🎁 " + n + " 个有效码") : ("🎁 " + n + " active code" + (n === 1 ? "" : "s")); note.innerHTML = '<b style="color:var(--mint-deep);font-size:13.5px">' + cnt + '</b><br>' + (lang === "zh" ? "点一下 = 复制礼包码 + 打开官方兑换页，粘贴即可兑换。" : "Tap = copy the code + open the official redeem page, then paste.") + '<br><span style="color:var(--brown3)">' + (lang === "zh" ? "🔄 列表来自我们的自动兑换工具，每分钟自动更新。" : "🔄 From our auto-redeem tool — refreshes every minute.") + '</span>'; }
+  if (CODES_ERR) { box.className = "hint"; box.textContent = lang === "zh" ? "加载失败，稍后再试" : "Load failed, try again"; return; }
+  if (CODES === null) { box.className = "hint"; box.textContent = lang === "zh" ? "加载中…" : "Loading…"; return; }
+  if (!CODES.length) { box.className = "hint"; box.textContent = lang === "zh" ? "暂无可用礼包码" : "No active codes right now"; return; }
+  box.className = ""; box.innerHTML = "";
+  CODES.forEach(function (c) {
+    var code = (typeof c === "string") ? c : (c.code || ""); if (!code) return;
+    var d = document.createElement("div"); d.className = "code";
+    d.innerHTML = '<span class="c">' + esc(code) + '</span><button>' + (lang === "zh" ? "复制并兑换 ↗" : "Copy & redeem ↗") + '</button>';
+    d.querySelector("button").onclick = function () { try { navigator.clipboard && navigator.clipboard.writeText(code); } catch (e) {} toast(lang === "zh" ? "已复制 " + code + " · 打开兑换页" : "Copied " + code + " · opening redeem page"); window.open(REDEEM, "_blank", "noopener"); };
+    box.appendChild(d);
+  });
+}
+window.onLangChange = renderCodes;   // re-render on language switch instead of getting wiped by applyI18n
+renderCodes();
+function loadCodes() { fetch("/api/codes", { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (o) { CODES = (o && o.codes) || []; CODES_ERR = false; renderCodes(); }).catch(function () { if (CODES === null) CODES_ERR = true; renderCodes(); }); }
+loadCodes(); setInterval(loadCodes, 60000);   // auto-update: re-reads the auto-redeem tool's live codeDB every minute
+/* 🐟 easter egg: 6 quick taps on the fish → the hidden team page. No hint, no tooltip — you either know or you don't. */
+(function () {
+  var n = 0, t = null, fish = $("fishEgg"); if (!fish) return;
+  fish.addEventListener("click", function () {
+    n++; clearTimeout(t); t = setTimeout(function () { n = 0; }, 1600);   // taps must come in one quick run
+    fish.style.transform = "rotate(" + (n * 6) + "deg)"; fish.style.transition = "transform .12s";
+    if (n >= 6) { n = 0; location.href = "saltyfish.html"; }
+  });
+})();
+</script>
+</body>
+</html>

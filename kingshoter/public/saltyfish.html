@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f8f8f0">
+<meta name="robots" content="noindex,nofollow">
+<title>saltyfish 🐟</title>
+<link rel="icon" href="/favicon.svg">
+<link rel="stylesheet" href="app.css?v=18">
+<style>
+  /* redeem matrix — compact, collapsible per-member (scales when the roster grows) */
+  #redeemLog .rlog-sum{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;font:800 13px/1.4 var(--font);color:var(--brown)}
+  #redeemLog .rlog-new{color:var(--green-deep);font-weight:900}
+  #redeemLog .rlog-leg{display:flex;gap:13px;flex-wrap:wrap;font-size:10.5px;color:var(--brown2);margin:6px 0 11px}
+  #redeemLog .rlog-leg i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle}
+  #redeemLog .mrow{border:1.5px solid var(--line);border-radius:12px;margin-bottom:7px;background:var(--paper);overflow:hidden;padding:0;box-shadow:none}
+  #redeemLog .mrow>summary{list-style:none;display:flex;align-items:center;gap:9px;padding:9px 12px;cursor:pointer}
+  #redeemLog .mrow>summary::-webkit-details-marker{display:none}
+  #redeemLog .mrow>summary:before{content:""}
+  #redeemLog .mname{font:800 13.5px/1 var(--font);color:var(--brown);flex:0 0 auto;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #redeemLog .mdots{flex:1;display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+  #redeemLog .mdot{width:9px;height:9px;border-radius:50%;display:inline-block}
+  #redeemLog .mcount{flex:0 0 auto;font:800 11.5px/1 var(--mono);padding:3px 9px;border-radius:20px}
+  #redeemLog .mcount.ok{color:var(--green-deep);background:#eaf7e0}
+  #redeemLog .mcount.warn{color:#b8860b;background:#fff3cf}
+  #redeemLog .mdetail{padding:2px 12px 10px;border-top:1px dashed var(--line)}
+  #redeemLog .mdr{display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:4px 0;border-bottom:1px solid var(--line)}
+  #redeemLog .mdr b{color:var(--mint-deep);font-weight:800}
+  #redeemLog .mid{font-size:10px;color:var(--brown3);margin-top:5px;font-family:var(--mono)}
+  .inrow{display:flex;gap:8px}
+  .inrow input{flex:1;min-width:0}
+  .inrow .btn{white-space:nowrap;width:auto;padding:0 16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <span class="sig" style="color:var(--mint)" aria-hidden="true"><svg viewBox="0 0 64 48" width="28" height="20"><path d="M40 24 C40 12 22 10 12 16 C4 21 4 27 12 32 C22 38 40 36 40 24 Z" fill="currentColor"/><path d="M40 24 L58 12 L54 24 L58 36 Z" fill="currentColor"/></svg></span>
+    <div><h1 id="g_h1">咸鱼小队 · 礼包码</h1><div class="sub" id="g_sub">全自动兑换 · 仅限自己人</div></div>
+    <a href="index.html" id="homeBtn" style="margin-left:auto;display:inline-flex;align-items:center;gap:5px;border:2px solid var(--line);background:var(--paper);color:var(--brown2);border-radius:999px;padding:7px 13px;font:800 12px/1 var(--font);text-decoration:none">🏠 主页</a>
+    <div id="langtoggle" class="langtoggle"></div>
+  </div>
+
+  <!-- password gate: nothing renders until it passes -->
+  <div id="gate" class="card hero" style="text-align:center">
+    <div class="herohead" style="justify-content:center"><span class="step">🔒</span><span id="t_gate_head">需要密码</span></div>
+    <div class="herosub" style="margin:10px 0 12px" id="t_gate_sub">这是内部工具，不对外。</div>
+    <form id="gateForm" style="margin:0">
+      <input type="text" name="username" value="saltyfish" autocomplete="username" style="display:none" readonly>
+      <input id="gpwInput" name="password" type="password" placeholder="密码" autocomplete="current-password" style="margin-bottom:8px">
+      <div class="pwmsg" id="gpwMsg"></div>
+      <button class="btn amber full" id="gateBtn" type="submit">进入</button>
+    </form>
+    <div style="margin-top:12px"><a href="index.html" style="color:var(--brown2);font-size:13px;text-decoration:none" id="t_back">← 返回首页</a></div>
+  </div>
+
+  <!-- gift body: shown after the gate -->
+  <div id="giftbody" class="hide">
+    <div class="card hero">
+      <div class="herohead"><span class="step">🎁</span><span id="t_hero_head">全自动兑换</span></div>
+      <div class="herosub" id="t_hero_sub"></div>
+      <div id="discordStatus" class="hint" style="margin-top:10px"></div>
+      <details style="background:none;border:none;box-shadow:none;padding:0;margin:8px 0 0">
+        <summary style="font-size:13px;padding:8px 0" id="t_token_sum">⚙️ Discord Bot Token</summary>
+        <p class="hint" style="margin:2px 0 9px" id="t_token_hint"></p>
+        <div class="inrow">
+          <input id="dToken" type="password" placeholder="Bot Token" autocomplete="off" spellcheck="false">
+          <button class="btn amber" id="dTokenBtn">连接</button>
+        </div>
+        <div id="dTokenMsg" class="hint" style="margin-top:8px"></div>
+      </details>
+      <details style="background:none;border:none;box-shadow:none;padding:0;margin:6px 0 0">
+        <summary style="font-size:13px;padding:8px 0" id="t_notify_sum">🔔 兑换成功通知（Discord webhook）</summary>
+        <p class="hint" style="margin:2px 0 9px" id="t_notify_hint"></p>
+        <div class="inrow">
+          <input id="nHook" type="password" placeholder="Webhook URL" autocomplete="off" spellcheck="false">
+          <button class="btn amber" id="nHookBtn">连接</button>
+        </div>
+        <div id="nHookMsg" class="hint" style="margin-top:8px"></div>
+      </details>
+    </div>
+
+    <div class="card">
+      <h2 id="t_roster_title">👥 队员名单</h2>
+      <p class="hint" id="t_roster_hint"></p>
+      <div id="rosterList"></div>
+      <button class="add" id="addMember">＋ 加队员</button>
+      <div id="rosterSave" class="hint" style="margin-top:9px"></div>
+    </div>
+
+    <div class="card">
+      <h2 id="t_codes_title">🎟 当前可用礼包码</h2>
+      <div id="autoCodes" class="hint">…</div>
+    </div>
+
+    <div class="card">
+      <button class="btn amber full" id="runRedeem">▶ 立即云端兑换全队</button>
+      <div id="redeemLog" style="margin-top:10px"></div>
+    </div>
+
+    <details>
+      <summary id="t_feed_sum">📥 手动喂码（看到码立刻抢）</summary>
+      <p class="hint" style="margin:2px 0 9px" id="t_feed_hint"></p>
+      <div class="inrow">
+        <input id="ingestCode" type="text" placeholder="码 或 整段消息" autocomplete="off" spellcheck="false">
+        <button class="btn amber" id="ingestBtn">⚡ 立即抢</button>
+      </div>
+      <div id="ingestMsg" class="hint" style="margin-top:8px;margin-bottom:8px"></div>
+    </details>
+  </div>
+
+  <p class="foot" id="t_foot"></p>
+</div>
+<div class="toast" id="toast"></div>
+
+<script src="app.js?v=8"></script>
+<script>
+(function(){
+"use strict";
+/* hidden internal page — no nav links anywhere point here; the URL is shared privately + gated by password */
+var GT = {
+  zh: {
+    h1: "咸鱼小队 · 礼包码", sub: "全自动兑换 · 仅限自己人", gate_head: "需要密码", gate_sub: "这是内部工具，不对外。", gate_btn: "进入", back: "← 返回首页", home: "🏠 主页", pw_ph: "密码", pw_wrong: "密码错误", pw_check: "验证中…",
+    hero_head: "全自动兑换", hero_sub: "队员零操作。官方 Discord 直连每分钟读 + 三方源每 5 分钟兜底，发现新码<b>全队自动秒兑</b>。",
+    dc_checking: "检查连接中…", token_sum: "⚙️ 设置 / 更换 官方 Discord Bot Token", token_hint: "粘 code-bot 的 Bot Token，云端即每分钟直读你关注的官方发码频道。Token 只存你自己的云端。", connect: "连接",
+    roster_title: "👥 队员名单", roster_hint: "只填 Player ID（游戏内点左上角头像可看到），名字自动获取。改动自动保存。", roster_empty: "还没有队员，点下方「＋ 加队员」。", add_member: "＋ 加队员", save_hint: "改动会自动保存到云端",
+    ph_fid: "Player ID", name_loading: "名字自动获取…", name_query: "查询中…", name_fill: "填 Player ID", name_notfound: "查无此 ID", name_failed: "获取失败",
+    codes_title: "🎟 当前可用礼包码", loading: "加载中…", codes_none: "暂无可用码", codes_failed: "加载失败",
+    redeem_btn: "▶ 立即云端兑换全队", redeeming: "云端兑换中…（约几十秒）", redeem_wait: "正在云端给全队兑换，请稍候…", redeem_done: "云端兑换完成 ✓", redeem_fail: "兑换失败", neterr: "网络错误/超时",
+    log_empty_roster: "名单为空——先在上方添加队员。", log_no_codes: "暂无可兑换的礼包码（系统每分钟自动收码，有新码会自动兑换）。", log_none: "暂无结果。",
+    log_detail: "兑换明细 · ", mode_auto: "自动", mode_discord: "Discord", mode_manual: "手动", new_redeemed: "本次新兑 ", got: "已得", idlab: "ID", ppl: " 人 ", codes_unit: " 码", allgot: "全到账",
+    st_ok: "✓ 刚兑换", st_already: "✓ 已兑换", st_expired: "码过期", st_invalid: "码无效", st_usedup: "已用尽", st_limited: "⚠ 限量抢光", st_bad_fid: "FID错误", st_rate: "限流稍后", st_capped: "超上限,下次", st_pending: "待验证", st_err: "失败",
+    feed_sum: "📥 手动喂码（看到码立刻抢）", feed_hint: "在官方 Discord 看到新码？把码或整段消息粘进来，云端立刻全队抢兑，不等巡检。", grab_now: "⚡ 立即抢", feed_need: "先粘贴码或消息。", grabbing: "抢兑中…",
+    feed_pushing: "正在推到云端、立即全队抢兑…", feed_nocode: "没识别出码——直接把码本身粘进来再试。", feed_pushed1: "✓ 已推送 ", feed_pushed2: "，云端正在给全队抢兑。", feed_toast: "已推送，云端抢兑中 ⚡", feed_fail: "推送失败。",
+    dc_unknown: "状态未知。", dc_notconn_err: "未连接：", dc_notconn: "尚未连接官方 Discord（粘贴 Bot Token 即可开启）。", dc_nochan: "（无可读频道）", dc_conn1: "● 已连接", dc_conn2: " · 每 1 分钟直读：", dc_statusfail: "状态加载失败。",
+    dc_need: "先粘贴 Bot Token。", dc_connecting: "连接中…", dc_verifying: "正在验证 token 并读取可见频道…", dc_nochan_full: "（无可读频道，确认 bot 已在你服务器）", dc_connected1: "✓ 已连接！每分钟直读：", dc_toast: "官方 Discord 已连接 ✓", dc_fail: "连接失败：", dc_tokinvalid: "token 无效",
+    saving: "保存中…", saved_ok: "已保存（云端+本机）✓", saved_local: "已存本机，云端稍后重试",
+    notify_sum: "🔔 兑换成功通知（Discord webhook）", notify_hint: "在你的 Discord 频道建一个 Webhook，把 URL 粘进来——新码全队兑换成功就会自动播报。", notify_ok: "✓ 已连接，新码兑换会在频道播报", notify_fail: "连接失败", notify_on: "● 通知已开启", notify_cleared: "已关闭通知",
+    foot: "内部工具 · 官方 Discord 直连 + 多社区源自动收集，有效性以官方接口实测为准 · 非官方、与 Century Games 无关"
+  },
+  en: {
+    h1: "Salty Fish · Gift codes", sub: "Fully auto-redeem · team only", gate_head: "Password required", gate_sub: "Internal tool — not public.", gate_btn: "Enter", back: "← Back home", home: "🏠 Home", pw_ph: "password", pw_wrong: "Wrong password", pw_check: "checking…",
+    hero_head: "Fully automatic", hero_sub: "Zero effort for members. Official Discord read every minute + third-party sources every 5 min; new codes are <b>auto-redeemed for the whole squad instantly</b>.",
+    dc_checking: "Checking connection…", token_sum: "⚙️ Set / change official Discord Bot Token", token_hint: "Paste the code-bot's Bot Token; the cloud then reads your followed official code channels every minute.", connect: "Connect",
+    roster_title: "👥 Squad roster", roster_hint: "Player ID only (tap your avatar top-left in-game); the name fills in automatically. Auto-saved.", roster_empty: "No members yet — tap “+ Add member” below.", add_member: "＋ Add member", save_hint: "Changes auto-save to the cloud",
+    ph_fid: "Player ID", name_loading: "fetching name…", name_query: "looking up…", name_fill: "enter Player ID", name_notfound: "no such ID", name_failed: "lookup failed",
+    codes_title: "🎟 Active gift codes", loading: "Loading…", codes_none: "No active codes", codes_failed: "Load failed",
+    redeem_btn: "▶ Redeem for the whole squad now", redeeming: "Redeeming… (~30s)", redeem_wait: "Redeeming for the whole squad, hang on…", redeem_done: "Redeem complete ✓", redeem_fail: "Redeem failed", neterr: "Network error / timeout",
+    log_empty_roster: "Roster empty — add members above first.", log_no_codes: "No codes to redeem yet (codes are collected every minute; new ones auto-redeem).", log_none: "No results yet.",
+    log_detail: "Redeem detail · ", mode_auto: "Auto", mode_discord: "Discord", mode_manual: "Manual", new_redeemed: "newly redeemed ", got: "got", idlab: "ID", ppl: " ppl ", codes_unit: " codes", allgot: "fully done",
+    st_ok: "✓ Just redeemed", st_already: "✓ Already", st_expired: "Expired", st_invalid: "Invalid", st_usedup: "Used up", st_limited: "⚠ Limit reached", st_bad_fid: "Bad FID", st_rate: "Rate-limited", st_capped: "Capped, next time", st_pending: "validating", st_err: "Failed",
+    feed_sum: "📥 Manual feed (grab instantly)", feed_hint: "Saw a new code on official Discord? Paste the code or whole message; the cloud grabs it for the squad instantly.", grab_now: "⚡ Grab now", feed_need: "Paste a code or message first.", grabbing: "Grabbing…",
+    feed_pushing: "Pushing to the cloud, grabbing for the squad…", feed_nocode: "No code detected — paste the code itself and retry.", feed_pushed1: "✓ Pushed ", feed_pushed2: " — the cloud is grabbing for the squad.", feed_toast: "Pushed — grabbing in the cloud ⚡", feed_fail: "Push failed.",
+    dc_unknown: "Status unknown.", dc_notconn_err: "Not connected: ", dc_notconn: "Not connected to official Discord (paste a Bot Token to enable).", dc_nochan: "(no readable channels)", dc_conn1: "● Connected", dc_conn2: " · reading every minute: ", dc_statusfail: "Status load failed.",
+    dc_need: "Paste a Bot Token first.", dc_connecting: "Connecting…", dc_verifying: "Verifying token and reading channels…", dc_nochan_full: "(no readable channels — make sure the bot is in your server)", dc_connected1: "✓ Connected! reading every minute: ", dc_toast: "Official Discord connected ✓", dc_fail: "Connection failed: ", dc_tokinvalid: "invalid token",
+    saving: "Saving…", saved_ok: "Saved (cloud + local) ✓", saved_local: "Saved locally, cloud will retry",
+    notify_sum: "🔔 Redeem notifications (Discord webhook)", notify_hint: "Create a Webhook in your Discord channel and paste its URL — successful squad-wide redeems get announced there.", notify_ok: "✓ Connected — new redeems will be announced", notify_fail: "Connection failed", notify_on: "● Notifications on", notify_cleared: "Notifications off",
+    foot: "Internal tool · codes auto-collected from official Discord + community sources; validity per the official API · unofficial, not affiliated with Century Games"
+  }
+};
+function L() { return window.lang === "en"; }
+function gt(k) { return (GT[L() ? "en" : "zh"] || GT.zh)[k] || k; }
+var esc = window.esc, $ = window.$, toast = window.toast;
+
+var LS_PW = "kingshoter_gpw", GPW = "";
+function gfetch(path, body) {
+  return fetch("/api/g" + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.assign({ password: GPW }, body || {})) });
+}
+
+/* ---------- statics (re-applied on language switch) ---------- */
+function renderStatics() {
+  var set = function (id, k) { var e = $(id); if (e) e.textContent = gt(k); };
+  var seth = function (id, k) { var e = $(id); if (e) e.innerHTML = gt(k); };
+  set("g_h1", "h1"); set("g_sub", "sub"); set("t_gate_head", "gate_head"); set("t_gate_sub", "gate_sub"); set("gateBtn", "gate_btn"); set("t_back", "back"); set("homeBtn", "home");
+  set("t_hero_head", "hero_head"); seth("t_hero_sub", "hero_sub"); set("t_token_sum", "token_sum"); seth("t_token_hint", "token_hint");
+  set("dTokenBtn", "connect"); set("nHookBtn", "connect"); set("t_notify_sum", "notify_sum"); seth("t_notify_hint", "notify_hint");
+  set("t_roster_title", "roster_title"); seth("t_roster_hint", "roster_hint"); set("addMember", "add_member"); set("rosterSave", "save_hint");
+  set("t_codes_title", "codes_title"); set("runRedeem", "redeem_btn"); set("t_feed_sum", "feed_sum"); seth("t_feed_hint", "feed_hint"); set("ingestBtn", "grab_now"); set("t_foot", "foot");
+  var gp = $("gpwInput"); if (gp) gp.placeholder = gt("pw_ph");
+}
+
+/* ---------- roster ---------- */
+var roster = [], rosterSaveT = null, rosterDirty = false, lookupT = {};
+var LS_ROSTER = "kingshoter_groster";
+function lookupName(m, view) {
+  var fid = m.fid; if (!fid || fid.length < 4) { view.innerHTML = '<span style="color:var(--brown3)">' + gt("name_fill") + '</span>'; return; }
+  clearTimeout(lookupT[fid]); lookupT[fid] = setTimeout(function () {
+    fetch("/api/lookup?fid=" + fid).then(function (r) { return r.json(); }).then(function (j) {
+      if (m.fid !== fid) return;
+      if (j && j.ok && j.nickname) { if (m.name !== j.nickname) { m.name = j.nickname; scheduleSave(); } view.innerHTML = '<b style="color:var(--mint-deep)">' + esc(j.nickname) + '</b>'; }
+      else if (!m.name) { view.innerHTML = '<span style="color:var(--coral)">' + gt("name_notfound") + '</span>'; }
+    }).catch(function () { if (!m.name) view.innerHTML = '<span style="color:var(--brown3)">' + gt("name_failed") + '</span>'; });
+  }, 600);
+}
+function renderRoster() {
+  var box = $("rosterList"); if (!box) return; box.innerHTML = "";
+  if (!roster.length) box.innerHTML = '<p class="hint">' + gt("roster_empty") + '</p>';
+  roster.forEach(function (m, idx) {
+    var el = document.createElement("div"); el.className = "whale";
+    el.innerHTML = '<div class="r1">' +
+      '<input class="nm" inputmode="numeric" placeholder="' + esc(gt("ph_fid")) + '" value="' + esc(m.fid || "") + '" data-k="fid" style="flex:0 0 138px;font-family:var(--mono)">' +
+      '<div class="nmview" style="flex:1;min-width:0;padding:10px;font-weight:800;color:var(--mint-deep);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (m.name ? ('<b style="color:var(--mint-deep)">' + esc(m.name) + '</b>') : '<span style="color:var(--brown3)">' + gt("name_loading") + '</span>') + '</div>' +
+      '<button class="del">×</button></div>';
+    var inp = el.querySelector('[data-k="fid"]'), view = el.querySelector('.nmview');
+    inp.addEventListener("input", function () { m.fid = inp.value.replace(/\D/g, ""); m.name = ""; view.innerHTML = '<span style="color:var(--brown3)">' + gt("name_query") + '</span>'; scheduleSave(); lookupName(m, view); });
+    el.querySelector(".del").addEventListener("click", function () { roster.splice(idx, 1); renderRoster(); scheduleSave(); });
+    if (m.fid) lookupName(m, view);
+    box.appendChild(el);
+  });
+}
+function setSaveStatus(t) { var s = $("rosterSave"); if (s) s.textContent = t; }
+function scheduleSave() { rosterDirty = true; try { localStorage.setItem(LS_ROSTER, JSON.stringify(roster)); } catch (e) {} setSaveStatus(gt("saving")); clearTimeout(rosterSaveT); rosterSaveT = setTimeout(function () { saveRosterNow(); }, 700); }
+function saveRosterNow() {
+  gfetch("/roster", { roster: roster }).then(function (r) { return r.json(); })
+    .then(function (j) { setSaveStatus((j && j.ok) ? gt("saved_ok") : gt("saved_local")); })
+    .catch(function () { setSaveStatus(gt("saved_local")); });
+}
+function loadRoster() {
+  var local = []; try { local = JSON.parse(localStorage.getItem(LS_ROSTER) || "[]"); } catch (e) {}
+  if (!rosterDirty && local.length) { roster = local; renderRoster(); }
+  gfetch("/roster", {}).then(function (r) { return r.json(); }).then(function (j) {
+    if (rosterDirty) return;
+    var cloud = (j && j.roster) || [];
+    if (cloud.length) { roster = cloud; try { localStorage.setItem(LS_ROSTER, JSON.stringify(cloud)); } catch (e) {} renderRoster(); }
+    else if (local.length) { roster = local; renderRoster(); saveRosterNow(); }
+    else { roster = []; renderRoster(); }
+  }).catch(function () {});
+}
+
+/* ---------- codes ---------- */
+function loadAutoCodes() {
+  var box = $("autoCodes"); if (!box) return; box.textContent = gt("loading");
+  fetch("/api/g/codes", { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (j) {
+    var cs = (j && j.codes) || [];
+    box.innerHTML = cs.length ? '<div class="chips">' + cs.map(function (c) { return '<span class="chip">' + esc(c) + '</span>'; }).join("") + '</div>' : '<span class="hint">' + gt("codes_none") + '</span>';
+  }).catch(function () { box.textContent = gt("codes_failed"); });
+}
+
+/* ---------- redeem log matrix ---------- */
+function statusInfo(s) { var m = { ok: [gt("st_ok"), "var(--green-deep)"], already: [gt("st_already"), "var(--green-deep)"], expired: [gt("st_expired"), "var(--mint-deep)"], invalid: [gt("st_invalid"), "var(--coral)"], usedup: [gt("st_usedup"), "var(--mint-deep)"], limited: [gt("st_limited"), "var(--mint-deep)"], bad_fid: [gt("st_bad_fid"), "var(--coral)"], rate: [gt("st_rate"), "var(--mint-deep)"], capped: [gt("st_capped"), "var(--brown3)"], pending: [gt("st_pending"), "var(--brown3)"], err: [gt("st_err"), "var(--coral)"] }; return m[s] || [s, "var(--brown2)"]; }
+function dotColor(s) { if (s === "ok" || s === "already") return "var(--green-deep)"; if (s === "bad_fid") return "var(--coral)"; if (s === "expired" || s === "usedup" || s === "invalid" || s === "limited") return "var(--brown3)"; return "var(--mint-deep)"; }
+function renderLog(rec) {
+  var log = $("redeemLog"); if (!log) return;
+  var when = rec && rec.ranAt ? (rec.ranAt.slice(11, 19) + " UTC") : "";
+  if (!rec || !rec.results || !rec.results.length) {
+    if (rec && rec.count === 0) log.innerHTML = '<p class="hint">' + gt("log_empty_roster") + '</p>';
+    else if (rec && rec.codes && !rec.codes.length) log.innerHTML = '<p class="hint">' + gt("log_no_codes") + '</p>';
+    else log.innerHTML = '<p class="hint">' + gt("log_none") + '</p>';
+    return;
+  }
+  function isGot(s) { return s === "ok" || s === "already"; }
+  var DEAD = { expired: 1, usedup: 1, invalid: 1, limited: 1 };
+  var liveCodes = {}, groups = [], idx = {};
+  rec.results.forEach(function (r) { if (DEAD[r.status]) return; liveCodes[r.code] = 1; var k = r.fid; if (idx[k] == null) { idx[k] = groups.length; groups.push({ fid: r.fid, name: r.name, rows: [] }); } groups[idx[k]].rows.push(r); });
+  groups.forEach(function (g) { g.got = g.rows.filter(function (r) { return isGot(r.status); }).length; g.total = g.rows.length; g.complete = (g.got >= g.total); });
+  groups.sort(function (a, b) { return (a.complete ? 1 : 0) - (b.complete ? 1 : 0) || (a.got / (a.total || 1)) - (b.got / (b.total || 1)); });
+  var mode = (rec.mode === "auto" ? gt("mode_auto") : (rec.mode === "discord" ? gt("mode_discord") : gt("mode_manual")));
+  var done = groups.filter(function (g) { return g.complete; }).length;
+  var head = '<div class="rlog-sum"><span>' + gt("log_detail") + mode + '</span>'
+    + '<span class="hint">' + esc(when) + ' · ' + groups.length + gt("ppl") + '·' + Object.keys(liveCodes).length + gt("codes_unit") + '</span>'
+    + (rec.newSuccess ? '<span class="rlog-new">' + gt("new_redeemed") + rec.newSuccess + '</span>' : '') + '</div>'
+    + '<div class="rlog-leg"><span><i style="background:var(--green-deep)"></i>' + gt("got") + '</span>'
+    + '<span><i style="background:var(--coral)"></i>' + gt("st_err") + '</span>'
+    + '<span style="margin-left:auto;font-weight:800;color:var(--green-deep)">' + done + '/' + groups.length + ' ' + gt("allgot") + '</span></div>';
+  var body = groups.map(function (g) {
+    var dots = g.rows.map(function (r) { return '<i class="mdot" title="' + esc(r.code) + ': ' + statusInfo(r.status)[0] + '" style="background:' + dotColor(r.status) + '"></i>'; }).join("");
+    var detail = g.rows.map(function (r) { var si = statusInfo(r.status); return '<div class="mdr"><b>' + esc(r.code) + '</b><span style="color:' + si[1] + ';font-weight:700">' + si[0] + '</span></div>'; }).join("");
+    var cnt = g.total ? (g.got + '/' + g.total) : '—';
+    return '<details class="mrow"' + (g.complete ? '' : ' open') + '><summary>'
+      + '<span class="mname">' + esc(g.name || g.fid) + '</span>'
+      + '<span class="mdots">' + dots + '</span>'
+      + '<span class="mcount ' + (g.complete ? 'ok' : 'warn') + '">' + cnt + '</span>'
+      + '</summary><div class="mdetail">' + detail + '<div class="mid">' + gt("idlab") + ' ' + esc(g.fid) + '</div></div></details>';
+  }).join("");
+  log.innerHTML = head + body;
+}
+function loadLast() { gfetch("/lastredeem", {}).then(function (r) { return r.json(); }).then(function (j) { if (j && j.results && j.results.length) renderLog(j); }).catch(function () {}); }
+function runRedeem() {
+  var b = $("runRedeem"), old = b.textContent; b.disabled = true; b.textContent = gt("redeeming");
+  $("redeemLog").innerHTML = '<p class="hint">' + gt("redeem_wait") + '</p>';
+  gfetch("/redeem", {}).then(function (r) { return r.json(); }).then(function (j) {
+    b.disabled = false; b.textContent = old;
+    if (j && j.ok) { renderLog(j.result); toast(gt("redeem_done")); } else toast(gt("redeem_fail"));
+  }).catch(function () { b.disabled = false; b.textContent = old; toast(gt("neterr")); });
+}
+
+/* ---------- manual feed ---------- */
+function ingestCode() {
+  var inp = $("ingestCode"), msg = $("ingestMsg"), b = $("ingestBtn"); var text = (inp.value || "").trim();
+  if (!text) { msg.innerHTML = '<span style="color:var(--mint-deep)">' + gt("feed_need") + '</span>'; return; }
+  var old = b.textContent; b.disabled = true; b.textContent = gt("grabbing"); msg.innerHTML = gt("feed_pushing");
+  gfetch("/ingest", { text: text }).then(function (r) { return r.json(); }).then(function (j) {
+    b.disabled = false; b.textContent = old;
+    if (j && j.ok) {
+      var c = (j.candidates || []);
+      if (!c.length) { msg.innerHTML = '<span style="color:var(--mint-deep)">' + gt("feed_nocode") + '</span>'; return; }
+      inp.value = ""; msg.innerHTML = gt("feed_pushed1") + '<b style="color:var(--mint-deep)">' + c.map(esc).join("、") + '</b>' + gt("feed_pushed2");
+      toast(gt("feed_toast")); setTimeout(loadAutoCodes, 4000); setTimeout(loadLast, 8000);
+    } else msg.innerHTML = '<span style="color:var(--coral)">' + gt("feed_fail") + '</span>';
+  }).catch(function () { b.disabled = false; b.textContent = old; msg.innerHTML = '<span style="color:var(--coral)">' + gt("neterr") + '</span>'; });
+}
+
+/* ---------- discord token + webhook ---------- */
+function renderDiscordStatus(j) {
+  var s = $("discordStatus"); if (!s) return;
+  if (!j || !j.ok) { s.innerHTML = '<span style="color:var(--brown3)">' + gt("dc_unknown") + '</span>'; return; }
+  if (!j.connected) { s.innerHTML = j.error ? ('<span style="color:var(--coral)">' + gt("dc_notconn_err") + esc(j.error) + '</span>') : '<span style="color:var(--brown3)">' + gt("dc_notconn") + '</span>'; return; }
+  var chans = (j.channels || []).map(function (c) { return esc(c.name); }).join("、") || gt("dc_nochan");
+  s.innerHTML = '<span style="color:var(--green-deep);font-weight:700">' + gt("dc_conn1") + '</span>' + gt("dc_conn2") + '<b style="color:var(--mint-deep)">' + chans + '</b>';
+}
+function loadDiscordStatus() { var s = $("discordStatus"); if (!s) return; s.textContent = gt("dc_checking"); gfetch("/discordstatus", {}).then(function (r) { return r.json(); }).then(renderDiscordStatus).catch(function () { s.innerHTML = '<span style="color:var(--brown3)">' + gt("dc_statusfail") + '</span>'; }); }
+function saveDiscordToken() {
+  var inp = $("dToken"), msg = $("dTokenMsg"), b = $("dTokenBtn"); var tok = (inp.value || "").trim();
+  if (!tok) { msg.innerHTML = '<span style="color:var(--mint-deep)">' + gt("dc_need") + '</span>'; return; }
+  var old = b.textContent; b.disabled = true; b.textContent = gt("dc_connecting"); msg.innerHTML = gt("dc_verifying");
+  gfetch("/discordtoken", { token: tok }).then(function (r) { return r.json(); }).then(function (j) {
+    b.disabled = false; b.textContent = old;
+    if (j && j.ok && !j.error) { inp.value = ""; var chans = (j.channels || []).map(function (c) { return esc(c.name); }).join("、") || gt("dc_nochan_full"); msg.innerHTML = gt("dc_connected1") + '<b style="color:var(--mint-deep)">' + chans + '</b>'; toast(gt("dc_toast")); loadDiscordStatus(); }
+    else msg.innerHTML = '<span style="color:var(--coral)">' + gt("dc_fail") + esc((j && j.error) || gt("dc_tokinvalid")) + '</span>';
+  }).catch(function () { b.disabled = false; b.textContent = old; msg.innerHTML = '<span style="color:var(--coral)">' + gt("neterr") + '</span>'; });
+}
+function saveNotify() {
+  var inp = $("nHook"), msg = $("nHookMsg"), b = $("nHookBtn"); var u = (inp.value || "").trim();
+  if (!u) { gfetch("/notifytoken", { url: "" }).then(function () { msg.innerHTML = '<span class="hint">' + gt("notify_cleared") + '</span>'; }); return; }
+  var old = b.textContent; b.disabled = true; b.textContent = gt("dc_connecting");
+  gfetch("/notifytoken", { url: u }).then(function (r) { return r.json(); }).then(function (j) {
+    b.disabled = false; b.textContent = old;
+    if (j && j.ok && j.set) { inp.value = ""; msg.innerHTML = '<span style="color:var(--green-deep)">' + gt("notify_ok") + '</span>'; }
+    else msg.innerHTML = '<span style="color:var(--coral)">' + esc((j && j.error) || gt("notify_fail")) + '</span>';
+  }).catch(function () { b.disabled = false; b.textContent = old; msg.innerHTML = '<span style="color:var(--coral)">' + gt("neterr") + '</span>'; });
+}
+function loadNotify() { var m = $("nHookMsg"); if (!m) return; gfetch("/notifystatus", {}).then(function (r) { return r.json(); }).then(function (j) { if (j && j.connected) m.innerHTML = '<span style="color:var(--green-deep)">' + gt("notify_on") + '</span>'; }).catch(function () {}); }
+
+/* ---------- gate + init ---------- */
+var inited = false;
+function initGift() {
+  if (inited) return; inited = true;
+  $("addMember").addEventListener("click", function () { roster.push({ fid: "", name: "" }); renderRoster(); });
+  $("runRedeem").addEventListener("click", runRedeem);
+  $("ingestBtn").addEventListener("click", ingestCode);
+  $("ingestCode").addEventListener("keydown", function (e) { if (e.key === "Enter") ingestCode(); });
+  $("dTokenBtn").addEventListener("click", saveDiscordToken);
+  $("dToken").addEventListener("keydown", function (e) { if (e.key === "Enter") saveDiscordToken(); });
+  $("nHookBtn").addEventListener("click", saveNotify);
+  $("nHook").addEventListener("keydown", function (e) { if (e.key === "Enter") saveNotify(); });
+  loadAutoCodes(); loadDiscordStatus(); loadRoster(); loadLast(); loadNotify();
+}
+function tryGate(pw, silent) {
+  var msg = $("gpwMsg"); if (!silent && msg) { msg.textContent = gt("pw_check"); msg.className = "pwmsg"; }
+  return gfetchWith(pw).then(function (ok) {
+    if (ok) { GPW = pw; try { sessionStorage.setItem(LS_PW, pw); } catch (e) {} $("gate").classList.add("hide"); $("giftbody").classList.remove("hide"); initGift(); }
+    else if (!silent && msg) { msg.textContent = gt("pw_wrong"); msg.className = "pwmsg err"; }
+    return ok;
+  });
+}
+function gfetchWith(pw) {
+  return fetch("/api/g/auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: pw }) })
+    .then(function (r) { return r.json(); }).then(function (j) { return !!(j && j.ok); }).catch(function () { return false; });
+}
+$("gateForm").addEventListener("submit", function (e) { e.preventDefault(); tryGate($("gpwInput").value || "", false); });
+
+window.onLangChange = function () { renderStatics(); if (inited) { renderRoster(); loadAutoCodes(); loadDiscordStatus(); loadLast(); } };
+window.initI18n(); renderStatics(); window.startClock();
+try {
+  localStorage.removeItem(LS_PW); // one-time cleanup for credentials saved by older builds
+  var sp = sessionStorage.getItem(LS_PW);
+  if (sp) tryGate(sp, true);
+} catch (e) {}
+})();
+</script>
+</body>
+</html>

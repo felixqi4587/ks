@@ -1,0 +1,33 @@
+// background-audio engine: <audio> keep-alive + pre-scheduled beeps + self-test + voice-default-from-lang
+const { chromium } = require("playwright");
+(async () => {
+  const RM="bg"+Date.now(), base="https://kingshoter.com/kvk.html?k=test&room="+RM+"&notour=1";
+  const b=await chromium.launch({headless:true,channel:"chrome",args:["--autoplay-policy=no-user-gesture-required"]});
+  let pass=0,fail=0; const ok=(c,l)=>{(c?pass++:fail++);console.log((c?"✓":"✗ FAIL")+" "+l);};
+  const errs=[];
+  const dis=async p=>{try{await p.keyboard.press("Escape");}catch(e){}try{if(await p.locator("#obGo").isVisible())await p.locator("#obGo").click();}catch(e){}};
+  const mk=async(fid,m,opts)=>{opts=opts||{};const p=await(await b.newContext({viewport:{width:390,height:1300},locale:opts.locale||"en-US"})).newPage();p.on("pageerror",e=>errs.push(fid+":"+e.message));await p.goto(base);await p.waitForLoadState("networkidle");await dis(p);
+    await p.locator("#soundGate").click({force:true}).catch(()=>{});await p.waitForTimeout(350);
+    await p.locator("#pid").fill(fid);await p.waitForTimeout(1700);await p.locator("#marchRange").fill(String(m));await p.locator("#saveBtn").click();await p.waitForTimeout(600);return p;};
+  const fire2=async(p,sel)=>{await p.locator(sel).click();await p.waitForTimeout(240);await p.locator(sel).click();await p.waitForTimeout(200);};
+  const p1=await mk("900000001","60");
+  await p1.waitForTimeout(500);
+  ok(await p1.evaluate(()=>!!(window.__ac&&window.__ac.state==="running")),"AudioContext running after enable");
+  ok(await p1.evaluate(()=>window.__keepAlive===true),"keep-alive <audio> bed plays (survives iOS silent switch)");
+  const p2=await mk("900000002","60");
+  const cmd=await(await b.newContext({viewport:{width:390,height:1300},locale:"en-US"})).newPage();
+  cmd.on("pageerror",e=>errs.push("cmd:"+e.message));
+  await cmd.goto(base);await cmd.waitForLoadState("networkidle");await dis(cmd);
+  await cmd.locator("#soundGate").click({force:true}).catch(()=>{});await cmd.waitForTimeout(200);await cmd.locator("#cmdUnlock").click();await cmd.locator("#pwInput").fill("666");await cmd.locator("#pwGo").click();await cmd.waitForTimeout(2500);
+  await cmd.locator('#roster .rp:has-text("900000001")').first().click();await cmd.locator('#roster .rp:has-text("900000002")').first().click();await cmd.waitForTimeout(400);
+  const before=await p1.evaluate(()=>window.__beeps||0);
+  await fire2(cmd,"#fireDouble");await p1.waitForTimeout(1600);
+  ok((await p1.evaluate(()=>window.__beeps||0))>before,"fired → player pre-schedules countdown beeps on the audio clock");
+  const b2=await p1.evaluate(()=>window.__beeps||0);
+  await p1.locator("#settings summary").click();await p1.waitForTimeout(200);await p1.locator("#bgTest").click();await p1.waitForTimeout(500);
+  ok((await p1.evaluate(()=>window.__beeps||0))>b2,"lock-screen self-test schedules a beep");
+  const z=await mk("900000009","60",{locale:"zh-CN"});
+  ok(await z.evaluate(()=>window.__sfx>=10),"hybrid countdown voice clips decoded ("+await z.evaluate(()=>window.__sfx)+"/12)");
+  ok(errs.length===0,"no page errors"+(errs.length?" → "+errs.join(" | "):""));
+  await b.close();console.log(`\n${pass} passed, ${fail} failed`);process.exit(fail?1:0);
+})().catch(e=>{console.error("ERR",e.message);process.exit(2);});

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f8f8f0">
+<title>kingshoter · Kingshot tools</title>
+<link rel="icon" href="/favicon.svg">
+<link rel="stylesheet" href="app.css?v=15">
+<style>
+  .hero{text-align:center}
+  .logo{font:900 30px/1 var(--font);color:var(--brown);letter-spacing:1px;margin:8px 0 2px}
+  .logo .k{color:var(--mint-deep)}
+  .fishfloat{animation:bob 3.6s ease-in-out infinite}
+  @keyframes bob{0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-9px) rotate(1.5deg)}}
+  .tag{color:var(--brown2);font-weight:700;font-size:13px;margin-top:6px}
+  .entry{display:flex;align-items:center;gap:14px;text-decoration:none;color:inherit}
+  .entry .em{width:56px;height:56px;border-radius:18px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;font-size:28px}
+  .entry .em.kvk{background:linear-gradient(180deg,#fdeeee,#fbe3e3);border:2px solid #f4b9bc}
+  .entry .em.codes{background:linear-gradient(180deg,#fff6e0,#fdeccb);border:2px solid #f3dca0}
+  .entry .em.events{background:linear-gradient(180deg,#eafaf7,var(--mint-bg));border:2px solid #bfeee7}
+  .entry h2{margin:0 0 2px;font-size:16px}
+  .entry .go{margin-left:auto;color:var(--mint);font-size:22px;font-weight:900}
+  .soon{opacity:.6}
+  .soon .em{background:var(--cream2);border:2px dashed var(--line-hi)}
+  .soontag{margin-left:auto;font-size:10px;font-weight:900;color:var(--brown3);border:1.5px solid var(--line);border-radius:20px;padding:3px 9px}
+  .entry.primary{border-color:var(--mint);background:linear-gradient(180deg,#eafaf7,var(--paper));box-shadow:0 12px 28px -14px rgba(25,200,185,.55)}
+  .entry.primary .em.kvk{background:linear-gradient(180deg,var(--mint-hi),var(--mint));border-color:var(--mint-deep)}
+  .live{margin-left:auto;display:inline-flex;align-items:center;gap:5px;font:900 10px/1 var(--font);color:var(--mint-deep);text-transform:uppercase;letter-spacing:.08em}
+  .live .d{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 rgba(111,186,44,.6);animation:lp 1.6s ease-out infinite}
+  @keyframes lp{0%{box-shadow:0 0 0 0 rgba(111,186,44,.55)}70%,100%{box-shadow:0 0 0 8px rgba(111,186,44,0)}}
+  .seclab{font:900 11px/1 var(--font);color:var(--brown3);text-transform:uppercase;letter-spacing:.12em;margin:4px 2px 8px}
+</style>
+</head>
+<body>
+<div class="wrap"><main>
+  <div class="homebar"><div id="langtoggle" class="langtoggle"></div></div>
+  <div class="card hero">
+    <svg class="fishfloat" viewBox="0 0 320 200" width="180" style="max-width:60%;overflow:visible">
+      <ellipse cx="160" cy="176" rx="96" ry="14" fill="#19c8b9" opacity=".22"/>
+      <path d="M62 120 L26 96 L34 124 L26 156 Z" fill="#f7b79a" stroke="#794f27" stroke-width="5" stroke-linejoin="round"/>
+      <path d="M78 126 C100 84 232 82 270 122 C228 162 116 166 78 126 Z" fill="#ffe0cb" stroke="#794f27" stroke-width="5.5" stroke-linejoin="round"/>
+      <path d="M196 122 q9 -11 18 0M228 122 q9 -11 18 0" fill="none" stroke="#794f27" stroke-width="5.5" stroke-linecap="round"/>
+      <circle cx="204" cy="138" r="7" fill="#f48fb1" opacity=".55"/><circle cx="244" cy="138" r="7" fill="#f48fb1" opacity=".55"/>
+      <path d="M214 146 q11 9 22 0" fill="none" stroke="#794f27" stroke-width="4" stroke-linecap="round"/>
+      <path d="M150 64 q-26 -8 -38 14 q26 10 38 -14Z" fill="#85cc45" stroke="#4f7d20" stroke-width="3" stroke-linejoin="round"/>
+    </svg>
+    <div class="logo"><span class="k">king</span>shoter</div>
+    <div class="tag" data-i18n="site_tag">Kingshot 玩家工具站 · 动森风</div>
+  </div>
+
+  <a class="card entry primary" href="kvk.html">
+    <div class="em kvk">⚔️</div>
+    <div><h2 data-i18n="card_kvk">KvK 实时指挥 / 模拟器</h2><p class="hint" style="margin:0" data-i18n="card_kvk_d">指挥一处发令，全队屏幕实时同步。</p></div>
+    <span class="live"><span class="d"></span>LIVE</span>
+  </a>
+  <div class="seclab" data-i18n="sec_more">更多工具</div>
+  <a class="card entry" href="codes.html">
+    <div class="em codes">🎁</div>
+    <div><h2 data-i18n="card_codes">礼包码查询</h2><p class="hint" style="margin:0" data-i18n="card_codes_d">当前有效礼包码，点一下复制。</p></div>
+    <div class="go">›</div>
+  </a>
+  <a class="card entry" href="guide.html">
+    <div class="em events">📖</div>
+    <div><h2 data-i18n="card_guide">KvK 打法 & 词汇</h2><p class="hint" style="margin:0" data-i18n="card_guide_d">看动画秒懂 集结 / 反集结 / refill</p></div>
+    <div class="go">›</div>
+  </a>
+  <p class="foot" data-i18n="foot">Kingshot 玩家自制工具 · 非官方、与 Century Games 无关 ⚔️🐟</p>
+</main></div>
+<script src="app.js?v=9"></script>
+<script>initI18n();</script>
+</body>
+</html>

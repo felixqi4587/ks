@@ -1,0 +1,259 @@
+/* Room Durable Object — one per "<kingdom>:<room>".
+   Holds the room's live state (config + players + current command) in DO storage,
+   fans out the full state snapshot to every connected WebSocket on any change.
+   Edits/commands require the room password (sha256) or the MASTER override. */
+
+function defaultRoom() {
+  return {
+    pwHash: null,
+    config: { castleName: "", rallyAllies: [], enemyWhales: [] },
+    players: {},
+    // per-kingdom command + staged slots so two commanders (one per kingdom) never clobber each other
+    live: { mode: "idle", commands: { 1: null, 2: null }, staged: { 1: null, 2: null }, sim: null },
+    updatedAt: null,
+    updatedBy: null
+  };
+}
+
+async function sha256(s) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(s)));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+function clampStr(s, n) { return (s == null ? "" : String(s)).slice(0, n); }
+function clampInt(v, lo, hi) { v = parseInt(v, 10); if (isNaN(v)) v = lo; return Math.max(lo, Math.min(hi, v)); }
+
+function sanitizeConfig(c) {
+  c = c || {};
+  const allies = (Array.isArray(c.rallyAllies) ? c.rallyAllies : []).slice(0, 4).map(a => ({
+    name: clampStr(a && a.name, 24),
+    caps: (Array.isArray(a && a.caps) ? a.caps : []).slice(0, 4).map(cap => ({
+      nm: clampStr(cap && cap.nm, 24),
+      m: clampInt(cap && cap.m, 0, 36000),
+      role: (cap && cap.role) === "main" ? "main" : "weak"
+    }))
+  }));
+  const whales = (Array.isArray(c.enemyWhales) ? c.enemyWhales : []).slice(0, 30).map(w => ({
+    name: clampStr(w && w.name, 24),
+    mm: clampInt(w && w.mm, 0, 600),
+    ss: clampInt(w && w.ss, 0, 59)
+  }));
+  return { castleName: clampStr(c.castleName, 40), rallyAllies: allies, enemyWhales: whales };
+}
+
+export class Room {
+  constructor(state, env) {
+    this.state = state;
+    this.env = env;
+    this.room = null;
+    state.blockConcurrencyWhile(async () => {
+      this.room = (await state.storage.get("room")) || defaultRoom();
+      this.normalizeLive();
+    });
+  }
+
+  // migrate older single-slot live state to the per-kingdom shape
+  normalizeLive() {
+    const l = this.room.live = this.room.live || {};
+    if (!l.commands || typeof l.commands !== "object") l.commands = { 1: l.command || null, 2: null };
+    if (!l.staged || typeof l.staged !== "object" || "pairs" in l.staged || !("1" in l.staged)) l.staged = { 1: null, 2: null };
+    delete l.command;
+    l.mode = l.mode || "idle";
+    if (!("sim" in l)) l.sim = null;
+  }
+
+  async fetch(request) {
+    if (request.headers.get("Upgrade") === "websocket") {
+      const pair = new WebSocketPair();
+      const [client, server] = Object.values(pair);
+      this.state.acceptWebSocket(server);            // Hibernation API
+      server.send(this.stateMsg());
+      return new Response(null, { status: 101, webSocket: client });
+    }
+    // plain GET → public read-only snapshot (handy for debugging / SSR)
+    return Response.json(JSON.parse(this.stateMsg()));
+  }
+
+  snapshot() {
+    const r = { ...this.room, presence: this.state.getWebSockets().length };
+    r.hasPw = !!r.pwHash; delete r.pwHash;   // clients only need "is this room claimed?" — never ship the hash itself
+    // auto-expire finished commands per kingdom so late joiners / reconnects never get a phantom GO
+    const nowS = Math.floor(Date.now() / 1000);
+    const cmds = Object.assign({}, r.live.commands);
+    let changed = false;
+    for (const k of [1, 2]) { const c = cmds[k]; if (c && c.expiresUTC && nowS >= c.expiresUTC) { cmds[k] = null; changed = true; } }
+    if (changed) r.live = Object.assign({}, r.live, { commands: cmds, mode: r.live.sim ? r.live.mode : ((cmds[1] || cmds[2]) ? "live" : "idle") });
+    return r;
+  }
+  // wake the DO at the soonest command expiry so connected idle clients get a fresh "back to idle" broadcast (not just on the next mutation)
+  async scheduleExpiry() {
+    const exps = [1, 2].map(k => this.room.live.commands[k]).filter(c => c && c.expiresUTC).map(c => c.expiresUTC);
+    if (exps.length) await this.state.storage.setAlarm(Math.min(...exps) * 1000 + 600);
+    else await this.state.storage.deleteAlarm();   // clear the alarm when idle so a cancel doesn't leave a spurious wake armed
+  }
+  async alarm() {
+    this.normalizeLive();
+    const nowS = Math.floor(Date.now() / 1000);
+    let changed = false;
+    for (const k of [1, 2]) { const c = this.room.live.commands[k]; if (c && c.expiresUTC && nowS >= c.expiresUTC) { this.room.live.commands[k] = null; changed = true; } }
+    if (changed) { this.room.live.mode = this.room.live.sim ? "sim" : ((this.room.live.commands[1] || this.room.live.commands[2]) ? "live" : "idle"); await this.persist(); }
+    this.broadcast();
+    await this.scheduleExpiry();
+  }
+  stateMsg() {
+    return JSON.stringify({ t: "state", room: this.snapshot() });
+  }
+  broadcast() {
+    const msg = this.stateMsg();
+    for (const ws of this.state.getWebSockets()) { try { ws.send(msg); } catch (e) {} }
+  }
+  async persist() { await this.state.storage.put("room", this.room); }
+  async authOK(pw) {
+    if (!pw) return false;
+    if (pw === this.env.MASTER) return true;
+    return !!this.room.pwHash && (await sha256(pw)) === this.room.pwHash;
+  }
+  now() { return new Date().toISOString(); }
+
+  async webSocketMessage(ws, raw) {
+    let m; try { m = JSON.parse(raw); } catch (e) { return; }
+
+    if (m.t === "setMarch") {
+      const pid = clampStr(m.pid, 24);
+      if (!pid) return;
+      const prev = this.room.players[pid];
+      this.room.players[pid] = {
+        name: clampStr(m.name, 24),
+        march: clampInt(m.march, 5, 900),   // realistic march seconds; ≥5 so a bad/zero value can't break the 1s-stagger math
+        alliance: clampStr(m.alliance, 24),
+        ready: prev ? !!prev.ready : !!m.ready,   // editing march shouldn't silently flip a captain's ready state
+        lastSeen: this.now()
+      };
+      // cap roster so a long-running room can't grow unbounded over a season — evict oldest lastSeen, but NEVER an active/staged captain
+      const total = Object.keys(this.room.players).length;
+      if (total > 150) {
+        const protect = this.referencedPids();
+        Object.keys(this.room.players).filter(k => !protect.has(k))
+          .sort((a, b) => (this.room.players[a].lastSeen || "") < (this.room.players[b].lastSeen || "") ? -1 : 1)
+          .slice(0, total - 150).forEach(k => { delete this.room.players[k]; });
+      }
+      await this.persist(); this.broadcast(); return;
+    }
+
+    if (m.t === "removePlayer") {
+      // Authenticate before checking whether the pid exists, so the roster cannot be probed through errors.
+      if (!(await this.authOK(m.password))) return ws.send(JSON.stringify({ t: "error", error: "bad_password" }));
+      const pid = clampStr(m.pid, 24);
+      if (!pid || !Object.prototype.hasOwnProperty.call(this.room.players, pid)) return;   // idempotent cleanup: another commander may have removed it already
+      if (this.referencedPids().has(pid)) return ws.send(JSON.stringify({ t: "error", error: "player_in_use" }));
+      delete this.room.players[pid];
+      await this.persist(); this.broadcast(); return;
+    }
+
+    if (m.t === "setConfig") {
+      const first = !this.room.pwHash;
+      if (first) {
+        if (!m.password) return ws.send(JSON.stringify({ t: "error", error: "need_password" }));
+        this.room.pwHash = await sha256(m.password);
+      } else if (!(await this.authOK(m.password))) {
+        return ws.send(JSON.stringify({ t: "error", error: "bad_password" }));
+      }
+      if (m.baseUpdatedAt !== undefined && this.room.updatedAt && m.baseUpdatedAt !== this.room.updatedAt) {
+        return ws.send(JSON.stringify({ t: "error", error: "conflict", room: this.snapshot() }));
+      }
+      this.room.config = sanitizeConfig(m.config);
+      this.room.updatedAt = this.now();
+      this.room.updatedBy = clampStr(m.by, 24);
+      await this.persist(); this.broadcast(); return;
+    }
+
+    if (m.t === "cmd") {
+      if (!(await this.authOK(m.password))) return ws.send(JSON.stringify({ t: "error", error: "bad_password" }));
+      const c = m.cmd || {};
+      const type = ["double_rally", "refill", "cancel", "ping"].includes(c.type) ? c.type : "refill";
+      const kd = clampInt(c.kingdom != null ? c.kingdom : (c.payload && c.payload.kingdom), 1, 2);
+      // a refill must NOT silently clobber an in-flight double_rally players are already counting down to
+      if (type === "refill") { const ex = this.room.live.commands[kd]; if (ex && ex.type === "double_rally" && ex.expiresUTC && Math.floor(Date.now() / 1000) <= ex.expiresUTC) return ws.send(JSON.stringify({ t: "error", error: "rally_live" })); }
+      if (type === "cancel") {
+        this.room.live.commands[kd] = null;
+      } else {
+        let payload = (c.payload && typeof c.payload === "object") ? c.payload : {};
+        if (type === "double_rally") {
+          const pairs = (Array.isArray(payload.pairs) ? payload.pairs : []).map(p => Object.assign({}, p || {}, { pid: clampStr(p && p.pid, 24) }));
+          if (pairs.length !== 2 || pairs[0].pid === pairs[1].pid || pairs.some(p => !p.pid || !Object.prototype.hasOwnProperty.call(this.room.players, p.pid))) {
+            return ws.send(JSON.stringify({ t: "error", error: "player_missing" }));
+          }
+          payload = Object.assign({}, payload, { pairs });
+        }
+        const anchorUTC = clampInt(c.anchorUTC, 0, 4102444800);  // unix seconds
+        // when this command stops being actionable → snapshot()/alarm() drops it so nobody gets a stale GO.
+        // double_rally stays live through the REAL flight: press + 5:00 gather + march (+30s grace) — the
+        // timeline shows the full gather→march→land arc, so it must not vanish 30s after the click.
+        const GATHER = 300;
+        let expiresUTC = anchorUTC + 30;
+        if (type === "ping") expiresUTC = anchorUTC + 6;
+        else if (type === "double_rally" && Array.isArray(payload.pairs) && payload.pairs.length) expiresUTC = Math.max(...payload.pairs.map(p => (+p.pressUTC || anchorUTC) + GATHER + (+p.march || 0))) + 30;
+        this.room.live.commands[kd] = { id: crypto.randomUUID(), type, kingdom: kd, anchorUTC, expiresUTC, payload, text: clampStr(c.text, 200), at: this.now() };
+      }
+      this.room.live.staged[kd] = null;   // a real order supersedes that kingdom's staged pre-warning
+      this.room.live.mode = (this.room.live.commands[1] || this.room.live.commands[2]) ? "live" : "idle";
+      await this.persist(); await this.scheduleExpiry(); this.broadcast(); return;
+    }
+
+    if (m.t === "stage") {   // commander pre-warns the picked captains (before the actual fire) so a whale who stepped away can stand by
+      if (!(await this.authOK(m.password))) return ws.send(JSON.stringify({ t: "error", error: "bad_password" }));
+      const s = m.staged || {};
+      const kd = clampInt(s.kingdom, 1, 2);
+      const pairs = (Array.isArray(s.pairs) ? s.pairs : []).slice(0, 2).map(p => ({ pid: clampStr(p && p.pid, 24), role: (p && p.role) === "main" ? "main" : "weak" }));
+      if (pairs.some(p => !p.pid || !Object.prototype.hasOwnProperty.call(this.room.players, p.pid))) return ws.send(JSON.stringify({ t: "error", error: "player_missing" }));
+      const prevPids = new Set(((this.room.live.staged[kd] && this.room.live.staged[kd].pairs) || []).map(p => p.pid));
+      this.room.live.staged[kd] = pairs.length ? { kingdom: kd, pairs } : null;
+      pairs.forEach(p => { if (!prevPids.has(p.pid) && this.room.players[p.pid]) this.room.players[p.pid].ready = false; });   // only reset ready for NEWLY staged captains — a role swap must not wipe an already-confirmed captain
+      await this.persist(); this.broadcast(); return;
+    }
+
+    if (m.t === "ready") {   // a staged captain confirms they're on the page & standing by
+      const pid = clampStr(m.pid, 24);
+      if (pid && this.room.players[pid]) { this.room.players[pid].ready = !!m.ready; await this.persist(); this.broadcast(); }
+      return;
+    }
+
+    if (m.t === "sim") {
+      if (!(await this.authOK(m.password))) return ws.send(JSON.stringify({ t: "error", error: "bad_password" }));
+      if (m.action === "start") {
+        this.room.live.mode = "sim";
+        this.room.live.sim = { script: clampStr(m.script, 40), startUTC: clampInt(m.startUTC, 0, 4102444800), id: crypto.randomUUID() };
+      } else {
+        this.room.live.sim = null;
+        this.room.live.mode = (this.room.live.commands[1] || this.room.live.commands[2]) ? "live" : "idle";
+      }
+      await this.persist(); this.broadcast(); return;
+    }
+    if (m.t === "hb") {   // app-level heartbeat: keep this player "fresh" so eviction never targets someone who's present.
+      const pid = clampStr(m.pid, 24);
+      if (pid && this.room.players[pid]) {
+        this.room.players[pid].lastSeen = this.now();
+        // fan the freshness out (and PERSIST it) at most once per 20s per room — otherwise the commander's
+        // sync pill decays to 0/2 between mutations, and a hibernating DO would reload stale lastSeen from
+        // storage and mark everyone absent even though they're all connected
+        const t = Date.now();
+        if (!this._lastHbCast || t - this._lastHbCast > 20000) { this._lastHbCast = t; await this.persist(); this.broadcast(); }
+      }
+      return;
+    }
+    // m.t === "hello" → snapshot already sent on connect; nothing else needed
+  }
+
+  // pids the roster cap must never evict: anyone in a live command or staged set
+  referencedPids() {
+    const s = new Set();
+    for (const k of [1, 2]) {
+      const c = this.room.live.commands[k]; if (c && c.payload && Array.isArray(c.payload.pairs)) c.payload.pairs.forEach(p => s.add(p.pid));
+      const st = this.room.live.staged[k]; if (st && Array.isArray(st.pairs)) st.pairs.forEach(p => s.add(p.pid));
+    }
+    return s;
+  }
+
+  async webSocketClose(ws) { try { ws.close(); } catch (e) {} this.broadcast(); }
+  async webSocketError(ws) { this.broadcast(); }
+}
