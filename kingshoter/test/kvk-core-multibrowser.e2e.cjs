@@ -837,19 +837,6 @@ async function runCoreScenario(browser, engineName) {
       'unbound, mismatched, and soundReady:false ACKs cannot alter the full delivery aggregate');
     receiptSnapshot = afterForgedAcks;
 
-    const settledDeliveryHistory = structuredClone(receiptSnapshot.room.live.commands['1'].delivery);
-    const captainBClosedIndex = await captainB.page.evaluate(() => {
-      const index = window.__qaRoomSockets.findLastIndex(socket => socket.readyState === WebSocket.OPEN);
-      window.__qaRoomSockets[index].close(4000, 'QA history disconnect');
-      return index;
-    });
-    await captainB.page.waitForFunction(index => window.__qaRoomSockets[index].readyState === WebSocket.CLOSED,
-      captainBClosedIndex, { timeout: 5_000 });
-    await commander.page.locator(`#pickSlots .slot[data-pid="${captainBProfile.pid}"] .delivery.received`).waitFor({ timeout: 5_000 });
-    const disconnectedHistory = await readSnapshot(commander.page, room);
-    assert.deepEqual(disconnectedHistory.room.live.commands['1'].delivery, settledDeliveryHistory,
-      'connection loss cannot erase or alter persisted command receipt history');
-
     assert.equal(await commander.page.locator('#pickSlots .slot.frozen').count(), 2,
       'post-Fire live captain slots remain visible');
     assert.equal(await commander.page.locator('#pickSlots .sx').count(), 0,
@@ -878,6 +865,12 @@ async function runCoreScenario(browser, engineName) {
       'Captain B later edit independently updates canonical march');
     assert.deepEqual(pairsByPid(afterLiveEdits.room.live.commands['1'].payload.pairs), frozenPairsByPid,
       'both complete frozen captain pairs retain their original march and pressUTC after canonical edits');
+    const captainBMarchRecord = afterLiveEdits.room.players[captainBProfile.pid];
+    await assertMarchSynchronized([captainB], {
+      pid: captainBProfile.pid,
+      march: captainBMarchRecord.march,
+      marchRevision: captainBMarchRecord.marchRevision
+    });
     const [afterCaptainACues, afterCaptainASecondCues, afterCaptainBCues] = await Promise.all([
       cueState(captainA), cueState(captainASecond), cueState(captainB)
     ]);
@@ -890,6 +883,19 @@ async function runCoreScenario(browser, engineName) {
       captainASecondGoCue.targetMs, 'Captain A second device original personal GO target remains immutable');
     assert.equal(afterCaptainBCues.find(cue => cue.key === captainBGoCue.key)?.targetMs,
       captainBGoCue.targetMs, 'Captain B original personal GO target remains immutable');
+
+    const settledDeliveryHistory = structuredClone(receiptSnapshot.room.live.commands['1'].delivery);
+    const captainBClosedIndex = await captainB.page.evaluate(() => {
+      const index = window.__qaRoomSockets.findLastIndex(socket => socket.readyState === WebSocket.OPEN);
+      window.__qaRoomSockets[index].close(4000, 'QA history disconnect');
+      return index;
+    });
+    await captainB.page.waitForFunction(index => window.__qaRoomSockets[index].readyState === WebSocket.CLOSED,
+      captainBClosedIndex, { timeout: 5_000 });
+    await commander.page.locator(`#pickSlots .slot[data-pid="${captainBProfile.pid}"] .delivery.received`).waitFor({ timeout: 5_000 });
+    const disconnectedHistory = await readSnapshot(commander.page, room);
+    assert.deepEqual(disconnectedHistory.room.live.commands['1'].delivery, settledDeliveryHistory,
+      'connection loss cannot erase or alter persisted command receipt history');
 
     await commander.page.locator(`#roster .roster-actions[data-pid="${captainAProfile.pid}"]`).click();
     const activeRemove = commander.page.locator('#rosterActionsMenu [data-action="remove"]');
