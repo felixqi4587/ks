@@ -27,10 +27,12 @@ import {
   touchDevice
 } from "./room-delivery.js";
 import {
+  cancelDeliveryRecord,
   createDeliveryRecord,
   DELIVERY_ACK_WINDOW_MS,
   DELIVERY_ARMED_LEASE_MS,
   DELIVERY_PROBE_INTERVAL_MS,
+  DELIVERY_RETRY_DELAYS_MS,
   DELIVERY_STORAGE_KEY,
   DELIVERY_VERSION,
   defaultDeliveryState,
@@ -38,6 +40,7 @@ import {
   isQaRoomName,
   normalizeDeliveryAttachment,
   normalizeDeliveryState,
+  nextDeliveryWakeAt,
   pruneDeliveryState,
   publicDeliverySummary,
   recordClassicAck,
@@ -152,17 +155,142 @@ export class Room {
     return r;
   }
   // wake the DO at the soonest command expiry so connected idle clients get a fresh "back to idle" broadcast (not just on the next mutation)
+  nextProbeWakeAt(nowMs) {
+    if (!isQaRoomName(this.roomName) || !this.state ||
+        typeof this.state.getWebSockets !== "function") return null;
+    let next = null;
+    for (const ws of this.state.getWebSockets()) {
+      const attachment = this.readReliableAttachment(ws);
+      if (attachment.roomName !== this.roomName || !attachment.shadow) continue;
+      const coreReady = !!attachment.pid && !!attachment.deviceId &&
+        attachment.soundReady === true;
+      const wakeups = [];
+      if (attachment.lastProbeId && attachment.probeExpiresAtMs) {
+        wakeups.push(attachment.probeExpiresAtMs + 1);
+      } else if (coreReady && attachment.nextProbeAtMs) {
+        wakeups.push(attachment.nextProbeAtMs);
+      }
+      if (attachment.audioArmed && attachment.armedUntilMs) {
+        wakeups.push(attachment.armedUntilMs);
+      }
+      for (const atMs of wakeups) {
+        if (!Number.isFinite(atMs) || atMs <= 0) continue;
+        next = next == null ? atMs : Math.min(next, atMs);
+      }
+    }
+    return next;
+  }
   async scheduleExpiry() {
-    const exps = [1, 2].map(k => this.room.live.commands[k]).filter(c => c && c.expiresUTC).map(c => c.expiresUTC);
-    if (exps.length) await this.state.storage.setAlarm(Math.min(...exps) * 1000 + 600);
+    const classic = [1, 2]
+      .map(k => this.room.live.commands[k])
+      .filter(c => c && c.expiresUTC)
+      .map(c => Number(c.expiresUTC) * 1000 + 600)
+      .filter(atMs => Number.isFinite(atMs) && atMs > 0);
+    const nowMs = this.nowMs();
+    const reliable = [];
+    if (isQaRoomName(this.roomName)) {
+      const deliveryAt = this.delivery ? nextDeliveryWakeAt(this.delivery, nowMs) : null;
+      const probeAt = this.nextProbeWakeAt(nowMs);
+      if (Number.isFinite(deliveryAt) && deliveryAt > 0) {
+        const failureNotBeforeMs = Number.isFinite(this._deliveryFailureNotBeforeMs)
+          ? this._deliveryFailureNotBeforeMs : 0;
+        reliable.push(deliveryAt <= nowMs
+          ? Math.max(nowMs + 1, failureNotBeforeMs)
+          : deliveryAt);
+      }
+      if (Number.isFinite(probeAt) && probeAt > 0) {
+        reliable.push(probeAt <= nowMs ? nowMs + 1 : probeAt);
+      }
+    }
+    const wakeups = classic.concat(reliable);
+    if (wakeups.length) await this.state.storage.setAlarm(Math.min(...wakeups));
     else await this.state.storage.deleteAlarm();   // clear the alarm when idle so a cancel doesn't leave a spurious wake armed
+  }
+  async runDeliveryWake(nowMs) {
+    if (!isQaRoomName(this.roomName)) return false;
+    const sockets = this.state && typeof this.state.getWebSockets === "function"
+      ? this.state.getWebSockets() : [];
+    let attachmentChanged = false;
+
+    for (const ws of sockets) {
+      const attachment = this.readReliableAttachment(ws);
+      if (attachment.roomName !== this.roomName || !attachment.shadow) continue;
+      const challengeExpired = !!attachment.lastProbeId && !!attachment.probeExpiresAtMs &&
+        nowMs > attachment.probeExpiresAtMs;
+      const leaseExpired = attachment.audioArmed && attachment.armedUntilMs <= nowMs;
+      if (challengeExpired) {
+        this.writeReliableAttachment(ws, {
+          audioArmed: false,
+          armedUntilMs: 0,
+          lastProbeId: "",
+          probeExpiresAtMs: 0
+        });
+        attachmentChanged = true;
+      } else if (leaseExpired) {
+        this.writeReliableAttachment(ws, { audioArmed: false, armedUntilMs: 0 });
+        attachmentChanged = true;
+      }
+    }
+
+    for (const ws of sockets) {
+      const attachment = this.readReliableAttachment(ws);
+      if (attachment.roomName !== this.roomName || !attachment.shadow ||
+          !attachment.pid || !attachment.deviceId || attachment.soundReady !== true ||
+          attachment.lastProbeId || !attachment.nextProbeAtMs ||
+          attachment.nextProbeAtMs > nowMs) continue;
+      this.issueDeliveryProbe(ws, attachment, nowMs);
+      attachmentChanged = true;
+    }
+
+    if (Number.isFinite(this._deliveryFailureNotBeforeMs) &&
+        this._deliveryFailureNotBeforeMs > nowMs) return attachmentChanged;
+
+    const previousDelivery = this.delivery;
+    const nextDelivery = normalizeDeliveryState(previousDelivery, 0);
+    nextDelivery.roomName = this.roomName;
+    this.delivery = nextDelivery;
+    const dueActions = dueDeliveryTargets(this.delivery, nowMs);
+    let deliveryChanged = false;
+    for (const action of dueActions) {
+      deliveryChanged = recordDeliveryAttempt(this.delivery, action, nowMs) || deliveryChanged;
+    }
+    deliveryChanged = pruneDeliveryState(this.delivery, nowMs) || deliveryChanged;
+    if (!deliveryChanged) {
+      this.delivery = previousDelivery;
+      return attachmentChanged;
+    }
+    try {
+      await this.persistDelivery();
+    } catch (error) {
+      this.delivery = previousDelivery;
+      const failure = new Error("delivery_wake_persist_failed");
+      failure.cause = error;
+      failure.deliveryWakePersistenceFailure = true;
+      throw failure;
+    }
+    for (const action of dueActions) {
+      const ws = this.deliverySocketFor(action, nowMs);
+      if (!ws) continue;
+      try { ws.send(JSON.stringify(action.envelope)); } catch (error) {}
+    }
+    return true;
   }
   async alarm() {
     this.normalizeLive();
-    const nowS = Math.floor(Date.now() / 1000);
+    const nowMs = this.nowMs();
+    const nowS = Math.floor(nowMs / 1000);
     let changed = false;
     for (const k of [1, 2]) { const c = this.room.live.commands[k]; if (c && c.expiresUTC && nowS >= c.expiresUTC) { this.room.live.commands[k] = null; changed = true; } }
     if (changed) { this.room.live.mode = this.room.live.sim ? "sim" : ((this.room.live.commands[1] || this.room.live.commands[2]) ? "live" : "idle"); await this.persist(); }
+    try {
+      await this.runDeliveryWake(nowMs);
+      if (!Number.isFinite(this._deliveryFailureNotBeforeMs) ||
+          this._deliveryFailureNotBeforeMs <= nowMs) this._deliveryFailureNotBeforeMs = 0;
+    } catch (error) {
+      if (error && error.deliveryWakePersistenceFailure) {
+        this._deliveryFailureNotBeforeMs = nowMs + DELIVERY_RETRY_DELAYS_MS[0];
+      }
+    }
     this.broadcast();
     await this.scheduleExpiry();
   }
@@ -314,6 +442,36 @@ export class Room {
       this.delivery = previousDelivery;
       throw error;
     }
+    await this.scheduleExpiry();
+    return true;
+  }
+  async cancelDeliveryCommand(commandId, nowMs) {
+    if (!isQaRoomName(this.roomName) || !commandId) return false;
+    const previousDelivery = this.delivery;
+    const nextDelivery = normalizeDeliveryState(previousDelivery, 0);
+    nextDelivery.roomName = this.roomName;
+    const record = nextDelivery.commands.find(item => item.commandId === commandId);
+    if (!record || !cancelDeliveryRecord(nextDelivery, commandId, nowMs)) return false;
+    this.delivery = nextDelivery;
+    try {
+      await this.persistDelivery();
+    } catch (error) {
+      this.delivery = previousDelivery;
+      throw error;
+    }
+    const message = JSON.stringify({
+      t: "deliveryShadowCancel",
+      v: DELIVERY_VERSION,
+      shadow: true,
+      commandId,
+      cancelledAtMs: record.cancelledAtMs
+    });
+    for (const target of record.targets) {
+      const ws = this.deliverySocketFor(target, nowMs);
+      if (!ws) continue;
+      try { ws.send(message); } catch (error) {}
+    }
+    this.broadcast();
     await this.scheduleExpiry();
     return true;
   }
@@ -611,9 +769,13 @@ export class Room {
       const c = m.cmd || {};
       const type = ["double_rally", "refill", "cancel", "ping"].includes(c.type) ? c.type : "refill";
       const kd = clampInt(c.kingdom != null ? c.kingdom : (c.payload && c.payload.kingdom), 1, 2);
+      let cancelledCommandId = "";
       // a refill must NOT silently clobber an in-flight double_rally players are already counting down to
       if (type === "refill") { const ex = this.room.live.commands[kd]; if (ex && ex.type === "double_rally" && Number(ex.expiresUTC) > Math.floor(this.nowMs() / 1000)) return ws.send(JSON.stringify({ t: "error", error: "rally_live" })); }
       if (type === "cancel") {
+        const cancelledCommand = this.room.live.commands[kd];
+        cancelledCommandId = cancelledCommand && typeof cancelledCommand.id === "string"
+          ? cancelledCommand.id : "";
         this.room.live.commands[kd] = null;
       } else {
         let payload = (c.payload && typeof c.payload === "object") ? c.payload : {};
@@ -643,6 +805,9 @@ export class Room {
       const reliableCommand = type === "double_rally" ? this.room.live.commands[kd] : null;
       if (reliableCommand) {
         try { await this.dispatchDeliveryForCommand(reliableCommand, this.nowMs()); } catch (error) {}
+      }
+      if (cancelledCommandId) {
+        try { await this.cancelDeliveryCommand(cancelledCommandId, this.nowMs()); } catch (error) {}
       }
       return;
     }

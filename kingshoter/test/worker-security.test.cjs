@@ -60,11 +60,13 @@ test('room expiry uses awaited Durable Object storage alarms and propagates fail
   const { Room } = await importSource('src/room.js');
   const calls = [];
   const room = Object.create(Room.prototype);
+  room.roomName = 'operation-room';
   room.room = { live: { commands: { 1: { expiresUTC: 200 }, 2: { expiresUTC: 150 } } } };
+  room.delivery = { v: 1, roomName: '', commands: [] };
   room.state = { storage: {
     setAlarm: async (at) => calls.push(['set', at]),
     deleteAlarm: async () => calls.push(['delete'])
-  } };
+  }, getWebSockets: () => [] };
 
   await room.scheduleExpiry();
   assert.deepEqual(calls, [['set', 150_600]]);
