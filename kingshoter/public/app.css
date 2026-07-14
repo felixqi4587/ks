@@ -509,6 +509,6 @@ body.cmdmode .toast{bottom:130px}   /* keep toasts clear of the fire dock */
 .console .roster .rpi,.console .roster .rp{min-width:0}
 /* fire dock: sticky at the bottom of the console — zero scrolling to fire */
 .firedock{position:sticky;bottom:calc(env(safe-area-inset-bottom) + 8px);z-index:20;padding-top:10px;background:linear-gradient(180deg,transparent,#f3f5ff 28%)}
-.firedock.nofix{position:static}   /* yield while the keyboard is up (input focused) */
+.firedock.nofix,#commanderMarchEditor:not(.hide) ~ #fireDock{position:static}   /* yield for keyboard focus or a visible commander march editor */
 .firedock .syncpill{margin:0 0 6px;font-size:12px}
 #cancelBtn:disabled{display:none}   /* no live order → no dead gray row */

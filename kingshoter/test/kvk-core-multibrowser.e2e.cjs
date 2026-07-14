@@ -104,6 +104,70 @@ async function waitUntil(read, label, timeout = 10_000) {
   throw new Error(`Timed out waiting for ${label}`);
 }
 
+async function clickCommanderMarchAdoptWithTrustedPointer(page) {
+  await page.locator('#commanderMarchInput').focus();
+  assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.id),
+    'commanderMarchInput', 'pointer regression starts with the editor input focused');
+
+  const box = await page.locator('#commanderMarchAdopt').boundingBox();
+  assert.ok(box, 'visible Adopt has a pointer target box');
+  const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+
+  await page.evaluate(() => {
+    window.__qaAdoptPointerTypes = ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'];
+    window.__qaAdoptPointerTrace = [];
+    window.__qaAdoptPointerListener = event => window.__qaAdoptPointerTrace.push({
+      type: event.type,
+      target: event.target.id || event.target.tagName,
+      trusted: event.isTrusted
+    });
+    window.__qaAdoptPointerTypes.forEach(type =>
+      document.addEventListener(type, window.__qaAdoptPointerListener, true));
+  });
+
+  let afterDown = null;
+  let trace = [];
+  let pointerIsDown = false;
+  try {
+    await page.mouse.move(point.x, point.y);
+    await page.mouse.down();
+    pointerIsDown = true;
+    await page.waitForTimeout(50);
+    afterDown = await page.evaluate(({ x, y }) => ({
+      hit: (document.elementFromPoint(x, y) || {}).id || '',
+      position: getComputedStyle(document.querySelector('#fireDock')).position,
+      nofix: document.querySelector('#fireDock').classList.contains('nofix')
+    }), point);
+  } finally {
+    try {
+      if (pointerIsDown) await page.mouse.up();
+    } finally {
+      trace = await page.evaluate(() => {
+        const result = window.__qaAdoptPointerTrace.slice();
+        window.__qaAdoptPointerTypes.forEach(type =>
+          document.removeEventListener(type, window.__qaAdoptPointerListener, true));
+        delete window.__qaAdoptPointerTypes;
+        delete window.__qaAdoptPointerTrace;
+        delete window.__qaAdoptPointerListener;
+        return result;
+      });
+    }
+  }
+
+  const diagnostic = JSON.stringify({ afterDown, trace });
+  const first = type => trace.find(event => event.type === type);
+  assert.deepEqual(first('pointerdown'), {
+    type: 'pointerdown', target: 'commanderMarchAdopt', trusted: true
+  }, `trusted pointerdown starts on Adopt (${diagnostic})`);
+  assert.equal(afterDown.position, 'static',
+    `Fire dock stays yielded while the pointer is down (${diagnostic})`);
+  assert.equal(afterDown.hit, 'commanderMarchAdopt',
+    `Adopt remains topmost after pointerdown (${diagnostic})`);
+  assert.deepEqual(first('click'), {
+    type: 'click', target: 'commanderMarchAdopt', trusted: true
+  }, `trusted pointer click finishes on Adopt (${diagnostic})`);
+}
+
 async function openRole(browser, options) {
   const {
     room, label, profile = null, deviceId = '', gate = packetGate(), errors,
@@ -410,8 +474,7 @@ async function runCoreScenario(browser, engineName) {
       'a remote player save preserves the commander dirty draft');
     assert.match(await commander.page.locator('#commanderMarchStatus').textContent(), /updated|draft is preserved/i,
       'a stale-base conflict is explicit instead of silently overwriting the losing draft');
-    await commander.page.locator('#commanderMarchAdopt').focus();
-    await commander.page.locator('#commanderMarchAdopt').press('Enter');
+    await clickCommanderMarchAdoptWithTrustedPointer(commander.page);
     try {
       await commander.page.locator('#commanderMarchEditor').waitFor({ state: 'hidden', timeout: 5_000 });
     } catch (error) {
