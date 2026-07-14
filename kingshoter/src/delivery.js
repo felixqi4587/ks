@@ -149,7 +149,8 @@ export function upsertDeliveryTarget(state, commandId, attachment, nowMs) {
   const record = state.commands.find((item) => item.commandId === text(commandId, 64));
   const a = normalizeDeliveryAttachment(attachment, attachment && attachment.roomName);
   const audience = record && record.audiences.find((item) => item.pid === a.pid);
-  if (!record || record.cancelledAtMs != null || !a.qa || !a.shadow || !a.deviceId || !audience) return null;
+  if (!record || record.cancelledAtMs != null || !a.qa || !a.shadow || !a.soundReady ||
+      !a.audioArmed || a.armedUntilMs <= nowMs || !a.deviceId || !audience) return null;
   if (nowMs >= audience.audioExpiresAtMs) return null;
   let target = record.targets.find((item) => item.pid === a.pid && item.deviceId === a.deviceId);
   if (target) {

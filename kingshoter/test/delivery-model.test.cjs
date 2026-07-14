@@ -22,7 +22,7 @@ const command = {
 
 const attachment = (pid, deviceId) => ({
   v: 1, roomName: 'qa-kvk-model-a', qa: true, pid, deviceId,
-  view: 'player', shadow: true, audioArmed: true, armedUntilMs: 1_020_000,
+  soundReady: true, view: 'player', shadow: true, audioArmed: true, armedUntilMs: 1_020_000,
   lastProbeId: '', probeExpiresAtMs: 0, nextProbeAtMs: 0
 });
 
@@ -55,6 +55,21 @@ test('one immutable record holds role-specific frozen timing and two devices for
     mod.upsertDeliveryTarget(state, 'cmd-1', attachment('700001', 'extra-' + i), 1_000_000);
   }
   assert.equal(state.commands[0].targets.length, 24);
+});
+
+test('target admission requires current sound readiness and a live armed lease', async () => {
+  const mod = await load();
+  const invalidAttachments = [
+    { ...attachment('700001', 'not-ready'), soundReady: false },
+    { ...attachment('700001', 'not-armed'), audioArmed: false },
+    { ...attachment('700001', 'lease-expired'), armedUntilMs: 1_000_000 }
+  ];
+  const targets = invalidAttachments.map((candidate) => {
+    const state = mod.defaultDeliveryState('qa-kvk-model-a');
+    state.commands.push(mod.createDeliveryRecord(command, 1_000_000));
+    return mod.upsertDeliveryTarget(state, 'cmd-1', candidate, 1_000_000);
+  });
+  assert.deepEqual(targets, [null, null, null]);
 });
 
 test('initial send and 500/1500ms retries reuse the exact envelope and stop at the cutoff', async () => {
