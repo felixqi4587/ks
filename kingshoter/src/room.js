@@ -206,6 +206,18 @@ export class Room {
     if (wakeups.length) await this.state.storage.setAlarm(Math.min(...wakeups));
     else await this.state.storage.deleteAlarm();   // clear the alarm when idle so a cancel doesn't leave a spurious wake armed
   }
+  async ensureReliableWakeForReadySocket(ws) {
+    const attachment = this.readReliableAttachment(ws);
+    if (!isQaRoomName(this.roomName) || attachment.roomName !== this.roomName ||
+        attachment.qa !== true || attachment.shadow !== true ||
+        attachment.soundReady !== true) return false;
+    try {
+      await this.scheduleExpiry();
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
   async runDeliveryWake(nowMs) {
     if (!isQaRoomName(this.roomName)) return false;
     const sockets = this.state && typeof this.state.getWebSockets === "function"
@@ -643,7 +655,9 @@ export class Room {
       ws.send(JSON.stringify({
         t: "deviceStatusSaved", pid: attachment.pid, deviceId: attachment.deviceId, soundReady: attachment.soundReady
       }));
-      this.broadcast(); return;
+      this.broadcast();
+      await this.ensureReliableWakeForReadySocket(ws);
+      return;
     }
 
     if (m.t === "deliveryAck") {
@@ -862,6 +876,7 @@ export class Room {
         // storage and mark everyone absent even though they're all connected
         const t = Date.now();
         if (!this._lastHbCast || t - this._lastHbCast > 20000) { this._lastHbCast = t; await this.persistAll(); this.broadcast(); }
+        await this.ensureReliableWakeForReadySocket(ws);
       }
       return;
     }

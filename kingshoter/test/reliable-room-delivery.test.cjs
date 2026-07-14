@@ -1794,6 +1794,194 @@ test('readiness loss still clears an expired challenge and lease without renewin
   assert.deepEqual(storage, [['set', 102_001], ['delete']]);
 });
 
+async function proveReadinessRecovery(Room, messageType) {
+  let nowMs = 200_000;
+  const h = installDispatchRoom(createRoomHarness(Room, {
+    roomName: `qa-kvk-${messageType.toLowerCase()}-readiness-recovery`, nowMs
+  }), nowMs);
+  h.room.nowMs = () => nowMs;
+  const player = reliableSocket(h, {
+    pid: '700001', deviceId: DISPATCH_IDS.a1,
+    soundReady: true, audioArmed: true, armedUntilMs: 208_000
+  });
+  h.room.writeReliableAttachment(player.ws, {
+    lastProbeId: `${messageType}-expiring-probe`,
+    probeExpiresAtMs: 202_000,
+    nextProbeAtMs: 203_000
+  });
+  h.room.persistDelivery = async () => {};
+  h.room.scheduleExpiry = Room.prototype.scheduleExpiry.bind(h.room);
+  const alarmOps = [];
+  let armedAlarm = null;
+  h.room.state.storage = {
+    async setAlarm(atMs) {
+      armedAlarm = atMs;
+      alarmOps.push(['set', atMs]);
+    },
+    async deleteAlarm() {
+      armedAlarm = null;
+      alarmOps.push(['delete']);
+    }
+  };
+
+  await h.room.scheduleExpiry();
+  assert.equal(armedAlarm, 202_001);
+  await h.room.webSocketMessage(player.ws, JSON.stringify({
+    t: messageType, pid: '700001', deviceId: DISPATCH_IDS.a1, soundReady: false
+  }));
+  assert.equal(h.room.readReliableAttachment(player.ws).soundReady, false);
+
+  nowMs = armedAlarm;
+  player.raw.length = 0;
+  await h.room.alarm();
+  let attachment = h.room.readReliableAttachment(player.ws);
+  assert.equal(attachment.lastProbeId, '');
+  assert.equal(attachment.probeExpiresAtMs, 0);
+  assert.equal(attachment.audioArmed, false);
+  assert.equal(attachment.armedUntilMs, 0);
+  assert.equal(attachment.nextProbeAtMs, 203_000);
+  assert.deepEqual(player.messages().filter(message =>
+    message.t === 'deliveryShadowProbe' || message.t === 'deliveryShadowCommand'
+  ), []);
+  assert.equal(armedAlarm, null);
+
+  nowMs = 225_000;
+  player.raw.length = 0;
+  await h.room.webSocketMessage(player.ws, JSON.stringify({
+    t: messageType, pid: '700001', deviceId: DISPATCH_IDS.a1, soundReady: true
+  }));
+  assert.equal(armedAlarm, nowMs + 1,
+    `${messageType} must recreate the unified alarm for the preserved due probe`);
+
+  nowMs = armedAlarm;
+  await h.room.alarm();
+  const probes = player.messages().filter(message => message.t === 'deliveryShadowProbe');
+  assert.equal(probes.length, 1);
+  attachment = h.room.readReliableAttachment(player.ws);
+  assert.equal(attachment.lastProbeId, probes[0].probeId);
+  assert.equal(attachment.audioArmed, false);
+
+  await h.room.webSocketMessage(player.ws, JSON.stringify({
+    t: 'deliveryShadowProbeAck', v: 1,
+    probeId: probes[0].probeId, audioArmed: true
+  }));
+  attachment = h.room.readReliableAttachment(player.ws);
+  assert.equal(attachment.audioArmed, true);
+  assert.equal(attachment.armedUntilMs, nowMs + 8_000);
+
+  player.raw.length = 0;
+  await h.room.dispatchDeliveryForCommand(
+    canonicalDoubleRally(`${messageType}-recovered-command`), nowMs
+  );
+  const commands = player.messages().filter(message => message.t === 'deliveryShadowCommand');
+  assert.equal(commands.length, 1);
+  assert.equal(commands[0].commandId, `${messageType}-recovered-command`);
+  assert.deepEqual(
+    h.room.delivery.commands[0].targets.map(target => [target.pid, target.deviceId]),
+    [['700001', DISPATCH_IDS.a1]]
+  );
+  assert.deepEqual(alarmOps.slice(0, 2), [['set', 202_001], ['delete']]);
+}
+
+test('heartbeat readiness recovery recreates the alarm and restores exact command eligibility without another hello', async () => {
+  const { Room } = await loadRoom();
+  await proveReadinessRecovery(Room, 'hb');
+});
+
+test('deviceStatus readiness recovery recreates the alarm and restores exact command eligibility without another hello', async () => {
+  const { Room } = await loadRoom();
+  await proveReadinessRecovery(Room, 'deviceStatus');
+});
+
+test('ready Classic-only observations never add a Reliable alarm write', async () => {
+  const { Room } = await loadRoom();
+  for (const messageType of ['deviceStatus', 'hb']) {
+    const h = installDispatchRoom(createRoomHarness(Room, {
+      roomName: `qa-kvk-${messageType.toLowerCase()}-classic-only`, nowMs: 300_000
+    }), 300_000);
+    const player = reliableSocket(h, {
+      pid: '700001', deviceId: DISPATCH_IDS.classicOnly,
+      soundReady: true, shadow: false, audioArmed: false, armedUntilMs: 0
+    });
+    h.room.writeReliableAttachment(player.ws, { nextProbeAtMs: 299_000 });
+    const alarmOps = [];
+    h.room.scheduleExpiry = Room.prototype.scheduleExpiry.bind(h.room);
+    h.room.state.storage = {
+      async setAlarm(atMs) { alarmOps.push(['set', atMs]); },
+      async deleteAlarm() { alarmOps.push(['delete']); }
+    };
+
+    await h.room.webSocketMessage(player.ws, JSON.stringify({
+      t: messageType, pid: '700001', deviceId: DISPATCH_IDS.classicOnly,
+      soundReady: true
+    }));
+
+    assert.deepEqual(alarmOps, [], messageType);
+  }
+});
+
+test('a failed readiness alarm write stays behind Core work and a later ready heartbeat self-heals it', async () => {
+  const { Room } = await loadRoom();
+  let nowMs = 400_000;
+  const events = [];
+  const h = installDispatchRoom(createRoomHarness(Room, {
+    roomName: 'qa-kvk-readiness-schedule-retry', nowMs
+  }), nowMs);
+  h.room.nowMs = () => nowMs;
+  const player = reliableSocket(h, {
+    pid: '700001', deviceId: DISPATCH_IDS.a1,
+    soundReady: false, audioArmed: false, armedUntilMs: 0,
+    onSend(message) {
+      if (message.t === 'deviceStatusSaved') events.push('core-saved');
+    }
+  });
+  h.room.writeReliableAttachment(player.ws, { nextProbeAtMs: 399_000 });
+  h.room.persistAll = async () => { events.push('core-persist'); };
+  h.room.broadcast = () => { events.push('core-broadcast'); };
+  h.room.persistDelivery = async () => {};
+  h.room.scheduleExpiry = Room.prototype.scheduleExpiry.bind(h.room);
+  let alarmAttempts = 0;
+  let armedAlarm = null;
+  h.room.state.storage = {
+    async setAlarm(atMs) {
+      alarmAttempts += 1;
+      events.push(`alarm:${atMs}`);
+      if (alarmAttempts === 1) throw new Error('transient alarm storage failure');
+      armedAlarm = atMs;
+    },
+    async deleteAlarm() { events.push('alarm:delete'); }
+  };
+
+  await assert.doesNotReject(h.room.webSocketMessage(player.ws, JSON.stringify({
+    t: 'deviceStatus', pid: '700001', deviceId: DISPATCH_IDS.a1,
+    soundReady: true
+  })));
+  assert.deepEqual(events, [
+    'core-persist', 'core-saved', 'core-broadcast', 'alarm:400001'
+  ]);
+  assert.equal(armedAlarm, null);
+  assert.equal(h.room.readReliableAttachment(player.ws).soundReady, true);
+
+  events.length = 0;
+  nowMs = 425_000;
+  h.room._lastHbCast = Date.now() - 25_001;
+  await assert.doesNotReject(h.room.webSocketMessage(player.ws, JSON.stringify({
+    t: 'hb', pid: '700001', deviceId: DISPATCH_IDS.a1, soundReady: true
+  })));
+  assert.deepEqual(events, [
+    'core-persist', 'core-broadcast', 'alarm:425001'
+  ]);
+  assert.equal(armedAlarm, 425_001);
+
+  player.raw.length = 0;
+  nowMs = armedAlarm;
+  await h.room.alarm();
+  assert.equal(
+    player.messages().filter(message => message.t === 'deliveryShadowProbe').length,
+    1
+  );
+});
+
 test('Cancel keeps the exact Classic-first prefix, captures the original command id, persists, and then sends one exact cancel frame', async () => {
   const { Room } = await loadRoom();
   const h = installDispatchRoom(createRoomHarness(Room, {
