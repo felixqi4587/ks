@@ -16,6 +16,17 @@
   var sock = null, room = null, lead = 15, roomPw = "", lastCmdId = null, myPid = "", fireKingdom = 1;
   var announcedCountdowns = {};
   var marchTouched = false, pendingUnlock = false, pendingTok = "", pendingRemovePid = "", pendingRemoveName = "";
+  var initialStateSeen = false, ownPlayerSeen = false, registrationPending = false, pendingMarchMutation = null;
+  var pendingRegistrationProfile = null, draftActive = false, draftVersion = 0;
+  var myProfile = null, deviceId = window.getRoomDeviceId(ROOM);
+  try { myProfile = JSON.parse(localStorage.getItem(LS("me")) || "null"); } catch (e) {}
+  if (myProfile && myProfile.pid) {
+    myProfile = Object.assign({}, myProfile, {
+      marchRevision: Number.isInteger(myProfile.marchRevision) ? myProfile.marchRevision : 0,
+      identityMode: myProfile.identityMode || "playerId"
+    });
+    myPid = myProfile.pid;
+  }
   var pickedByK = { 1: [], 2: [] };
   // defense (refill-timing) state — ported from saltyfish defense.html, fed by room.config.enemyWhales
   var viewMode = "attack", enemyWhales = [], dFocus = 0, adminEnemies = [], lastWhalesKey = "", pendingPubWhales = null, pendingPubTok = null;
@@ -841,9 +852,102 @@
   }
 
   /* ---------- alerts UI ---------- */
+  function saveProfile(profile) {
+    myProfile = profile;
+    myPid = profile && profile.pid ? profile.pid : "";
+    if (profile) wr(LS("me"), JSON.stringify(profile));
+    else { try { localStorage.removeItem(LS("me")); } catch (e) {} }
+  }
+  function adoptCanonicalPlayer(pid, player) {
+    if (!myProfile || pid !== myProfile.pid) return;
+    saveProfile(Object.assign({}, myProfile, {
+      name: player.name || pid,
+      march: player.march,
+      marchRevision: Number.isInteger(player.marchRevision) ? player.marchRevision : 0,
+      identityMode: player.identityMode || myProfile.identityMode || "playerId"
+    }));
+  }
+  function registerStoredProfile() {
+    if (!myProfile || registrationPending || !sock) return;
+    registrationPending = sock.send({
+      t: "registerPlayer", pid: myProfile.pid, name: myProfile.name,
+      march: myProfile.march, identityMode: myProfile.identityMode || "playerId", alliance: ""
+    });
+  }
+  function registerPendingProfile() {
+    if (!pendingRegistrationProfile || registrationPending || !sock) return registrationPending;
+    registrationPending = sock.send({
+      t: "registerPlayer", pid: pendingRegistrationProfile.pid, name: pendingRegistrationProfile.name,
+      march: pendingRegistrationProfile.march, identityMode: pendingRegistrationProfile.identityMode || "playerId", alliance: ""
+    });
+    if (!registrationPending) { pendingRegistrationProfile = null; draftActive = true; window.toast(tk("notconn")); }
+    return registrationPending;
+  }
+  function acceptPendingRegistration(player) {
+    var pending = pendingRegistrationProfile;
+    if (!pending) return;
+    var settleUI = pending.draftVersion === draftVersion;
+    saveProfile({
+      pid: pending.pid,
+      name: player.name || pending.pid,
+      march: player.march,
+      marchRevision: Number.isInteger(player.marchRevision) ? player.marchRevision : 0,
+      identityMode: player.identityMode || pending.identityMode || "playerId"
+    });
+    pendingRegistrationProfile = null; registrationPending = false; ownPlayerSeen = true;
+    if (settleUI) {
+      draftActive = false; showInCard(myProfile); window.toast(tk("updated") + " · " + window.mmss(myProfile.march));
+      if (viewMode === "defense") renderDefense();
+    } else draftActive = true;
+  }
+  function settlePendingMarchMutation() {
+    if (!pendingMarchMutation || !pendingMarchMutation.ackSeen || !pendingMarchMutation.stateSeen) return;
+    var march = pendingMarchMutation.requestedMarch, settleUI = pendingMarchMutation.draftVersion === draftVersion;
+    pendingMarchMutation = null;
+    if (settleUI) {
+      draftActive = false; showInCard(myProfile); window.toast(tk("updated") + " · " + window.mmss(march));
+      if (viewMode === "defense") renderDefense();
+    } else draftActive = true;
+  }
+  function handleSocketMessage(message) {
+    if (!message || message.t !== "playerMarchSaved" || !pendingMarchMutation || message.mutationId !== pendingMarchMutation.mutationId) return;
+    pendingMarchMutation.ackSeen = true;
+    settlePendingMarchMutation();
+  }
+  function clearOwnProfile() {
+    registrationPending = false; pendingRegistrationProfile = null; pendingMarchMutation = null;
+    saveProfile(null); draftActive = true;
+    $("fillCard").classList.remove("hide"); $("youChip").classList.add("hide");
+  }
+  function markDraft() { draftActive = true; draftVersion += 1; }
+  function handlePlayerProtocolError(message) {
+    var error = message && message.error;
+    if (["invalid_march", "player_missing", "player_conflict"].indexOf(error) < 0 && error !== "invalid_pid") return false;
+    if (pendingMarchMutation && message.mutationId === pendingMarchMutation.mutationId) {
+      if (error === "player_conflict" && message.latest && myProfile && message.latest.pid === myProfile.pid) {
+        saveProfile(Object.assign({}, myProfile, {
+          march: message.latest.march,
+          marchRevision: Number.isInteger(message.latest.revision) ? message.latest.revision : myProfile.marchRevision
+        }));
+      }
+      pendingMarchMutation = null; draftActive = true;
+    } else if (pendingRegistrationProfile || registrationPending) {
+      pendingRegistrationProfile = null; registrationPending = false; draftActive = true;
+    } else return false;
+    $("fillCard").classList.remove("hide"); $("youChip").classList.add("hide");
+    if (error === "invalid_march") window.toast(tk("marchfirst"));
+    else if (error === "invalid_pid") window.toast("Player ID");
+    else if (error === "player_missing") window.toast(tk("player_missing"));
+    return true;
+  }
   /* ---------- net + sync ---------- */
-  // onOpen re-registers me on every (re)connect — a dropped submit or an evicted roster entry self-heals
-  function connect() { sock = new window.RoomSocket(ROOM, onState); sock.onOpen = function () { setNet(true); window.syncClock().then(updateSync); try { var me = JSON.parse(localStorage.getItem(LS("me")) || "null"); if (me && me.pid) sock.send({ t: "setMarch", pid: me.pid, name: me.name, march: me.march, alliance: "" }); } catch (e) {} }; sock.onClose = function () { setNet(false); }; sock.onError = function (m) { if (m.error === "bad_password") { pendingRemovePid = ""; pendingRemoveName = ""; try { localStorage.removeItem(LS("pw")); } catch (e) {} if (pendingUnlock) { pendingUnlock = false; roomPw = ""; var msg = $("pwMsg"); if (msg) { msg.textContent = tk("wrongpw"); msg.className = "pwmsg err"; } } else { window.toast(tk("wrongpw")); lockCmd(); } } else if (m.error === "player_in_use") { pendingRemovePid = ""; pendingRemoveName = ""; window.toast(tk("remove_in_use")); if (room) renderRoster(); } else if (m.error === "player_missing") window.toast(tk("player_missing")); else if (m.error === "rally_live") window.toast(tk("rally_live")); else if (m.error === "conflict") { if (pendingUnlock) { if (m.room) room = m.room; unlockedOK(); } /* pw was validated before the lock check — the conflict only means someone else wrote config meanwhile; open the console on their fresher state, write nothing */ else if (pendingPubWhales && window.confirm(tk("confirm_over"))) sendWhales(pendingPubWhales, m.room ? m.room.updatedAt : (room ? room.updatedAt : undefined)); else { pendingPubWhales = null; pendingPubTok = null; var pm = $("pubMsg"); if (pm) pm.innerHTML = '<span style="color:var(--coral)">' + tk("pub_fail") + '</span>'; } } }; }
+  function connect() {
+    sock = new window.RoomSocket(ROOM, onState);
+    sock.onMessage = handleSocketMessage;
+    sock.onOpen = function () { initialStateSeen = false; registrationPending = false; setNet(true); window.syncClock().then(updateSync); };
+    sock.onClose = function () { initialStateSeen = false; registrationPending = false; if (pendingMarchMutation && !pendingMarchMutation.ackSeen) pendingMarchMutation = null; setNet(false); };
+    sock.onError = function (m) { if (handlePlayerProtocolError(m)) return; if (m.error === "bad_password") { pendingRemovePid = ""; pendingRemoveName = ""; try { localStorage.removeItem(LS("pw")); } catch (e) {} if (pendingUnlock) { pendingUnlock = false; roomPw = ""; var msg = $("pwMsg"); if (msg) { msg.textContent = tk("wrongpw"); msg.className = "pwmsg err"; } } else { window.toast(tk("wrongpw")); lockCmd(); } } else if (m.error === "player_in_use") { pendingRemovePid = ""; pendingRemoveName = ""; window.toast(tk("remove_in_use")); if (room) renderRoster(); } else if (m.error === "player_missing") window.toast(tk("player_missing")); else if (m.error === "rally_live") window.toast(tk("rally_live")); else if (m.error === "conflict") { if (pendingUnlock) { if (m.room) room = m.room; unlockedOK(); } /* pw was validated before the lock check — the conflict only means someone else wrote config meanwhile; open the console on their fresher state, write nothing */ else if (pendingPubWhales && window.confirm(tk("confirm_over"))) sendWhales(pendingPubWhales, m.room ? m.room.updatedAt : (room ? room.updatedAt : undefined)); else { pendingPubWhales = null; pendingPubTok = null; var pm = $("pubMsg"); if (pm) pm.innerHTML = '<span style="color:var(--coral)">' + tk("pub_fail") + '</span>'; } } };
+  }
   // one glanceable signal instead of four separate badges: worst state wins (offline > syncing > "{n} online")
   var connFlag = false, presenceN = 1;
   function paintChrome() {
@@ -857,21 +961,41 @@
   var lastStagedKey = "", lastMyMarch = 0;
   function onState(r) {
     var nextPlayers = r.players || {};
-    var ownRemoved = !!(myPid && room && room.players && Object.prototype.hasOwnProperty.call(room.players, myPid) && !Object.prototype.hasOwnProperty.call(nextPlayers, myPid));
-    var ownRemovedName = ownRemoved ? (room.players[myPid].name || myPid) : "", acknowledgedOwnRemoval = false;
+    var firstSnapshot = !initialStateSeen; initialStateSeen = true;
+    var trackedPid = myProfile && myProfile.pid;
+    var ownRemoved = !!(trackedPid && ownPlayerSeen && !Object.prototype.hasOwnProperty.call(nextPlayers, trackedPid));
+    var ownRemovedName = ownRemoved ? (myProfile.name || trackedPid) : "", acknowledgedOwnRemoval = false;
     [1, 2].forEach(function (kd) { pickedByK[kd] = pickedByK[kd].filter(function (p) { return !!nextPlayers[p.pid]; }); });
     if (pendingRemovePid && !(r.players && r.players[pendingRemovePid])) {
       var removedPid = pendingRemovePid, removedName = pendingRemoveName || pendingRemovePid;
-      acknowledgedOwnRemoval = ownRemoved && removedPid === myPid;
+      acknowledgedOwnRemoval = ownRemoved && removedPid === trackedPid;
       pendingRemovePid = ""; pendingRemoveName = "";
       [1, 2].forEach(function (kd) { pickedByK[kd] = pickedByK[kd].filter(function (p) { return p.pid !== removedPid; }); });
       window.toast(tkf("removed", { n: removedName }));
     }
     if (ownRemoved) {
-      try { localStorage.removeItem(LS("me")); } catch (e) {}
-      myPid = "";
+      clearOwnProfile();
       if (!acknowledgedOwnRemoval) window.toast(tkf("removed", { n: ownRemovedName }));
-      setTimeout(function () { location.reload(); }, 350);
+    } else if (pendingRegistrationProfile) {
+      if (Object.prototype.hasOwnProperty.call(nextPlayers, pendingRegistrationProfile.pid)) acceptPendingRegistration(nextPlayers[pendingRegistrationProfile.pid]);
+      else if (firstSnapshot && !registrationPending) registerPendingProfile();
+    } else if (myProfile) {
+      var canonical = nextPlayers[myProfile.pid];
+      if (canonical) {
+        var canonicalRevision = Number.isInteger(canonical.marchRevision) ? canonical.marchRevision : 0;
+        ownPlayerSeen = true; registrationPending = false;
+        adoptCanonicalPlayer(myProfile.pid, canonical);
+        if (pendingMarchMutation && pendingMarchMutation.pid === myProfile.pid &&
+            canonical.march === pendingMarchMutation.requestedMarch &&
+            canonicalRevision === pendingMarchMutation.baseRevision + 1) {
+          pendingMarchMutation.stateSeen = true;
+        } else if (pendingMarchMutation && (canonicalRevision > pendingMarchMutation.baseRevision + 1 ||
+                   (canonicalRevision === pendingMarchMutation.baseRevision + 1 && canonical.march !== pendingMarchMutation.requestedMarch))) {
+          pendingMarchMutation = null; draftActive = true;
+        }
+        if (!draftActive && !pendingRegistrationProfile && !pendingMarchMutation) showInCard(myProfile);
+        settlePendingMarchMutation();
+      } else if (firstSnapshot && !ownPlayerSeen) registerStoredProfile();
     }
     // a live order that vanishes BEFORE its click moment = cancelled → everyone gets a positive audible+visual cue
     // (the pre-booked countdown beeps are killed by reconcileCues inside scheduleAllCues)
@@ -910,7 +1034,8 @@
 
   /* ---------- fill ---------- */
   function setMarchUI(s) { s = Math.max(5, Math.min(180, Math.round(s || 90))); $("marchRange").value = s; $("marchBig").textContent = marchTouched ? window.mmss(s) : "—:—"; var sb = $("saveBtn"); if (sb) sb.classList.toggle("dim", !marchTouched); }   // dim, NOT disabled: a native-disabled button swallows the tap and the stuck user gets zero feedback
-  function showInCard(me) { marchTouched = true; $("fillCard").classList.add("hide"); $("youChip").classList.remove("hide"); $("youName").textContent = tk("you") + " · " + me.name; $("youMarch").textContent = window.mmss(me.march); $("pid").value = me.pid; setMarchUI(me.march); if (me.name) { $("nameOut").textContent = "✓ " + me.name; $("nameOut").dataset.name = me.name; } }
+  function showProfileDraft(me) { marchTouched = true; $("fillCard").classList.remove("hide"); $("youChip").classList.add("hide"); $("pid").value = me.pid; setMarchUI(me.march); if (me.name) { $("nameOut").textContent = "✓ " + me.name; $("nameOut").dataset.name = me.name; } }
+  function showInCard(me) { draftActive = false; marchTouched = true; $("fillCard").classList.add("hide"); $("youChip").classList.remove("hide"); $("youName").textContent = tk("you") + " · " + me.name; $("youMarch").textContent = window.mmss(me.march); $("pid").value = me.pid; setMarchUI(me.march); if (me.name) { $("nameOut").textContent = "✓ " + me.name; $("nameOut").dataset.name = me.name; } }
   function isFilled() { return !!myPid; }
 
   /* ---------- commander unlock ---------- */
@@ -956,23 +1081,39 @@
 
   /* ---------- wiring ---------- */
   function wireRoom() {
-    try { var me = JSON.parse(localStorage.getItem(LS("me")) || "null"); if (me) { myPid = me.pid; showInCard(me); } } catch (e) {}
+    if (myProfile) showProfileDraft(myProfile);
     var nt = null;
-    $("pid").addEventListener("input", function () { clearTimeout(nt); var fid = this.value.replace(/\D/g, ""); if (!fid) { $("nameOut").textContent = ""; return; } $("nameOut").textContent = "…"; nt = setTimeout(function () { fetch("/api/lookup?fid=" + fid).then(function (r) { return r.json(); }).then(function (j) { $("nameOut").textContent = j.ok ? "✓ " + j.nickname : tk("namefail"); $("nameOut").dataset.name = j.ok ? j.nickname : ""; }).catch(function () { $("nameOut").textContent = tk("namefail"); }); }, 500); });   // a bare ✕ read as "rejected, stuck" — say it's harmless
+    $("pid").addEventListener("input", function () { markDraft(); clearTimeout(nt); var fid = this.value.replace(/\D/g, ""); if (!fid) { $("nameOut").textContent = ""; return; } $("nameOut").textContent = "…"; nt = setTimeout(function () { fetch("/api/lookup?fid=" + fid).then(function (r) { return r.json(); }).then(function (j) { $("nameOut").textContent = j.ok ? "✓ " + j.nickname : tk("namefail"); $("nameOut").dataset.name = j.ok ? j.nickname : ""; }).catch(function () { $("nameOut").textContent = tk("namefail"); }); }, 500); });   // a bare ✕ read as "rejected, stuck" — say it's harmless
     $("saveBtn").onclick = function () {
-      var pid = $("pid").value.replace(/\D/g, ""); if (!pid) { window.toast("Player ID"); return; }
+      var pid = $("pid").value.replace(/\D/g, ""); if ((!myProfile || !myProfile.pid) && !pid) { window.toast("Player ID"); return; }
       if (!marchTouched) { window.toast(tk("marchfirst")); if (window.gsap) gsap.fromTo($("marchBig"), { scale: 1.18, color: "#e05a5a" }, { scale: 1, clearProps: "all", duration: .5 }); return; }   // the slider LOOKS set (thumb mid-track) but isn't — explain the invisible rule instead of a dead tap
-      var name = $("nameOut").dataset.name || $("pid").value, march = +$("marchRange").value; myPid = pid;
-      var ok = sock.send({ t: "setMarch", pid: pid, name: name, march: march, alliance: "" });
-      var me = { pid: pid, name: name, march: march }; wr(LS("me"), JSON.stringify(me));
-      if (!ok) { window.toast(tk("notconn")); return; }   // never claim "updated" for a dropped send — the card stays open, and onOpen self-heals anyway
-      showInCard(me); window.toast(tk("updated") + " · " + window.mmss(march));
-      if (viewMode === "defense") renderDefense();   // refill cues depend on my march — recompute immediately
+      var name = $("nameOut").dataset.name || $("pid").value, march = +$("marchRange").value, ok;
+      draftActive = true;
+      if (myProfile && myProfile.pid && ownPlayerSeen) {
+        if (pendingMarchMutation) return;
+        pendingMarchMutation = {
+          mutationId: crypto.randomUUID(), pid: myProfile.pid, requestedMarch: march,
+          baseRevision: Number.isInteger(myProfile.marchRevision) ? myProfile.marchRevision : 0,
+          ackSeen: false, stateSeen: false, draftVersion: draftVersion
+        };
+        ok = sock.send({
+          t: "updateOwnMarch", mutationId: pendingMarchMutation.mutationId, pid: pendingMarchMutation.pid,
+          march: pendingMarchMutation.requestedMarch, baseRevision: pendingMarchMutation.baseRevision
+        });
+        if (!ok) { pendingMarchMutation = null; window.toast(tk("notconn")); }
+        return;
+      }
+      if (registrationPending && myProfile && !ownPlayerSeen) return;
+      if (pendingRegistrationProfile) return;
+      pendingRegistrationProfile = { pid: pid, name: name, march: march, marchRevision: 0, identityMode: "playerId", draftVersion: draftVersion };
+      ok = registerPendingProfile();
+      if (!ok) return;
+      if (room && room.players && room.players[pid]) acceptPendingRegistration(room.players[pid]);
     };
-    $("editBtn").onclick = function () { $("youChip").classList.add("hide"); $("fillCard").classList.remove("hide"); };
-    $("marchRange").addEventListener("input", function () { marchTouched = true; setMarchUI(+this.value); });
-    $("marchMinus").onclick = function () { marchTouched = true; setMarchUI(+$("marchRange").value - 1); };
-    $("marchPlus").onclick = function () { marchTouched = true; setMarchUI(+$("marchRange").value + 1); };
+    $("editBtn").onclick = function () { markDraft(); $("youChip").classList.add("hide"); $("fillCard").classList.remove("hide"); };
+    $("marchRange").addEventListener("input", function () { markDraft(); marchTouched = true; setMarchUI(+this.value); });
+    $("marchMinus").onclick = function () { markDraft(); marchTouched = true; setMarchUI(+$("marchRange").value - 1); };
+    $("marchPlus").onclick = function () { markDraft(); marchTouched = true; setMarchUI(+$("marchRange").value + 1); };
     if (!myPid) setMarchUI(90);   // only seed the default for a brand-new user; a returning user's saved march was already set by showInCard (don't clobber it to 1:30)
     $("cmdUnlock").onclick = function () {
       // a FRESH room has no password yet — the first string typed here silently becomes it (room.js setConfig).

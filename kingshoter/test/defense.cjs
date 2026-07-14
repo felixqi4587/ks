@@ -1,17 +1,20 @@
 // defense merge: commander publishes enemy whales → every defender's 🛡️ tab computes refill timing (self-serve, static)
 // Usage: node test/defense.cjs [baseURL]   (defaults to production; pass http://localhost:8788 to test a local wrangler dev)
 const { chromium } = require("playwright");
+const { makeQaRoom, qaRoomUrl, installQaWebSocketGuard } = require("./support/qa-kvk.cjs");
 (async () => {
   const HOST = process.argv[2] || "https://kingshoter.com";
-  const RM = "df" + Date.now(), base = HOST + "/kvk.html?k=test&room=" + RM + "&notour=1";
+  const RM = makeQaRoom("defense"), base = qaRoomUrl(HOST, RM, { k: "test", notour: 1 });
   const b = await chromium.launch({ headless: true, channel: "chrome", args: ["--autoplay-policy=no-user-gesture-required"] });
   let pass = 0, fail = 0; const ok = (c, l) => { (c ? pass++ : fail++); console.log((c ? "✓" : "✗ FAIL") + " " + l); };
   const errs = [];
   const dis = async p => { try { await p.keyboard.press("Escape"); } catch (e) {} try { if (await p.locator("#obGo").isVisible()) await p.locator("#obGo").click(); } catch (e) {} };
-  const mk = async (fid, m) => { const p = await (await b.newContext({ viewport: { width: 390, height: 1400 }, locale: "en-US" })).newPage(); p.on("pageerror", e => errs.push(fid + ":" + e.message)); await p.goto(base); await p.waitForLoadState("networkidle"); await dis(p); await p.locator("#soundGate").click().catch(() => {}); await p.waitForTimeout(150); await p.locator("#pid").fill(fid); await p.waitForTimeout(1700); await p.locator("#marchRange").fill(String(m)); await p.locator("#saveBtn").click(); await p.waitForTimeout(600); return p; };
+  const mk = async (fid, m) => { const context = await b.newContext({ viewport: { width: 390, height: 1400 }, locale: "en-US" }); await installQaWebSocketGuard(context, RM); const p = await context.newPage(); p.on("pageerror", e => errs.push(fid + ":" + e.message)); await p.goto(base); await p.waitForLoadState("networkidle"); await dis(p); await p.locator("#soundGate").click().catch(() => {}); await p.waitForTimeout(150); await p.locator("#pid").fill(fid); await p.waitForTimeout(1700); await p.locator("#marchRange").fill(String(m)); await p.locator("#saveBtn").click(); await p.waitForTimeout(600); return p; };
 
   // commander: unlock, add 2 enemy whales, publish
-  const cmd = await (await b.newContext({ viewport: { width: 390, height: 1400 }, locale: "en-US" })).newPage();
+  const cmdContext = await b.newContext({ viewport: { width: 390, height: 1400 }, locale: "en-US" });
+  await installQaWebSocketGuard(cmdContext, RM);
+  const cmd = await cmdContext.newPage();
   cmd.on("pageerror", e => errs.push("cmd:" + e.message));
   await cmd.goto(base); await cmd.waitForLoadState("networkidle"); await dis(cmd);
   await cmd.locator("#soundGate").click().catch(() => {}); await cmd.waitForTimeout(150);
