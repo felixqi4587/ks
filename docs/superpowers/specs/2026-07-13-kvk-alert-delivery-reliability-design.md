@@ -29,6 +29,8 @@ Three newer ideas are candidates, not promised production features:
 
 The candidates are first implemented in a hidden lab or shadow mode and tested against Classic. They do not automatically become visible website features. A candidate graduates only when real-device evidence shows a clear reliability improvement without making countdown timing, usability, battery use, data use, or maintenance materially worse. A candidate that is unstable, redundant, or not clearly better is removed rather than preserved behind a permanent flag.
 
+Promotion may be capability-scoped. A candidate that is clearly better on a verified Android configuration, for example, may remain disabled everywhere else. Platforms outside the promoted scope continue using Classic and must not inherit extra setup or risk. A platform-specific branch is still rejected when the branching and maintenance cost outweigh its measured benefit.
+
 This is the project's less-is-more rule: production exposes the smallest proven solution, not every experiment that was built.
 
 ## Hard production-safety rule
@@ -291,7 +293,7 @@ It must be tested for:
 - stream reconnection and stale-command suppression;
 - commander audience silence.
 
-The candidate is cut if any major platform cannot maintain useful timing, if it interferes materially with game audio, if its resource cost is unreasonable, or if its background success is not clearly better than Classic.
+The candidate is cut from a platform scope if that platform cannot maintain useful timing, if it interferes materially with game audio, if its resource cost is unreasonable, or if its background success is not clearly better than Classic. It may graduate only for capability groups that independently pass. The entire candidate is removed when keeping platform-specific branches costs more than the measured benefit.
 
 During experiments, Classic remains the actual production audio. The stream code path is isolated so disabling or deleting it cannot change Classic scheduling.
 
@@ -432,7 +434,7 @@ Classic remains default unless a candidate is clearly better on real devices.
 A candidate may graduate only when:
 
 - existing countdown behavior has no regression;
-- major target platforms show a material reliability improvement;
+- target platforms within the proposed promotion scope show a material reliability improvement;
 - timing is at least as accurate as Classic;
 - duplicate and stale playback remain absent;
 - the required player workflow stays simple;
@@ -442,7 +444,7 @@ A candidate may graduate only when:
 A candidate is removed when:
 
 - improvement is small or inconsistent;
-- one or more major platforms regress;
+- one or more platforms inside the proposed promotion scope regress;
 - it requires repeated permissions or confusing controls;
 - it consumes disproportionate battery or data;
 - it creates significant maintenance complexity;
