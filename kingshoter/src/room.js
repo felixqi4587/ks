@@ -92,6 +92,8 @@ export class Room {
       this.room = (await state.storage.get("room")) || defaultRoom();
       this.room.players = normalizePlayerRecords(this.room.players);
       this.normalizeLive();
+      delete this.room.delivery;
+      delete this.room.deliveryShadow;
       let storedDelivery = null;
       try { storedDelivery = await state.storage.get(DELIVERY_STORAGE_KEY); } catch (error) {}
       this.delivery = normalizeDeliveryState(storedDelivery || this.delivery, this.nowMs());
@@ -126,6 +128,8 @@ export class Room {
 
   snapshot() {
     const r = { ...this.room, presence: this.state.getWebSockets().length };
+    delete r.delivery;
+    delete r.deliveryShadow;
     r.hasPw = !!r.pwHash; delete r.pwHash;   // clients only need "is this room claimed?" — never ship the hash itself
     // auto-expire finished commands per kingdom so late joiners / reconnects never get a phantom GO
     const nowS = Math.floor(Date.now() / 1000);
@@ -237,7 +241,7 @@ export class Room {
     });
   }
   deliveryError(ws, error) {
-    return ws.send(JSON.stringify({ t: "error", error }));
+    try { return ws.send(JSON.stringify({ t: "error", error })); } catch (sendError) {}
   }
   async persistDelivery() {
     await this.state.storage.put(DELIVERY_STORAGE_KEY, this.delivery);
@@ -265,10 +269,20 @@ export class Room {
     const attachment = this.readReliableAttachment(ws);
     if (!attachment.qa) return this.deliveryError(ws, "qa_room_required");
     if (message.t === "deliveryShadowHello") {
-      if (message.v !== DELIVERY_VERSION || message.shadow !== true ||
-          !attachment.pid || !attachment.deviceId || attachment.soundReady !== true ||
+      if (!attachment.pid || !attachment.deviceId || attachment.soundReady !== true ||
           message.pid !== attachment.pid || message.deviceId !== attachment.deviceId) {
         return this.deliveryError(ws, "core_identity_mismatch");
+      }
+      if (message.v !== DELIVERY_VERSION || message.shadow !== true) {
+        return this.deliveryError(ws, "bad_delivery_hello");
+      }
+      const previousDelivery = this.delivery;
+      this.delivery = { ...previousDelivery, roomName: attachment.roomName };
+      try {
+        await this.persistDelivery();
+      } catch (error) {
+        this.delivery = previousDelivery;
+        return this.deliveryError(ws, "delivery_persist_failed");
       }
       const initialized = this.writeReliableAttachment(ws, {
         view: message.view,
@@ -279,9 +293,7 @@ export class Room {
         probeExpiresAtMs: 0,
         nextProbeAtMs: 0
       });
-      this.delivery.roomName = initialized.roomName;
       this.issueDeliveryProbe(ws, initialized, this.nowMs());
-      await this.persistDelivery();
       await this.scheduleExpiry();
       return;
     }
@@ -297,7 +309,9 @@ export class Room {
         probeExpiresAtMs: 0
       });
       await this.scheduleExpiry();
+      return;
     }
+    return this.deliveryError(ws, "unsupported_delivery_message");
   }
   observeDevice(ws, message) {
     const pid = normalizeRoutingKey(message && message.pid);

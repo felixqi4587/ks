@@ -377,3 +377,178 @@ test('QA snapshots expose only aggregate delivery summaries and omit them when e
     assert.equal(Object.prototype.hasOwnProperty.call(h.room.snapshot(), 'deliveryShadow'), false, roomName);
   }
 });
+
+test('constructor migration removes contaminated delivery payloads from the Core room', async () => {
+  const { Room } = await loadRoom();
+  let initialized;
+  const storedRoom = {
+    pwHash: null,
+    config: { castleName: '', rallyAllies: [], enemyWhales: [] },
+    players: {},
+    live: { mode: 'idle', commands: { 1: null, 2: null }, staged: { 1: null, 2: null }, sim: null },
+    updatedAt: null,
+    updatedBy: null,
+    delivery: { pid: 'PRIVATE-CONSTRUCTOR-PID', deviceId: DEVICE_ID },
+    deliveryShadow: { lastProbeId: 'PRIVATE-CONSTRUCTOR-PROBE' }
+  };
+  const state = {
+    id: { name: 'qa-kvk-contaminated-constructor' },
+    storage: {
+      async get(key) {
+        if (key === 'room') return structuredClone(storedRoom);
+        return { v: 1, roomName: 'qa-kvk-contaminated-constructor', commands: [] };
+      }
+    },
+    blockConcurrencyWhile(callback) {
+      initialized = callback();
+      return initialized;
+    }
+  };
+
+  const room = new Room(state, { MASTER: 'separate-master-override' });
+  await initialized;
+
+  assert.equal(Object.prototype.hasOwnProperty.call(room.room, 'delivery'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(room.room, 'deliveryShadow'), false);
+  assert.doesNotMatch(JSON.stringify(room.room), /PRIVATE-CONSTRUCTOR/);
+});
+
+test('snapshots scrub contaminated delivery keys in populated QA, empty QA, and non-QA rooms', async () => {
+  const { Room } = await loadRoom();
+  const cases = [
+    { roomName: 'qa-kvk-contaminated-summary', commands: true, aggregate: true },
+    { roomName: 'qa-kvk-contaminated-empty', commands: false, aggregate: false },
+    { roomName: 'operation-room', commands: true, aggregate: false }
+  ];
+
+  for (const item of cases) {
+    const h = createRoomHarness(Room, { roomName: 'qa-kvk-contaminated-base', nowMs: 5_000_000 });
+    h.room.roomName = item.roomName;
+    h.room.room.delivery = { pid: 'PRIVATE-SNAPSHOT-PID', deviceId: DEVICE_ID };
+    h.room.room.deliveryShadow = {
+      commands: [{ pid: 'PRIVATE-SNAPSHOT-PID', lastProbeId: 'PRIVATE-SNAPSHOT-PROBE' }]
+    };
+    h.room.delivery = {
+      v: 1,
+      roomName: item.roomName,
+      commands: item.commands ? [{
+        commandId: 'bounded-command', kingdom: 1, issuedAtMs: 4_999_000,
+        cancelledAtMs: null, audiences: [], targets: []
+      }] : []
+    };
+
+    const snapshot = h.room.snapshot();
+    assert.equal(Object.prototype.hasOwnProperty.call(snapshot, 'delivery'), false, item.roomName);
+    assert.equal(Object.prototype.hasOwnProperty.call(snapshot, 'deliveryShadow'), item.aggregate, item.roomName);
+    if (item.aggregate) {
+      assert.deepEqual(snapshot.deliveryShadow, {
+        v: 1,
+        commands: [{
+          commandId: 'bounded-command', expectedDevices: 0, classicScheduled: 0,
+          candidateAcked: 0, expired: 0, cancelled: false
+        }]
+      });
+    }
+    assert.doesNotMatch(JSON.stringify(snapshot), /PRIVATE-SNAPSHOT/, item.roomName);
+    assert.equal(JSON.stringify(snapshot).includes(DEVICE_ID), false, item.roomName);
+  }
+});
+
+test('a rejected Reliable write leaves hello attachment, model, Core room, identity, and alarm untouched', async () => {
+  const { Room } = await loadRoom();
+  const h = prepareReliableSocket(createRoomHarness(Room, {
+    roomName: 'qa-kvk-persist-failure', nowMs: 6_000_000
+  }));
+  const beforeAttachment = h.room.readReliableAttachment(h.ws);
+  const beforeDelivery = structuredClone(h.room.delivery);
+  const beforeRoom = structuredClone(h.room.room);
+  let alarms = 0;
+  h.room.state.storage = {
+    async put(key) {
+      assert.equal(key, 'delivery:v1');
+      throw new Error('storage unavailable');
+    }
+  };
+  h.room.scheduleExpiry = async () => { alarms += 1; };
+
+  await assert.doesNotReject(h.room.webSocketMessage(h.ws, JSON.stringify({
+    t: 'deliveryShadowHello', v: 1, shadow: true, view: 'commander',
+    pid: '001', deviceId: DEVICE_ID
+  })));
+
+  assert.deepEqual(h.sent, [{ t: 'error', error: 'delivery_persist_failed' }]);
+  assert.deepEqual(h.room.readReliableAttachment(h.ws), beforeAttachment);
+  assert.deepEqual(h.room.delivery, beforeDelivery);
+  assert.deepEqual(h.room.room, beforeRoom);
+  assert.equal(h.room.readSocketAttachment(h.ws).pid, '001');
+  assert.equal(h.room.readSocketAttachment(h.ws).deviceId, DEVICE_ID);
+  assert.equal(alarms, 0);
+
+  const closed = prepareReliableSocket(createRoomHarness(Room, {
+    roomName: 'qa-kvk-persist-closed', nowMs: 6_100_000
+  }));
+  closed.room.state.storage = { async put() { throw new Error('storage unavailable'); } };
+  closed.ws.send = () => { throw new Error('socket closed'); };
+  await assert.doesNotReject(closed.room.webSocketMessage(closed.ws, JSON.stringify({
+    t: 'deliveryShadowHello', v: 1, shadow: true, view: 'player',
+    pid: '001', deviceId: DEVICE_ID
+  })));
+});
+
+test('hello distinguishes every Core identity failure from malformed shadow protocol', async () => {
+  const { Room } = await loadRoom();
+  const cases = [
+    { name: 'empty pid', message: { pid: '' }, error: 'core_identity_mismatch' },
+    { name: 'wrong pid', message: { pid: 'kimchi' }, error: 'core_identity_mismatch' },
+    { name: 'wrong device', message: { deviceId: 'wrong-device' }, error: 'core_identity_mismatch' },
+    { name: 'sound not ready', ready: false, error: 'core_identity_mismatch' },
+    { name: 'wrong version', message: { v: 2 }, error: 'bad_delivery_hello' },
+    { name: 'shadow disabled', message: { shadow: false }, error: 'bad_delivery_hello' }
+  ];
+
+  for (const item of cases) {
+    const h = prepareReliableSocket(createRoomHarness(Room, {
+      roomName: 'qa-kvk-invalid-hello', nowMs: 7_000_000
+    }));
+    if (item.ready === false) h.room.writeSocketAttachment(h.ws, { soundReady: false });
+    let persists = 0;
+    let alarms = 0;
+    h.room.persistDelivery = async () => { persists += 1; };
+    h.room.scheduleExpiry = async () => { alarms += 1; };
+    const before = h.room.readReliableAttachment(h.ws);
+    const message = {
+      t: 'deliveryShadowHello', v: 1, shadow: true, view: 'commander',
+      pid: '001', deviceId: DEVICE_ID, ...(item.message || {})
+    };
+
+    await h.room.webSocketMessage(h.ws, JSON.stringify(message));
+
+    assert.deepEqual(h.sent, [{ t: 'error', error: item.error }], item.name);
+    assert.deepEqual(h.room.readReliableAttachment(h.ws), before, item.name);
+    assert.equal(persists, 0, item.name);
+    assert.equal(alarms, 0, item.name);
+  }
+});
+
+test('an unsupported deliveryShadow frame in QA gets a bounded error without mutation', async () => {
+  const { Room } = await loadRoom();
+  const h = prepareReliableSocket(createRoomHarness(Room, {
+    roomName: 'qa-kvk-unsupported', nowMs: 8_000_000
+  }));
+  const beforeAttachment = h.room.readReliableAttachment(h.ws);
+  const beforeDelivery = structuredClone(h.room.delivery);
+  let persists = 0;
+  let alarms = 0;
+  h.room.persistDelivery = async () => { persists += 1; };
+  h.room.scheduleExpiry = async () => { alarms += 1; };
+
+  await h.room.webSocketMessage(h.ws, JSON.stringify({
+    t: 'deliveryShadowFutureVersion', v: 99, privateValue: 'must-not-echo'
+  }));
+
+  assert.deepEqual(h.sent, [{ t: 'error', error: 'unsupported_delivery_message' }]);
+  assert.deepEqual(h.room.readReliableAttachment(h.ws), beforeAttachment);
+  assert.deepEqual(h.room.delivery, beforeDelivery);
+  assert.equal(persists, 0);
+  assert.equal(alarms, 0);
+});
