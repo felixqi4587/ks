@@ -160,7 +160,7 @@ async function readProfile(page) {
 
     assert.equal(await racePage.locator('link[href="app.css?v=30"]').count(), 1, 'the identity CSS cache version is exact');
     assert.equal(await racePage.locator('script[src="app.js?v=11"]').count(), 1, 'the shared socket cache version is exact');
-    assert.equal(await racePage.locator('script[src="kvk.js?v=39"]').count(), 1, 'the identity script cache version is exact');
+    assert.equal(await racePage.locator('script[src="kvk.js?v=40"]').count(), 1, 'the identity script cache version is exact');
     assert.equal(await racePage.locator('#identityMode').getAttribute('role'), 'radiogroup');
     assert.match(await racePage.locator('#identityMode').getAttribute('aria-label'), /Identity/i);
     assert.equal(await racePage.locator('#identityPlayerId').getAttribute('role'), 'radio');

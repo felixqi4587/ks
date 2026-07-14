@@ -52,6 +52,260 @@
   var isAndroid = /android/i.test(navigator.userAgent || "");
   var $ = window.$;
 
+  /* ---------- reliable delivery shadow QA ---------- */
+  var deliveryShadowInitialized = false, deliveryShadowController = null;
+  var deliveryShadowEvents = [], deliveryShadowReady = null, deliveryShadowSynced = null;
+  var deliveryShadowAttempt = null, deliveryShadowConfirmed = null;
+  var deliveryShadowRetryTimer = 0, deliveryShadowRetryIndex = 0;
+  var DELIVERY_SHADOW_RETRY_MS = [500, 1500, 5000, 15000];
+
+  function deliveryShadowExactParam(name, expected) {
+    var values = qp.getAll(name);
+    return values.length === 1 && values[0] === expected;
+  }
+  function deliveryShadowGate() {
+    if (!deliveryShadowExactParam("room", ROOM) ||
+        !deliveryShadowExactParam("deliveryQa", "1") ||
+        !deliveryShadowExactParam("deliveryShadow", "1")) return false;
+    var api = window.KvkDeliveryShadow;
+    try {
+      return !!api && typeof api.isQaRoomName === "function" &&
+        api.isQaRoomName(ROOM) === true;
+    } catch (e) { return false; }
+  }
+  function deliveryShadowCopyEvent(event) {
+    try {
+      if (!event || typeof event !== "object") return null;
+      var kind = event.kind, commandId = event.commandId;
+      var result = event.result, count = event.count;
+      if (typeof kind !== "string") return null;
+      var copy = { kind: kind };
+      if (typeof commandId === "string") copy.commandId = commandId;
+      if (typeof result === "string") copy.result = result;
+      if (Number.isInteger(count)) copy.count = count;
+      return copy;
+    } catch (e) { return null; }
+  }
+  function deliveryShadowObserve(event) {
+    var copy = deliveryShadowCopyEvent(event);
+    if (!copy) return false;
+    deliveryShadowEvents.push(copy);
+    if (deliveryShadowEvents.length > 200) deliveryShadowEvents.shift();
+    return true;
+  }
+  function deliveryShadowEventSnapshot() {
+    var out = [];
+    for (var index = 0; index < deliveryShadowEvents.length; index += 1) {
+      var copy = deliveryShadowCopyEvent(deliveryShadowEvents[index]);
+      if (copy) out.push(copy);
+    }
+    return out;
+  }
+  function deliveryShadowValidController(value) {
+    if (!value || value.enabled !== true || !Object.isFrozen(value) ||
+        typeof value.onOpen !== "function" ||
+        typeof value.handleMessage !== "function" ||
+        typeof value.state !== "function") return false;
+    return Object.keys(value).sort().join(",") === "enabled,handleMessage,onOpen,state";
+  }
+  function initDeliveryShadow() {
+    if (deliveryShadowInitialized) return deliveryShadowController;
+    deliveryShadowInitialized = true;
+    if (!deliveryShadowGate()) return null;
+    var api = window.KvkDeliveryShadow, controller = null;
+    try {
+      controller = api.create({
+        room: ROOM,
+        enabled: true,
+        send: function (message) {
+          try { return !!sock && sock.send(message) === true; } catch (e) { return false; }
+        },
+        now: function () { return window.serverNow(); },
+        getIdentity: function () {
+          return {
+            pid: myPid || "",
+            deviceId: deviceId || "",
+            view: isCommanderDevice() ? "commander" : "player",
+            audioArmed: audioAlive()
+          };
+        },
+        observe: deliveryShadowObserve
+      });
+      if (!deliveryShadowValidController(controller)) return null;
+    } catch (e) { return null; }
+    deliveryShadowController = controller;
+    try {
+      var qa = {
+        controller: controller,
+        getSocket: function () { return sock; }
+      };
+      Object.defineProperty(qa, "events", {
+        enumerable: true,
+        get: deliveryShadowEventSnapshot
+      });
+      window.__kvkDeliveryQa = Object.freeze(qa);
+    } catch (e) {}
+    return controller;
+  }
+  function deliveryShadowConnection() {
+    if (!sock) return null;
+    return { socket: sock, generation: Number(sock.connectionGeneration || 0) };
+  }
+  function deliveryShadowHandshake() {
+    var connection = deliveryShadowConnection();
+    if (!connection || !myPid || !deviceId) return null;
+    connection.pid = myPid;
+    connection.deviceId = deviceId;
+    return connection;
+  }
+  function deliveryShadowSameConnection(a, b) {
+    return !!a && !!b && a.socket === b.socket && a.generation === b.generation;
+  }
+  function deliveryShadowSameHandshake(a, b) {
+    return deliveryShadowSameConnection(a, b) &&
+      a.pid === b.pid && a.deviceId === b.deviceId;
+  }
+  function deliveryShadowCancelRetry() {
+    if (deliveryShadowRetryTimer) clearTimeout(deliveryShadowRetryTimer);
+    deliveryShadowRetryTimer = 0;
+  }
+  function deliveryShadowRetryCurrent(key) {
+    var current = deliveryShadowHandshake();
+    return deliveryShadowController &&
+      deliveryShadowSameHandshake(current, key) &&
+      deliveryShadowSameHandshake(deliveryShadowReady, key) &&
+      !deliveryShadowSameHandshake(deliveryShadowConfirmed, key);
+  }
+  function deliveryShadowRetryValid(key) {
+    if (syncedOK !== true || !deliveryShadowRetryCurrent(key)) return false;
+    if (!deliveryShadowSameConnection(deliveryShadowSynced, key)) {
+      deliveryShadowSynced = key;
+      deliveryShadowRetryIndex = 0;
+    }
+    return true;
+  }
+  function deliveryShadowScheduleRetry(key) {
+    deliveryShadowCancelRetry();
+    if (!deliveryShadowRetryCurrent(key)) return false;
+    var delay = DELIVERY_SHADOW_RETRY_MS[Math.min(
+      deliveryShadowRetryIndex, DELIVERY_SHADOW_RETRY_MS.length - 1
+    )];
+    deliveryShadowRetryIndex += 1;
+    try {
+      deliveryShadowRetryTimer = setTimeout(function () {
+        deliveryShadowRetryTimer = 0;
+        if (!deliveryShadowRetryCurrent(key)) {
+          if (deliveryShadowSameHandshake(deliveryShadowAttempt, key)) deliveryShadowAttempt = null;
+          return;
+        }
+        deliveryShadowHelloAttempt(key);
+      }, delay);
+      return true;
+    } catch (e) { deliveryShadowRetryTimer = 0; return false; }
+  }
+  function deliveryShadowHelloAttempt(key) {
+    if (!deliveryShadowRetryCurrent(key)) return false;
+    deliveryShadowAttempt = key;
+    if (deliveryShadowRetryValid(key)) {
+      try { deliveryShadowController.onOpen(); } catch (e) {}
+    }
+    deliveryShadowScheduleRetry(key);
+    return true;
+  }
+  function deliveryShadowMaybeStart() {
+    var key = deliveryShadowHandshake();
+    if (!key || syncedOK !== true ||
+        !deliveryShadowSameHandshake(deliveryShadowReady, key)) return false;
+    if (!deliveryShadowSameConnection(deliveryShadowSynced, key)) deliveryShadowSynced = key;
+    if (deliveryShadowSameHandshake(deliveryShadowConfirmed, key)) {
+      deliveryShadowCancelRetry();
+      return true;
+    }
+    if (deliveryShadowSameHandshake(deliveryShadowAttempt, key) && deliveryShadowRetryTimer) return true;
+    deliveryShadowCancelRetry();
+    deliveryShadowAttempt = key;
+    deliveryShadowRetryIndex = 0;
+    return deliveryShadowHelloAttempt(key);
+  }
+  function deliveryShadowConnectionOpened() {
+    deliveryShadowCancelRetry();
+    deliveryShadowReady = null;
+    deliveryShadowSynced = null;
+    deliveryShadowAttempt = null;
+    deliveryShadowRetryIndex = 0;
+  }
+  function deliveryShadowClockCallback() {
+    var connection = deliveryShadowConnection();
+    return function (ok) {
+      if (!deliveryShadowController ||
+          !deliveryShadowSameConnection(connection, deliveryShadowConnection())) return;
+      deliveryShadowSynced = ok === true ? connection : null;
+      if (ok !== true) {
+        var waitingKey = deliveryShadowHandshake();
+        if (waitingKey && deliveryShadowSameHandshake(deliveryShadowReady, waitingKey) &&
+            !deliveryShadowSameHandshake(deliveryShadowConfirmed, waitingKey) &&
+            !(deliveryShadowSameHandshake(deliveryShadowAttempt, waitingKey) &&
+              deliveryShadowRetryTimer)) {
+          deliveryShadowCancelRetry();
+          deliveryShadowAttempt = waitingKey;
+          deliveryShadowRetryIndex = 0;
+          deliveryShadowScheduleRetry(waitingKey);
+        }
+        return;
+      }
+      if (!deliveryShadowSameHandshake(deliveryShadowConfirmed, deliveryShadowHandshake())) {
+        deliveryShadowCancelRetry();
+        deliveryShadowAttempt = null;
+      }
+      deliveryShadowMaybeStart();
+    };
+  }
+  function deliveryShadowRecordReady(message) {
+    var key = deliveryShadowHandshake();
+    if (!key || !message || message.t !== "deviceStatusSaved" ||
+        message.pid !== key.pid || message.deviceId !== key.deviceId) return false;
+    if (message.soundReady !== true) {
+      deliveryShadowReady = null;
+      if (!deliveryShadowSameHandshake(deliveryShadowConfirmed, key)) {
+        deliveryShadowCancelRetry();
+        deliveryShadowAttempt = null;
+      }
+      return false;
+    }
+    deliveryShadowReady = key;
+    if (!deliveryShadowMaybeStart() && syncedOK !== true &&
+        !deliveryShadowSameHandshake(deliveryShadowConfirmed, key)) {
+      deliveryShadowCancelRetry();
+      deliveryShadowAttempt = key;
+      deliveryShadowRetryIndex = 0;
+      deliveryShadowScheduleRetry(key);
+    }
+    return true;
+  }
+  function deliveryShadowConfirmProbe() {
+    var key = deliveryShadowHandshake();
+    if (!key || (!deliveryShadowSameHandshake(deliveryShadowAttempt, key) &&
+        !deliveryShadowSameHandshake(deliveryShadowConfirmed, key))) return false;
+    deliveryShadowConfirmed = key;
+    deliveryShadowAttempt = null;
+    deliveryShadowCancelRetry();
+    return true;
+  }
+  function handleDeliveryShadowMessage(message) {
+    if (!deliveryShadowController) return false;
+    var type;
+    try { type = message && message.t; } catch (e) { return false; }
+    if (type === "deviceStatusSaved") {
+      try { return deliveryShadowRecordReady(message); } catch (e) { return false; }
+    }
+    if (typeof type !== "string" || type.indexOf("deliveryShadow") !== 0) return false;
+    var handled = false;
+    try { handled = deliveryShadowController.handleMessage(message) === true; } catch (e) {}
+    if (handled && type === "deliveryShadowProbe") deliveryShadowConfirmProbe();
+    return handled;
+  }
+  /* ---------- reliable delivery shadow QA end ---------- */
+
   /* ---------- KvK practice script (commander-only) ---------- */
   var SIM = [{ off: 0, kingdom: 1, kind: "double" }, { off: 45, kingdom: 2, kind: "double" }];
 
@@ -1807,9 +2061,17 @@
   }
   /* ---------- net + sync ---------- */
   function connect() {
+    initDeliveryShadow();
     sock = new window.RoomSocket(ROOM, onState);
-    sock.onMessage = handleSocketMessage;
-    sock.onOpen = function () { initialStateSeen = false; registrationPending = false; setNet(true); sendDeviceStatus(); retryPendingDeliveryAcks(true); beginClockSync(); };
+    var deliveryShadowSocket = sock;
+    sock.onMessage = function (message) {
+      var deliveryShadowGeneration = Number(deliveryShadowSocket.connectionGeneration || 0);
+      handleSocketMessage(message);
+      if (sock !== deliveryShadowSocket ||
+          Number(deliveryShadowSocket.connectionGeneration || 0) !== deliveryShadowGeneration) return;
+      handleDeliveryShadowMessage(message);
+    };
+    sock.onOpen = function () { deliveryShadowConnectionOpened(); initialStateSeen = false; registrationPending = false; setNet(true); sendDeviceStatus(); retryPendingDeliveryAcks(true); beginClockSync().then(deliveryShadowClockCallback()); };
     sock.onClose = function () {
       initialStateSeen = false; registrationPending = false;
       if (pendingMarchMutation && !pendingMarchMutation.ackSeen) pendingMarchMutation = null;
