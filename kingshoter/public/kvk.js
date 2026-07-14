@@ -316,6 +316,19 @@
   function liveCommands(r) { var out = []; if (r && r.live) { if (r.live.mode === "sim" && r.live.sim) { var sc = simCommand(r.live.sim); if (sc) out.push(sc); } else if (r.live.commands) { [1, 2].forEach(function (kk) { if (r.live.commands[kk]) out.push(r.live.commands[kk]); }); } } return out; }
   // Captains receive their exact personal launch second. Everyone else receives ONE join countdown for the
   // active rally, fixing the old visual-only joiner path while avoiding overlapping cues from both kingdoms.
+  function isCommanderDevice() {
+    return document.body.classList.contains("cmdmode");
+  }
+  function shouldBookJoinAudio() {
+    return !!myPid && !isCommanderDevice();
+  }
+  function cancelJoinCues() {
+    for (var k in scheduledBeeps) {
+      var cue = scheduledBeeps[k];
+      if (!cue || String(cue.base || "").slice(-5) !== "-join") continue;
+      stopCue(cue); delete scheduledBeeps[k];
+    }
+  }
   function scheduleAllCues(win) {
     if (!room) return;
     reconcileCues();
@@ -331,7 +344,9 @@
         if (c.type === "double_rally" && Number.isFinite(firstPress) && tg.anchor > firstPress) schedulePrepareCue(c.id + "-me", tg.anchor, countdownLead, win);
       }
     });
-    if (!personal) {
+    var canJoin = shouldBookJoinAudio();
+    if (personal || !canJoin) cancelJoinCues();
+    if (!personal && canJoin) {
       var join = activeCommand(room);
       if (join && join.type === "double_rally") scheduleBeeps(join.id + "-join", myTarget(join).anchor, win);
     }

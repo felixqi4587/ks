@@ -1,9 +1,10 @@
 const { chromium } = require('playwright');
+const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard } = require('./support/qa-kvk.cjs');
 
 (async () => {
   const host = process.argv[2] || 'http://127.0.0.1:8799';
-  const room = `alerts${Date.now()}`;
-  const url = `${host}/kvk.html?room=${room}`;
+  const room = makeQaRoom('alert-truth');
+  const url = qaRoomUrl(host, room, { notour: 1 });
   const browser = await chromium.launch({ headless: true, channel: 'chrome', args: ['--autoplay-policy=no-user-gesture-required'] });
   let pass = 0;
   let fail = 0;
@@ -13,7 +14,9 @@ const { chromium } = require('playwright');
   };
 
   async function player(fid, march) {
-    const page = await (await browser.newContext({ viewport: { width: 390, height: 1000 }, locale: 'en-US' })).newPage();
+    const context = await browser.newContext({ viewport: { width: 390, height: 1000 }, locale: 'en-US' });
+    await installQaWebSocketGuard(context, room);
+    const page = await context.newPage();
     await page.goto(url);
     await page.waitForLoadState('networkidle');
     await page.locator('#soundGate').click();
@@ -48,6 +51,7 @@ const { chromium } = require('playwright');
   await joiner.waitForTimeout(150);
   ok(await joiner.locator('#defenseDemoNote').count() === 1, 'Defense labels its animation as a non-live demonstration');
   ok(/^▶/.test((await joiner.locator('#dpp').textContent()) || ''), 'Defense demonstration is paused by default');
+  assertQaRoomName(room);
 
   await Promise.all([commander.close(), captainA.close(), captainB.close(), joiner.close()]);
   await browser.close();
