@@ -1,6 +1,7 @@
 {
   "name": "kingshoter",
   "private": true,
+  "type": "module",
   "scripts": {
     "test": "node --test test/*.test.cjs",
     "deploy": "wrangler deploy",
