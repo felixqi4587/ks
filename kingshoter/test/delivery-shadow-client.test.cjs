@@ -857,3 +857,101 @@ test('every emitted candidate ACK matches the server model and none is productio
     assert.equal(model.recordShadowAck(state, attachment, ack, 1_000_001), true, JSON.stringify(ack));
   }
 });
+
+test('identity property access failures fail closed before open and after a valid pin', () => {
+  const inaccessibleIdentity = () => Object.defineProperty(identity(), 'pid', {
+    configurable: true,
+    enumerable: true,
+    get() { throw new Error('identity pid inaccessible'); }
+  });
+  const emptyState = {
+    seenCandidate: [], cancelled: [], observations: []
+  };
+
+  const beforeOpen = fixture({ getIdentity: inaccessibleIdentity });
+  let opened;
+  assert.doesNotThrow(() => { opened = beforeOpen.controller.onOpen(); });
+  assert.equal(opened, false);
+  assert.deepEqual(beforeOpen.sent, []);
+  assert.deepEqual(plain(beforeOpen.controller.state()), emptyState);
+
+  let currentIdentity = identity();
+  const afterPin = fixture({ getIdentity: () => currentIdentity });
+  establish(afterPin);
+  currentIdentity = inaccessibleIdentity();
+  let handled;
+  assert.doesNotThrow(() => {
+    handled = afterPin.controller.handleMessage(probe());
+  });
+  assert.equal(handled, false);
+  assert.deepEqual(afterPin.sent, []);
+  assert.deepEqual(plain(afterPin.controller.state()), emptyState);
+});
+
+test('revoked identity proxies fail closed and clear an existing pin', () => {
+  const emptyState = {
+    seenCandidate: [], cancelled: [], observations: []
+  };
+  const beforeOpenIdentity = Proxy.revocable(identity(), {});
+  beforeOpenIdentity.revoke();
+  const beforeOpen = fixture({ getIdentity: () => beforeOpenIdentity.proxy });
+  let opened;
+  assert.doesNotThrow(() => { opened = beforeOpen.controller.onOpen(); });
+  assert.equal(opened, false);
+  assert.deepEqual(beforeOpen.sent, []);
+  assert.deepEqual(plain(beforeOpen.controller.state()), emptyState);
+
+  const pinnedIdentity = Proxy.revocable(identity(), {});
+  let currentIdentity = pinnedIdentity.proxy;
+  const afterPin = fixture({ getIdentity: () => currentIdentity });
+  establish(afterPin);
+  pinnedIdentity.revoke();
+  let handled;
+  assert.doesNotThrow(() => {
+    handled = afterPin.controller.handleMessage(probe());
+  });
+  assert.equal(handled, false);
+  assert.deepEqual(afterPin.sent, []);
+  assert.deepEqual(plain(afterPin.controller.state()), emptyState);
+
+  currentIdentity = identity();
+  assert.equal(afterPin.controller.handleMessage(probe()), false,
+    'restoring identity values must not restore the cleared pin');
+  assert.deepEqual(afterPin.sent, []);
+  assert.deepEqual(plain(afterPin.controller.state()), emptyState);
+  assert.equal(afterPin.controller.onOpen(), true);
+  assert.deepEqual(afterPin.sent, [hello()]);
+});
+
+test('identity snapshots read every accessor once before copying hello fields', () => {
+  const expectedIdentity = identity();
+  const reads = {
+    pid: 0,
+    deviceId: 0,
+    view: 0,
+    audioArmed: 0
+  };
+  const accessorIdentity = {};
+  for (const field of Object.keys(reads)) {
+    Object.defineProperty(accessorIdentity, field, {
+      enumerable: true,
+      get() {
+        reads[field] += 1;
+        if (reads[field] > 1) throw new Error(`${field} read more than once`);
+        return expectedIdentity[field];
+      }
+    });
+  }
+
+  const f = fixture({ getIdentity: () => accessorIdentity });
+  let opened;
+  assert.doesNotThrow(() => { opened = f.controller.onOpen(); });
+  assert.equal(opened, true);
+  assert.deepEqual(reads, {
+    pid: 1,
+    deviceId: 1,
+    view: 1,
+    audioArmed: 1
+  });
+  assert.deepEqual(f.sent, [hello()]);
+});

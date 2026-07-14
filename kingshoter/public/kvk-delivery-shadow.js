@@ -62,22 +62,25 @@
 
     function currentIdentity() {
       if (!getIdentity) return null;
-      var value;
       try {
-        value = getIdentity();
+        var value = getIdentity();
+        if (!value || typeof value !== 'object') return null;
+        var pid = value.pid;
+        var deviceId = value.deviceId;
+        var view = value.view;
+        var audioArmed = value.audioArmed;
+        if (!isPid(pid) || !isDevice(deviceId) ||
+            (view !== 'player' && view !== 'commander') ||
+            typeof audioArmed !== 'boolean') return null;
+        return {
+          pid: pid,
+          deviceId: deviceId,
+          view: view,
+          audioArmed: audioArmed
+        };
       } catch (error) {
         return null;
       }
-      if (!value || typeof value !== 'object' || !isPid(value.pid) ||
-          !isDevice(value.deviceId) ||
-          (value.view !== 'player' && value.view !== 'commander') ||
-          typeof value.audioArmed !== 'boolean') return null;
-      return {
-        pid: value.pid,
-        deviceId: value.deviceId,
-        view: value.view,
-        audioArmed: value.audioArmed
-      };
     }
 
     function pinnedIdentity() {
