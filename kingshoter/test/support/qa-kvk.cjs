@@ -32,8 +32,10 @@ async function installQaWebSocketGuard(context, room, options = {}) {
   const safeRoom = assertQaRoomName(room);
   const dropClient = options.shouldDropClientMessage;
   const dropServer = options.shouldDropServerMessage;
+  const transformServer = options.transformServerMessage;
   if (dropClient !== undefined && typeof dropClient !== 'function') throw new TypeError('shouldDropClientMessage must be a function');
   if (dropServer !== undefined && typeof dropServer !== 'function') throw new TypeError('shouldDropServerMessage must be a function');
+  if (transformServer !== undefined && typeof transformServer !== 'function') throw new TypeError('transformServerMessage must be a function');
 
   await context.routeWebSocket(/\/api\/ws(?:\?|$)/, route => {
     const url = route.url();
@@ -46,7 +48,8 @@ async function installQaWebSocketGuard(context, room, options = {}) {
       if (!dropClient || !dropClient({ url, data })) server.send(data);
     });
     server.onMessage(data => {
-      if (!dropServer || !dropServer({ url, data })) route.send(data);
+      if (dropServer && dropServer({ url, data })) return;
+      route.send(transformServer ? transformServer({ url, data }) : data);
     });
   });
 }

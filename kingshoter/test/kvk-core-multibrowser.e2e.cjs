@@ -30,13 +30,17 @@ function assertCompatibilityTransform() {
 }
 
 function requestedProjects(argv) {
-  let project = 'chromium';
+  let project = null;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
-    if (argument.startsWith('--project=')) project = argument.slice('--project='.length);
-    else if (argument === '--project') project = argv[++index];
+    let requested = null;
+    if (argument.startsWith('--project=')) requested = argument.slice('--project='.length);
+    else if (argument === '--project') requested = argv[++index];
     else throw new Error(`Unknown argument: ${argument}`);
+    if (project !== null) throw new Error('Duplicate --project argument');
+    project = requested;
   }
+  if (project === null) project = 'chromium';
   if (!['chromium', 'firefox', 'webkit', 'all'].includes(project)) {
     throw new Error(`Unsupported project: ${project || '<empty>'}; expected chromium, firefox, webkit, or all`);
   }
@@ -54,24 +58,31 @@ function packetGate(options = {}) {
     deviceStatuses: [],
     deviceStatusSaved: [],
     heartbeats: [],
+    serverStateFrames: [],
+    ignoredClientFrames: [],
+    transformedLegacyFrames: [],
     holdClientAcks: options.holdClientAcks === true,
     dropFirstClientAck: options.dropFirstClientAck === true,
     dropFirstSavedAck: options.dropFirstSavedAck === true,
     ignoreDeliveryProtocol: options.ignoreDeliveryProtocol === true,
+    legacyTransport: options.legacyTransport === true,
     clientAckDropped: false,
     savedAckDropped: false
   };
 }
 
 function gateOptions(gate) {
-  return {
+  const options = {
     shouldDropClientMessage({ data }) {
       let message = null;
       try { message = JSON.parse(String(data)); } catch (_) {}
       if (message && message.t === 'deviceStatus') gate.deviceStatuses.push(message);
       if (message && message.t === 'hb') gate.heartbeats.push(message);
       if (message && message.t === 'deliveryAck') gate.clientAcks.push(message);
-      if (gate.ignoreDeliveryProtocol && message && ['deviceStatus', 'deliveryAck'].includes(message.t)) return true;
+      if (gate.ignoreDeliveryProtocol && message && ['deviceStatus', 'deliveryAck'].includes(message.t)) {
+        gate.ignoredClientFrames.push(data);
+        return true;
+      }
       if (!message || message.t !== 'deliveryAck') return false;
       if (gate.dropFirstClientAck && !gate.clientAckDropped) {
         gate.clientAckDropped = true;
@@ -83,6 +94,7 @@ function gateOptions(gate) {
     shouldDropServerMessage({ data }) {
       let message = null;
       try { message = JSON.parse(String(data)); } catch (_) {}
+      if (message && message.t === 'state') gate.serverStateFrames.push(data);
       if (message && message.t === 'deviceStatusSaved') gate.deviceStatusSaved.push(message);
       if (!message || message.t !== 'deliveryAckSaved') return false;
       gate.savedAcks.push(message);
@@ -93,6 +105,17 @@ function gateOptions(gate) {
       return false;
     }
   };
+  if (gate.legacyTransport) {
+    options.transformServerMessage = ({ data }) => {
+      let message = null;
+      try { message = JSON.parse(String(data)); } catch (_) {}
+      if (!message || message.t !== 'state') return data;
+      const transformed = JSON.stringify(stripDeliveryAggregate(message));
+      gate.transformedLegacyFrames.push(transformed);
+      return transformed;
+    };
+  }
+  return options;
 }
 
 async function waitUntil(read, label, timeout = 10_000) {
@@ -102,6 +125,40 @@ async function waitUntil(read, label, timeout = 10_000) {
     await delay(25);
   }
   throw new Error(`Timed out waiting for ${label}`);
+}
+
+function lastStatePlayerRecord(gate, pid) {
+  for (let index = gate.serverStateFrames.length - 1; index >= 0; index -= 1) {
+    let state = null;
+    try { state = JSON.parse(String(gate.serverStateFrames[index])); } catch (_) {}
+    if (state && state.room && state.room.players && state.room.players[pid]) {
+      return state.room.players[pid];
+    }
+  }
+  return null;
+}
+
+async function assertMarchSynchronized(roles, expected) {
+  const time = `${Math.floor(expected.march / 60)}:${String(expected.march % 60).padStart(2, '0')}`;
+  await Promise.all(roles.map(async role => {
+    try {
+      await waitUntil(() => {
+        const record = lastStatePlayerRecord(role.gate, expected.pid);
+        return record && record.march === expected.march && record.marchRevision === expected.marchRevision;
+      }, `${role.label} raw canonical march ${expected.march}/${expected.marchRevision}`, 8_000);
+      await role.page.waitForFunction(({ pid, renderedTime }) =>
+        document.querySelector(`#roster .roster-time[data-pid="${pid}"]`)?.textContent === renderedTime,
+      { pid: expected.pid, renderedTime: time }, { timeout: 8_000 });
+    } catch (error) {
+      const rendered = await role.page.locator(`#roster .roster-time[data-pid="${expected.pid}"]`)
+        .textContent().catch(() => '<missing>');
+      throw new Error(`${role.label} march synchronization failed: ${JSON.stringify({
+        expected: { march: expected.march, marchRevision: expected.marchRevision, rendered: time },
+        lastObservedRecord: lastStatePlayerRecord(role.gate, expected.pid),
+        rendered
+      })}`, { cause: error });
+    }
+  }));
 }
 
 async function clickCommanderMarchAdoptWithTrustedPointer(page) {
@@ -171,11 +228,12 @@ async function clickCommanderMarchAdoptWithTrustedPointer(page) {
 async function openRole(browser, options) {
   const {
     room, label, profile = null, deviceId = '', gate = packetGate(), errors,
-    compatibility = false, viewport = { width: 390, height: 1100 }
+    viewport = { width: 390, height: 1100 }
   } = options;
   assertQaRoomName(room);
   const context = await browser.newContext({ viewport, locale: 'en-US' });
-  await context.addInitScript(({ roomName, storedProfile, seededDeviceId, legacyMode }) => {
+  await installQaWebSocketGuard(context, room, gateOptions(gate));
+  await context.addInitScript(({ roomName, storedProfile, seededDeviceId }) => {
     if (storedProfile) localStorage.setItem(`kingshoter_r_${roomName}_me`, JSON.stringify(storedProfile));
     if (seededDeviceId) localStorage.setItem(`kvk:${roomName}:delivery-device:v1`, seededDeviceId);
     const NativeWebSocket = window.WebSocket;
@@ -184,28 +242,20 @@ async function openRole(browser, options) {
       constructor(...args) {
         super(...args);
         window.__qaRoomSockets.push(this);
+        this.addEventListener('message', event => {
+          try {
+            const message = JSON.parse(String(event.data));
+            if (message && message.t === 'state') {
+              window.__qaObservedStateFrames.push(String(event.data));
+              window.__qaObservedStates.push(structuredClone(message));
+            }
+          } catch (_) {}
+        });
       }
     };
-    window.__qaLegacyDeliveryOmissions = 0;
-    window.__qaLegacyLastState = null;
-    if (legacyMode) {
-      const nativeParse = JSON.parse.bind(JSON);
-      JSON.parse = (...args) => {
-        const parsed = nativeParse(...args);
-        const value = parsed && parsed.t === 'state' ? structuredClone(parsed) : parsed;
-        const commands = value && value.t === 'state' && value.room && value.room.live && value.room.live.commands;
-        Object.values(commands || {}).filter(Boolean).forEach(command => {
-          if (Object.prototype.hasOwnProperty.call(command, 'delivery')) {
-            delete command.delivery;
-            window.__qaLegacyDeliveryOmissions += 1;
-          }
-        });
-        if (value && value.t === 'state') window.__qaLegacyLastState = structuredClone(value);
-        return value;
-      };
-    }
-  }, { roomName: room, storedProfile: profile, seededDeviceId: deviceId, legacyMode: compatibility });
-  await installQaWebSocketGuard(context, room, gateOptions(gate));
+    window.__qaObservedStateFrames = [];
+    window.__qaObservedStates = [];
+  }, { roomName: room, storedProfile: profile, seededDeviceId: deviceId });
   const page = await context.newPage();
   page.on('pageerror', error => errors.push(`${label}: ${error.message}`));
   await page.goto(qaRoomUrl(base, room, { notour: 1, lang: 'en' }), { waitUntil: 'domcontentloaded' });
@@ -270,7 +320,7 @@ async function fireDouble(page) {
     document.querySelector('#fireDouble').addEventListener('click', () => window.__qaFireClicks.push(window.serverNow()), true);
   });
   await page.locator('#fireDouble').click();
-  await page.waitForTimeout(180);
+  await page.locator('#fireDouble.armed').waitFor({ state: 'visible', timeout: 3_000 });
   await page.locator('#fireDouble').click();
   await page.locator('#pickSlots.frozen').waitFor({ state: 'visible', timeout: 8_000 });
   return page.evaluate(() => window.__qaFireClicks.at(-1));
@@ -278,7 +328,7 @@ async function fireDouble(page) {
 
 async function cancelCommand(page, room) {
   await page.locator('#cancelBtn').click();
-  await page.waitForTimeout(120);
+  await page.locator('#toast.show').waitFor({ state: 'visible', timeout: 3_000 });
   await page.locator('#cancelBtn').click();
   await waitUntil(async () => {
     const snapshot = await readSnapshot(page, room);
@@ -366,6 +416,89 @@ async function verifySocketBinding(page, room, firstPid, secondPid) {
   assert.equal(result.reconnected.pid, firstPid, 'a same-identity reconnect remains valid');
   assert.equal(result.locked.error, 'socket_identity_locked', 'a socket cannot change PID/device after binding');
   assert.equal(result.owned.error, 'device_owned_by_other_pid', 'a fresh device ID cannot be owned by two PIDs');
+}
+
+async function verifyForgedDeliveryAcks(page, room, legitimateAck) {
+  assertQaRoomName(room);
+  const attempts = await page.evaluate(async ({ roomName, ack }) => {
+    const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+    const endpoint = `${protocol}://${location.host}/api/ws?room=${encodeURIComponent(roomName)}`;
+    const openSocket = () => new Promise((resolve, reject) => {
+      const socket = new WebSocket(endpoint);
+      const timer = setTimeout(() => reject(new Error('forged ACK socket open timeout')), 5_000);
+      socket.onopen = () => { clearTimeout(timer); resolve(socket); };
+      socket.onerror = () => { clearTimeout(timer); reject(new Error('forged ACK socket failed')); };
+    });
+    const waitForMessage = (socket, predicate, label) => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`forged ACK response timeout: ${label}`)), 5_000);
+      const listener = event => {
+        const message = JSON.parse(String(event.data));
+        if (!predicate(message)) return;
+        clearTimeout(timer);
+        socket.removeEventListener('message', listener);
+        resolve(message);
+      };
+      socket.addEventListener('message', listener);
+    });
+    const closeSocket = socket => new Promise(resolve => {
+      if (socket.readyState === WebSocket.CLOSED) return resolve();
+      const timer = setTimeout(resolve, 1_000);
+      socket.addEventListener('close', () => { clearTimeout(timer); resolve(); }, { once: true });
+      socket.close(4000, 'QA forged ACK complete');
+    });
+    const attempt = async ({ label, binding = null, claimedDeviceId }) => {
+      const socket = await openSocket();
+      const received = [];
+      socket.addEventListener('message', event => received.push(JSON.parse(String(event.data))));
+      if (binding) {
+        const saved = waitForMessage(socket, message =>
+          message.t === 'deviceStatusSaved' && message.pid === binding.pid
+            && message.deviceId === binding.deviceId && message.soundReady === binding.soundReady,
+        `${label} deviceStatusSaved`);
+        socket.send(JSON.stringify({ t: 'deviceStatus', ...binding }));
+        await saved;
+      }
+      const rejected = waitForMessage(socket, message =>
+        message.t === 'error' && message.source === 'deliveryAck'
+          && message.error === 'bad_delivery_identity',
+      `${label} bad_delivery_identity`);
+      socket.send(JSON.stringify({ ...ack, deviceId: claimedDeviceId }));
+      const response = await rejected;
+      await Promise.resolve();
+      const deliveryAckSaved = received.filter(message => message.t === 'deliveryAckSaved');
+      await closeSocket(socket);
+      return {
+        label,
+        error: { t: response.t, source: response.source, error: response.error },
+        deliveryAckSaved
+      };
+    };
+
+    const results = [];
+    results.push(await attempt({
+      label: 'unbound socket',
+      claimedDeviceId: 'a1000000-0000-4000-8000-000000000001'
+    }));
+    results.push(await attempt({
+      label: 'mismatched ready binding',
+      binding: { pid: ack.pid, deviceId: 'b1000000-0000-4000-8000-000000000001', soundReady: true },
+      claimedDeviceId: 'b2000000-0000-4000-8000-000000000002'
+    }));
+    results.push(await attempt({
+      label: 'soundReady false binding',
+      binding: { pid: ack.pid, deviceId: 'c1000000-0000-4000-8000-000000000001', soundReady: false },
+      claimedDeviceId: 'c1000000-0000-4000-8000-000000000001'
+    }));
+    return results;
+  }, { roomName: room, ack: legitimateAck });
+
+  for (const attempt of attempts) {
+    assert.deepEqual(attempt.error, {
+      t: 'error', source: 'deliveryAck', error: 'bad_delivery_identity'
+    }, `${attempt.label} receives the exact identity rejection`);
+    assert.deepEqual(attempt.deliveryAckSaved, [],
+      `${attempt.label} never receives deliveryAckSaved`);
+  }
 }
 
 async function forceLiveRemoval(page, room, pid) {
@@ -470,6 +603,14 @@ async function runCoreScenario(browser, engineName) {
     await captainA.page.locator('#marchRange').fill('61');
     await captainA.page.locator('#saveBtn').click();
     await commander.page.locator('#commanderMarchLatest').filter({ hasText: '1:01' }).waitFor({ timeout: 8_000 });
+    const afterPlayerMarchUpdate = await readSnapshot(commander.page, room);
+    const playerMarchRecord = afterPlayerMarchUpdate.room.players[captainAProfile.pid];
+    assert.equal(playerMarchRecord.march, 61, 'the player-originated march update becomes canonical');
+    await assertMarchSynchronized(opened, {
+      pid: captainAProfile.pid,
+      march: playerMarchRecord.march,
+      marchRevision: playerMarchRecord.marchRevision
+    });
     assert.equal(await commander.page.locator('#commanderMarchInput').inputValue(), '1:02',
       'a remote player save preserves the commander dirty draft');
     assert.match(await commander.page.locator('#commanderMarchStatus').textContent(), /updated|draft is preserved/i,
@@ -504,14 +645,38 @@ async function runCoreScenario(browser, engineName) {
         pageErrors: errors
       })}`, { cause: error });
     }
-    await Promise.all([captainA.page, captainASecond.page, captainB.page, selectedCommander.page].map(page =>
-      page.waitForFunction(pid => document.querySelector(`#roster .roster-time[data-pid="${pid}"]`)?.textContent === '1:03',
-        captainAProfile.pid, { timeout: 8_000 })));
-    await captainASecond.page.waitForFunction(pid => {
-      const roomName = new URL(location.href).searchParams.get('room');
-      const profile = JSON.parse(localStorage.getItem(`kingshoter_r_${roomName}_me`) || 'null');
-      return profile && profile.pid === pid && profile.march === 63;
-    }, captainAProfile.pid);
+    const afterCommanderMarchUpdate = await readSnapshot(commander.page, room);
+    const commanderMarchRecord = afterCommanderMarchUpdate.room.players[captainAProfile.pid];
+    assert.equal(commanderMarchRecord.march, 63, 'the commander-originated march update becomes canonical');
+    await assertMarchSynchronized(opened, {
+      pid: captainAProfile.pid,
+      march: commanderMarchRecord.march,
+      marchRevision: commanderMarchRecord.marchRevision
+    });
+    const storedCaptainProfiles = await Promise.all([captainA, captainASecond].map(async role => {
+      await role.page.waitForFunction(({ roomName, playerId, march, revision }) => {
+        const profile = JSON.parse(localStorage.getItem(`kingshoter_r_${roomName}_me`) || 'null');
+        return profile && profile.pid === playerId && profile.march === march && profile.marchRevision === revision;
+      }, {
+        roomName: room,
+        playerId: captainAProfile.pid,
+        march: commanderMarchRecord.march,
+        revision: commanderMarchRecord.marchRevision
+      }, { timeout: 8_000 });
+      return role.page.evaluate(roomName =>
+        JSON.parse(localStorage.getItem(`kingshoter_r_${roomName}_me`) || 'null'), room);
+    }));
+    for (const profile of storedCaptainProfiles) {
+      assert.deepEqual({
+        pid: profile.pid,
+        march: profile.march,
+        marchRevision: profile.marchRevision
+      }, {
+        pid: captainAProfile.pid,
+        march: commanderMarchRecord.march,
+        marchRevision: commanderMarchRecord.marchRevision
+      }, 'both Captain A browsers persist the synchronized canonical march and revision');
+    }
 
     const readyDevices = [
       [captainAGate, captainAProfile.pid, '11111111-1111-4111-8111-111111111111'],
@@ -548,6 +713,12 @@ async function runCoreScenario(browser, engineName) {
     const liveCommand = fired.room.live.commands['1'];
     assert.ok(liveCommand, 'the first command is live');
     assert.equal(liveCommand.payload.leadSeconds, 10, 'the command preserves the exact 10-second lead');
+    assert.equal(liveCommand.payload.pairs.length, 2, 'Fire freezes exactly two captain pairs');
+    const pairsByPid = pairs => Object.fromEntries(pairs.map(pair => [pair.pid, structuredClone(pair)]));
+    const frozenPairsByPid = pairsByPid(liveCommand.payload.pairs);
+    assert.deepEqual(Object.keys(frozenPairsByPid).sort(),
+      [captainAProfile.pid, captainBProfile.pid].sort(),
+      'the frozen pair snapshot is independently keyed by captain PID');
     const earliestPressMs = Math.min(...liveCommand.payload.pairs.map(pair => pair.pressUTC)) * 1000;
     assert.ok(earliestPressMs - confirmedMs >= 9_700 && earliestPressMs - confirmedMs <= 10_300,
       'the earliest personal launch is exactly 10 seconds after final confirmation');
@@ -578,6 +749,18 @@ async function runCoreScenario(browser, engineName) {
     assert.ok(!selectedCommanderCues.some(cue => /-(?:me|join):/.test(cue.key)), 'an unselected registered commander remains silent');
     const captainAPersonalCue = captainACues.find(cue => cue.key.endsWith('-me:10') && cue.nodeCount > 0);
     assert.ok(captainAPersonalCue, 'Captain A books an audible exact T-10 personal cue');
+    const captainAGoCue = captainACues.find(cue => cue.key.endsWith('-me:0') && cue.nodeCount > 0);
+    const captainASecondGoCue = captainASecondCues.find(cue => cue.key.endsWith('-me:0') && cue.nodeCount > 0);
+    const captainBGoCue = captainBCues.find(cue => cue.key.endsWith('-me:0') && cue.nodeCount > 0);
+    assert.ok(captainAGoCue, 'Captain A books a schedulable personal GO cue');
+    assert.ok(captainASecondGoCue, 'Captain A second device books a schedulable personal GO cue');
+    assert.ok(captainBGoCue, 'Captain B books a schedulable personal GO cue');
+    assert.equal(captainAGoCue.targetMs, frozenPairsByPid[captainAProfile.pid].pressUTC * 1000,
+      'Captain A personal GO cue targets Captain A own frozen press time');
+    assert.equal(captainASecondGoCue.targetMs, frozenPairsByPid[captainAProfile.pid].pressUTC * 1000,
+      'Captain A second device targets Captain A own frozen press time');
+    assert.equal(captainBGoCue.targetMs, frozenPairsByPid[captainBProfile.pid].pressUTC * 1000,
+      'Captain B personal GO cue targets Captain B own frozen press time');
 
     await waitUntil(() => captainAGate.clientAcks.length >= 2 && captainAGate.savedAcks.length >= 2,
       'retry after the first deliveryAckSaved is lost');
@@ -642,6 +825,18 @@ async function runCoreScenario(browser, engineName) {
       secondServer: captainASecondGate.savedAcks.length
     }, stableAckCounts, 'exact deliveryAckSaved stops retries after persistence confirmation');
 
+    const afterRetryWindow = await readSnapshot(commander.page, room);
+    assert.deepEqual(afterRetryWindow.room.live.commands['1'].delivery,
+      receiptSnapshot.room.live.commands['1'].delivery,
+      'the legitimate delivery aggregate is stable before forged ACK attempts');
+    receiptSnapshot = afterRetryWindow;
+    const deliveryBeforeForgedAcks = structuredClone(receiptSnapshot.room.live.commands['1'].delivery);
+    await verifyForgedDeliveryAcks(commander.page, room, captainAGate.clientAcks[0]);
+    const afterForgedAcks = await readSnapshot(commander.page, room);
+    assert.deepEqual(afterForgedAcks.room.live.commands['1'].delivery, deliveryBeforeForgedAcks,
+      'unbound, mismatched, and soundReady:false ACKs cannot alter the full delivery aggregate');
+    receiptSnapshot = afterForgedAcks;
+
     const settledDeliveryHistory = structuredClone(receiptSnapshot.room.live.commands['1'].delivery);
     const captainBClosedIndex = await captainB.page.evaluate(() => {
       const index = window.__qaRoomSockets.findLastIndex(socket => socket.readyState === WebSocket.OPEN);
@@ -666,13 +861,35 @@ async function runCoreScenario(browser, engineName) {
     await captainA.page.locator('#marchRange').fill('64');
     await captainA.page.locator('#saveBtn').click();
     await commander.page.locator(`#roster .roster-time[data-pid="${captainAProfile.pid}"]`).filter({ hasText: '1:04' }).waitFor({ timeout: 8_000 });
-    const afterLiveEdit = await readSnapshot(commander.page, room);
-    assert.equal(afterLiveEdit.room.players[captainAProfile.pid].march, 64, 'a later player edit updates canonical march');
-    assert.equal(afterLiveEdit.room.live.commands['1'].payload.pairs.find(pair => pair.pid === captainAProfile.pid).march, 63,
-      'a later edit cannot change the active command countdown/audio snapshot');
-    const afterEditCue = (await cueState(captainA)).find(cue => cue.key === captainAPersonalCue.key);
+    const afterCaptainAEdit = await readSnapshot(commander.page, room);
+    assert.equal(afterCaptainAEdit.room.players[captainAProfile.pid].march, 64,
+      'Captain A later edit updates canonical march before Captain B edit');
+
+    await commander.page.locator(`#roster .roster-time[data-pid="${captainBProfile.pid}"]`).click();
+    await commander.page.locator('#commanderMarchEditor').waitFor({ state: 'visible', timeout: 5_000 });
+    await commander.page.locator('#commanderMarchInput').fill('1:11');
+    await commander.page.locator('#commanderMarchSave').click();
+    await commander.page.locator('#commanderMarchEditor').waitFor({ state: 'hidden', timeout: 8_000 });
+    await commander.page.locator(`#roster .roster-time[data-pid="${captainBProfile.pid}"]`).filter({ hasText: '1:11' }).waitFor({ timeout: 8_000 });
+    const afterLiveEdits = await readSnapshot(commander.page, room);
+    assert.equal(afterLiveEdits.room.players[captainAProfile.pid].march, 64,
+      'Captain A canonical march remains updated after Captain B edit');
+    assert.equal(afterLiveEdits.room.players[captainBProfile.pid].march, 71,
+      'Captain B later edit independently updates canonical march');
+    assert.deepEqual(pairsByPid(afterLiveEdits.room.live.commands['1'].payload.pairs), frozenPairsByPid,
+      'both complete frozen captain pairs retain their original march and pressUTC after canonical edits');
+    const [afterCaptainACues, afterCaptainASecondCues, afterCaptainBCues] = await Promise.all([
+      cueState(captainA), cueState(captainASecond), cueState(captainB)
+    ]);
+    const afterEditCue = afterCaptainACues.find(cue => cue.key === captainAPersonalCue.key);
     assert.equal(afterEditCue && afterEditCue.targetMs, captainAPersonalCue.targetMs,
-      'a later march edit cannot move the active personal audio target');
+      'a later march edit cannot move Captain A exact T-10 personal audio target');
+    assert.equal(afterCaptainACues.find(cue => cue.key === captainAGoCue.key)?.targetMs,
+      captainAGoCue.targetMs, 'Captain A original personal GO target remains immutable');
+    assert.equal(afterCaptainASecondCues.find(cue => cue.key === captainASecondGoCue.key)?.targetMs,
+      captainASecondGoCue.targetMs, 'Captain A second device original personal GO target remains immutable');
+    assert.equal(afterCaptainBCues.find(cue => cue.key === captainBGoCue.key)?.targetMs,
+      captainBGoCue.targetMs, 'Captain B original personal GO target remains immutable');
 
     await commander.page.locator(`#roster .roster-actions[data-pid="${captainAProfile.pid}"]`).click();
     const activeRemove = commander.page.locator('#rosterActionsMenu [data-action="remove"]');
@@ -685,6 +902,9 @@ async function runCoreScenario(browser, engineName) {
     assert.deepEqual(removalError, { t: 'error', error: 'player_in_live_command', pid: captainAProfile.pid });
     assert.deepEqual(afterRejectedRemoval.room.live, beforeRejectedRemoval.room.live,
       'live-command removal is rejected atomically without mutating live or staged state');
+    assert.deepEqual(afterRejectedRemoval.room.players[captainAProfile.pid],
+      beforeRejectedRemoval.room.players[captainAProfile.pid],
+      'live-command removal rejection preserves the protected player full canonical record');
 
     await cancelCommand(commander.page, room);
     assert.equal(await commander.page.locator('#pickSlots .slot.frozen').count(), 0,
@@ -720,6 +940,9 @@ async function runCoreScenario(browser, engineName) {
     await selectPlayer(commander.page, selectedCommanderProfile.pid);
     await selectPlayer(commander.page, captainBProfile.pid);
     await fireDouble(commander.page);
+    await waitUntil(async () => (await cueState(selectedCommander))
+      .some(cue => cue.key.includes('-me:') && cue.nodeCount > 0),
+    'selected commander schedulable personal cue');
     const selectedCueState = await cueState(selectedCommander);
     assert.ok(selectedCueState.some(cue => cue.key.includes('-me:') && cue.nodeCount > 0),
       'a registered commander selected in a separate command receives personal cues');
@@ -743,20 +966,20 @@ async function runCompatibilityScenario(browser, engineName) {
   const room = makeQaRoom({ title: `${suiteTitle}-compatibility` });
   assertQaRoomName(room);
   const errors = [];
-  const ignoredA = packetGate({ ignoreDeliveryProtocol: true });
-  const ignoredB = packetGate({ ignoreDeliveryProtocol: true });
-  const ignoredOrdinary = packetGate({ ignoreDeliveryProtocol: true });
-  const ignoredCommander = packetGate({ ignoreDeliveryProtocol: true });
+  const ignoredA = packetGate({ ignoreDeliveryProtocol: true, legacyTransport: true });
+  const ignoredB = packetGate({ ignoreDeliveryProtocol: true, legacyTransport: true });
+  const ignoredOrdinary = packetGate({ ignoreDeliveryProtocol: true, legacyTransport: true });
+  const ignoredCommander = packetGate({ ignoreDeliveryProtocol: true, legacyTransport: true });
   const captainAProfile = playerProfile('920000001', 'Compatibility Captain A', 60);
   const captainBProfile = playerProfile('920000002', 'Compatibility Captain B', 70);
   const ordinaryProfile = playerProfile('920000003', 'Compatibility Member', 80);
   const roles = [];
   try {
     const opened = await Promise.all([
-      openRole(browser, { room, label: 'compatibility-commander', gate: ignoredCommander, compatibility: true, errors }),
-      openRole(browser, { room, label: 'compatibility-captain-a', profile: captainAProfile, deviceId: '61111111-1111-4111-8111-111111111111', gate: ignoredA, compatibility: true, errors }),
-      openRole(browser, { room, label: 'compatibility-captain-b', profile: captainBProfile, deviceId: '62222222-2222-4222-8222-222222222222', gate: ignoredB, compatibility: true, errors }),
-      openRole(browser, { room, label: 'compatibility-member', profile: ordinaryProfile, deviceId: '63333333-3333-4333-8333-333333333333', gate: ignoredOrdinary, compatibility: true, errors })
+      openRole(browser, { room, label: 'compatibility-commander', gate: ignoredCommander, errors }),
+      openRole(browser, { room, label: 'compatibility-captain-a', profile: captainAProfile, deviceId: '61111111-1111-4111-8111-111111111111', gate: ignoredA, errors }),
+      openRole(browser, { room, label: 'compatibility-captain-b', profile: captainBProfile, deviceId: '62222222-2222-4222-8222-222222222222', gate: ignoredB, errors }),
+      openRole(browser, { room, label: 'compatibility-member', profile: ordinaryProfile, deviceId: '63333333-3333-4333-8333-333333333333', gate: ignoredOrdinary, errors })
     ]);
     roles.push(...opened);
     const [commander, captainA, captainB, ordinary] = opened;
@@ -768,7 +991,28 @@ async function runCompatibilityScenario(browser, engineName) {
       'legacy server ignoring delivery ACKs');
     await waitUntil(() => ignoredA.deviceStatuses.length >= 1 && ignoredB.deviceStatuses.length >= 1,
       'legacy server ignoring device status');
-    await commander.page.waitForFunction(() => window.__qaLegacyDeliveryOmissions > 0, null, { timeout: 8_000 });
+    const ignoredGates = [ignoredCommander, ignoredA, ignoredB, ignoredOrdinary];
+    const legacyCommandFromFrame = frame => {
+      let message = null;
+      try { message = JSON.parse(String(frame)); } catch (_) {}
+      return message && message.room && message.room.live && message.room.live.commands
+        ? message.room.live.commands['1']
+        : null;
+    };
+    await waitUntil(() => ignoredGates.every(gate => gate.transformedLegacyFrames.some(frame => {
+      const command = legacyCommandFromFrame(frame);
+      return command && !Object.hasOwn(command, 'delivery');
+    })), 'every compatibility context proxying a delivery-free live snapshot', 8_000);
+    const hasExactIgnoredFrame = (gate, message) => gate.ignoredClientFrames
+      .some(frame => String(frame) === JSON.stringify(message));
+    assert.ok(hasExactIgnoredFrame(ignoredA, ignoredA.deviceStatuses[0]),
+      'Node gate retains Captain A exact ignored deviceStatus frame');
+    assert.ok(hasExactIgnoredFrame(ignoredB, ignoredB.deviceStatuses[0]),
+      'Node gate retains Captain B exact ignored deviceStatus frame');
+    assert.ok(hasExactIgnoredFrame(ignoredA, ignoredA.clientAcks[0]),
+      'Node gate retains Captain A exact ignored deliveryAck frame');
+    assert.ok(hasExactIgnoredFrame(ignoredB, ignoredB.clientAcks[0]),
+      'Node gate retains Captain B exact ignored deliveryAck frame');
 
     const [aCues, bCues, ordinaryCues, commanderCues] = await Promise.all([captainA, captainB, ordinary, commander]
       .map(role => role.page.evaluate(() => Object.entries(window.__cues || {}).map(([key, cue]) => ({
@@ -783,10 +1027,46 @@ async function runCompatibilityScenario(browser, engineName) {
       'compatibility ordinary member still gets exactly one JOIN command/base');
     assert.ok(!commanderCues.some(cue => /-(?:me|join):/.test(cue.key)),
       'compatibility unselected commander remains silent');
-    const legacySnapshot = await commander.page.evaluate(() => structuredClone(window.__qaLegacyLastState));
+    const legacyFrame = ignoredCommander.transformedLegacyFrames.findLast(frame => legacyCommandFromFrame(frame));
+    const legacySnapshot = JSON.parse(legacyFrame);
     const legacyCommand = legacySnapshot.room.live.commands['1'];
     assert.equal(Object.hasOwn(legacyCommand, 'delivery'), false,
-      'the compatibility server snapshot omits the additive delivery aggregate');
+      'the proxy-transformed Node-side legacy snapshot omits the additive delivery aggregate');
+    try {
+      await commander.page.waitForFunction(() => {
+        const command = window.__qaObservedStates.findLast(state =>
+          state && state.room && state.room.live && state.room.live.commands
+            && state.room.live.commands['1'])?.room.live.commands['1'];
+        return command && !Object.hasOwn(command, 'delivery');
+      }, null, { timeout: 8_000 });
+    } catch (error) {
+      const pageEvidence = await commander.page.evaluate(() => ({
+        count: window.__qaObservedStates.length,
+        types: window.__qaObservedStates.map(state => state && state.t),
+        rawCommands: window.__qaObservedStateFrames.map(frame => {
+          const state = JSON.parse(frame);
+          return state && state.room && state.room.live && state.room.live.commands
+            ? structuredClone(state.room.live.commands)
+            : null;
+        }),
+        commands: window.__qaObservedStates.map(state =>
+          state && state.room && state.room.live && state.room.live.commands
+            ? structuredClone(state.room.live.commands)
+            : null)
+      }));
+      throw new Error(`compatibility page-observed transport diagnostic: ${JSON.stringify({
+        transformedCount: ignoredCommander.transformedLegacyFrames.length,
+        transformedCommand: legacyCommand,
+        pageEvidence
+      })}`, { cause: error });
+    }
+    const pageObservedLegacyCommand = await commander.page.evaluate(() => structuredClone(
+      window.__qaObservedStates.findLast(state =>
+        state && state.room && state.room.live && state.room.live.commands
+          && state.room.live.commands['1']).room.live.commands['1']
+    ));
+    assert.equal(Object.hasOwn(pageObservedLegacyCommand, 'delivery'), false,
+      'the command observed by the page omits delivery before application parsing');
     assert.equal(await commander.page.locator('#pickSlots .delivery').count(), 0,
       'ignored delivery protocol never creates a false Received status');
     assert.equal(await commander.page.locator('#pickSlots .slot.frozen').count(), 2,
