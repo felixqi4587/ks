@@ -8,6 +8,8 @@
 
 This document complements `2026-07-13-kvk-commander-player-management-design.md`. That design remains authoritative for canonical march time, commander overrides, vertical roster selection, and player removal.
 
+The later `2026-07-13-kvk-triple-rally-design.md` adds an optional three-captain command while preserving the delivery and audio-audience rules in this document.
+
 This document preserves the personal-countdown contract in `2026-07-13-kvk-command-simplification-design.md`:
 
 - a selected lead time of 10 seconds means the selected captain's personal countdown starts at 10;
@@ -33,11 +35,9 @@ Promotion may be capability-scoped. A candidate that is clearly better on a veri
 
 This is the project's less-is-more rule: production exposes the smallest proven solution, not every experiment that was built.
 
-## Hard production-safety rule
+## QA isolation rule
 
-Room `1406` is a real weekend KvK room. It is never a canary or test room.
-
-No automated or manual development test may use room `1406` to:
+Every room whose name does not begin with `qa-kvk-` is an operation room. No automated or manual development test may use an operation room to:
 
 - create, update, or remove players;
 - stage captains;
@@ -46,7 +46,7 @@ No automated or manual development test may use room `1406` to:
 - run background-audio experiments;
 - change room configuration or march times.
 
-Automated production smoke tests must create a unique room whose name begins with `qa-kvk-`, for example `qa-kvk-20260713-7f3a`. Test harnesses must reject `1406` and must abort before connecting or mutating when the room name does not match the QA prefix. Local development remains the first validation environment; an isolated production QA room is used only after local tests pass.
+Automated production smoke tests must create a unique room whose name begins with `qa-kvk-`, for example `qa-kvk-20260713-7f3a`. Test harnesses must abort before connecting or mutating when the room name does not match the QA prefix. No individual operation room receives a special-case branch. Local development remains the first validation environment; an isolated production QA room is used only after local tests pass.
 
 ## Problem statement
 
@@ -85,7 +85,7 @@ An iOS Dynamic Island or lock-screen media indicator proves that the operating s
 - Make `Received` mean that the target device acknowledged the exact command and successfully scheduled its personal cues.
 - Separate current live-channel health from historical receipt of a command.
 - Test Reliable delivery, Web Push, and Battle Audio Stream candidates without exposing unproven complexity to normal users.
-- Validate multiple isolated browser sessions and multiple devices without touching room `1406`.
+- Validate multiple isolated browser sessions and multiple devices without touching any operation room.
 - Retain a fast rollback to Classic if a promoted candidate regresses.
 - Keep private device and Push data out of public room snapshots.
 
@@ -369,7 +369,7 @@ The minimum simulated room contains:
 
 The suite runs supported Playwright Chromium, Firefox, and WebKit projects where practical. Multiple tabs in one context are not a substitute for multiple devices because they share storage. Browser visibility simulation is useful for regression coverage but is not accepted as proof of real iOS or Android background survival.
 
-Every production-connected run uses a newly generated `qa-kvk-*` room and random QA-only credentials. The harness must contain a hard assertion that refuses room `1406` before any socket connection or HTTP mutation.
+Every production-connected run uses a newly generated `qa-kvk-*` room and random QA-only credentials. The harness must reject every non-QA room before any socket connection or HTTP mutation, without a room-name-specific exception or branch.
 
 ## Test matrix
 
@@ -527,7 +527,7 @@ Therefore:
 - Android can force existing playback to fade or mute when another app obtains audio focus: [Manage audio focus](https://developer.android.com/media/optimize/audio-focus).
 - High-priority FCM attempts immediate delivery but remains conditional and user-visible: [FCM message priority](https://firebase.google.com/docs/cloud-messaging/android-message-priority).
 - Edge avoids sleeping useful audio/notification tabs heuristically but can still freeze under memory pressure: [SleepingTabsEnabled](https://learn.microsoft.com/en-us/deployedge/microsoft-edge-policies/sleepingtabsenabled).
-- The existing Cloudflare architecture supports hibernatable room WebSockets and standard Web Push without requiring room `1406` as a test target: [Durable Objects WebSockets](https://developers.cloudflare.com/durable-objects/best-practices/websockets/) and [Cloudflare Push notifications](https://developers.cloudflare.com/agents/communication-channels/webhooks/push-notifications/).
+- The existing Cloudflare architecture supports hibernatable room WebSockets and standard Web Push without using an operation room as a test target: [Durable Objects WebSockets](https://developers.cloudflare.com/durable-objects/best-practices/websockets/) and [Cloudflare Push notifications](https://developers.cloudflare.com/agents/communication-channels/webhooks/push-notifications/).
 
 ## Acceptance criteria
 
@@ -543,5 +543,5 @@ The design is successfully implemented only when all of the following are true:
 8. Candidates are invisible to ordinary users until promoted by evidence.
 9. Failed candidates are removed.
 10. Classic rollback is tested and does not restore known audience or identity bugs.
-11. Automated multi-browser tests use isolated `qa-kvk-*` rooms and hard-fail on room `1406`.
+11. Automated multi-browser tests use isolated `qa-kvk-*` rooms and hard-fail on every non-QA room.
 12. No claim of superior mobile background reliability is made without physical-device evidence.

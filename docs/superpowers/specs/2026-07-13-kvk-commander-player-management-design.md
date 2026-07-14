@@ -14,6 +14,8 @@ This design supersedes the conflicting removal rules in `2026-07-13-kvk-player-r
 
 It does not supersede the personal countdown contract in `2026-07-13-kvk-command-simplification-design.md`.
 
+The later `2026-07-13-kvk-triple-rally-design.md` supplements this design. The two-slot selection rules below remain authoritative in default Double mode; Triple mode adds Sacrifice 2 without changing canonical march or removal rules.
+
 ## Problem
 
 The current commander roster combines three problems:
@@ -100,7 +102,7 @@ Behavior:
 
 ### Selection and replacement
 
-The existing Sacrifice and Main role slots remain above the roster.
+In default Double mode, the existing Sacrifice and Main role slots remain above the roster.
 
 - With no captains selected, the first tap fills Sacrifice. The second tap fills Main. If one role is missing after a manual removal, the next tap fills that missing role.
 - With two captains selected, tapping a third player no longer silently removes the earliest selection.
@@ -404,13 +406,13 @@ Use at least two different devices or browser profiles in a disposable room:
 6. Stage the player in one kingdom, remove them from the other commander, and verify all stages and local selections clear together.
 7. Fire a disposable command, verify removal is blocked, then verify a profile edit affects only the next command.
 
-Production room 1406 is not used for destructive automated verification.
+No operation room is used for destructive automated verification; automated tests use isolated `qa-kvk-*` rooms.
 
 ## Acceptance criteria
 
 The design is implemented successfully when all of the following are true:
 
-1. The commander roster has no horizontal scroll at 375px or 390px and room 1406's three current players are directly visible.
+1. The commander roster has no horizontal scroll at 375px or 390px and a three-player roster is directly visible.
 2. Player selection, role replacement, time editing, and player actions have distinct controls and cannot trigger one another accidentally.
 3. Both commanders and players can explicitly save a march time from 5 through 180 seconds.
 4. Every successful save appears on all connected devices through the room broadcast.
