@@ -167,9 +167,11 @@ export class Room {
       const result = applyPlayerMarchUpdate(this.room.players, m);
       if (!result.ok) return ws.send(JSON.stringify(Object.assign({ t: "error" }, result)));
       await this.persist();
-      ws.send(JSON.stringify({
-        t: "playerMarchSaved", mutationId: result.mutationId, pid: result.pid, march: result.march, revision: result.revision
-      }));
+      try {
+        ws.send(JSON.stringify({
+          t: "playerMarchSaved", mutationId: result.mutationId, pid: result.pid, march: result.march, revision: result.revision
+        }));
+      } catch (e) {}
       this.broadcast(); return;
     }
 

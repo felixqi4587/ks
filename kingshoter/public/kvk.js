@@ -18,7 +18,11 @@
   var marchTouched = false, pendingUnlock = false, pendingTok = "", pendingRemovePid = "", pendingRemoveName = "";
   var initialStateSeen = false, ownPlayerSeen = false, registrationPending = false, pendingMarchMutation = null;
   var pendingRegistrationProfile = null, draftActive = false, draftVersion = 0;
-  var rosterQuery = "", pendingReplacementPid = "", pendingReplacementOrigin = null, pendingStageRollback = null;
+  var rosterQuery = "", pendingReplacementPid = "", pendingReplacementOrigin = null, pendingReplacementIncumbents = null;
+  var pendingStageMutation = null, queuedStageByK = { 1: null, 2: null }, stageFocusByK = { 1: "", 2: "" };
+  var editingPlayerPid = "", commanderMarchDraft = "", commanderMarchDirty = false, commanderMarchLatest = null;
+  var commanderMarchStatus = "", commanderMarchStatusTone = "", commanderMarchOriginPid = "";
+  var pendingCommanderMarchMutation = null, commanderMarchStale = false, commanderMarchRefreshAfterSnapshot = -1, roomSnapshotSequence = 0;
   var myProfile = null, deviceId = window.getRoomDeviceId(ROOM);
   try { myProfile = JSON.parse(localStorage.getItem(LS("me")) || "null"); } catch (e) {}
   if (myProfile && myProfile.pid) {
@@ -86,6 +90,7 @@
       d_fx_send: "发兵！", d_fx_land: "敌落地", d_fx_refill: "补满！", d_fx_depart: "他发车！", d_ph_depart: "② 他发车了 → 盯落地", d_gather_cd: "集结 {x}", d_land_cd: "落地 {x}", d_whale: "敌鲸", d_enemy: "敌",
       slot_weak: "🛡️ 消耗", slot_weak_sub: "先落地 · 挡刀吃守军", slot_main: "👑 主力", slot_main_sub: "+1秒跟进收头", slot_empty: "待选", slot_swap_tip: "已互换主力/消耗",
       roster_search: "按昵称或 Player ID 搜索", replace_choose: "选择要替换的位置", replace_weak: "替换消耗 · {n}", replace_main: "替换主力 · {n}", replace_cancel: "取消", already_kingdom: "该玩家已在王国 {k}", stage_other_kingdom: "该玩家刚被另一王国选中，已恢复你的选择",
+      edit_march: "修改 {n} 的行军时间", march_save: "保存", march_cancel: "取消", march_adjust: "调整行军时间", march_decrease: "减少 {n} 秒", march_increase: "增加 {n} 秒", march_latest: "房间当前值：{x}", march_active_unchanged: "已发出的倒数不会被这次修改影响", march_invalid: "请输入 0:05–3:00（5–180 秒）", march_conflict: "另一位指挥已更新；保留了你的草稿", march_retry: "按最新值重试", march_adopt: "采用最新值", march_saved: "已保存并同步到全房间", march_pending: "正在等待服务器确认与房间同步…", march_unsaved: "未保存 · 连接恢复后请手动重试", march_stale: "该玩家已不存在，正在刷新房间", march_locked: "先解锁指挥台才能修改",
       plat_ios: "🍎 iPhone：通常可在后台提醒；开战前请锁屏实测", plat_android: "🤖 安卓：保持本页亮屏最稳；系统可能暂停后台", plat_desktop: "💻 电脑：保持本标签页开启，并先做一次测试",
       atk_note: "🟡 集结 5:00 → 🟢 行军 → 到点落地", order_cancelled: "✖ 指令已取消", defense_demo: "演练动画 · 非实时战况"
     },
@@ -127,6 +132,7 @@
       d_fx_send: "SEND!", d_fx_land: "Hits", d_fx_refill: "Reinforced!", d_fx_depart: "They march!", d_ph_depart: "② They marched → watch the landing", d_gather_cd: "gather {x}", d_land_cd: "land {x}", d_whale: "incoming rally", d_enemy: "Enemy ",
       slot_weak: "🛡️ SACRIFICE", slot_weak_sub: "lands first · eats the garrison", slot_main: "👑 MAIN", slot_main_sub: "lands +1s right behind", slot_empty: "—", slot_swap_tip: "Main/sacrifice swapped",
       roster_search: "Search nickname or Player ID", replace_choose: "Choose the captain to replace", replace_weak: "Replace Sacrifice · {n}", replace_main: "Replace Main · {n}", replace_cancel: "Cancel", already_kingdom: "Already selected for Kingdom {k}", stage_other_kingdom: "Another kingdom just selected this player; your prior picks were restored",
+      edit_march: "Edit {n}'s march time", march_save: "Save", march_cancel: "Cancel", march_adjust: "Adjust march time", march_decrease: "Decrease {n} seconds", march_increase: "Increase {n} seconds", march_latest: "Current room value: {x}", march_active_unchanged: "An active countdown will not change", march_invalid: "Enter 0:05–3:00 (5–180 seconds)", march_conflict: "Another commander updated this player; your draft is preserved", march_retry: "Retry on latest", march_adopt: "Adopt latest", march_saved: "Saved and synchronized to the room", march_pending: "Waiting for server confirmation and room sync…", march_unsaved: "Not saved · retry manually after reconnect", march_stale: "This player is gone; refreshing the room", march_locked: "Unlock the commander console to edit",
       plat_ios: "🍎 iPhone: background alerts usually work; lock-screen test before battle", plat_android: "🤖 Android: keeping this page visible is safest; the OS may pause it", plat_desktop: "💻 Desktop: keep this tab open and run one test first",
       atk_note: "🟡 gather 5:00 → 🟢 march → lands", order_cancelled: "✖ Order cancelled", defense_demo: "Timing rehearsal · not live battle state"
     }
@@ -465,8 +471,11 @@
   window.addEventListener("pageshow", onResume);
   document.addEventListener("resume", onResume);   // Page Lifecycle: Android un-freezes the tab → reconnect + re-arm immediately
   // sticky fire dock yields while any input has focus (iOS keyboard would otherwise shove it over the whale editor)
-  document.addEventListener("focusin", function (e) { var fd = $("fireDock"); if (fd && e.target && /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) fd.classList.add("nofix"); });
-  document.addEventListener("focusout", function () { var fd = $("fireDock"); if (fd) fd.classList.remove("nofix"); });
+  function focusNeedsFireDockYield(target) {
+    return !!(target && (/^(INPUT|SELECT|TEXTAREA)$/.test(target.tagName) || (target.closest && target.closest("#commanderMarchEditor:not(.hide)"))));
+  }
+  document.addEventListener("focusin", function (e) { var fd = $("fireDock"); if (fd && focusNeedsFireDockYield(e.target)) fd.classList.add("nofix"); });
+  document.addEventListener("focusout", function () { setTimeout(function () { var fd = $("fireDock"); if (fd && !focusNeedsFireDockYield(document.activeElement)) fd.classList.remove("nofix"); }, 0); });
   window.addEventListener("focus", function () { resumeAudio(); });
   setInterval(function () { if (sock) { if (!sock.connected) sock.kick(); else sock.send({ t: "hb", pid: myPid }); } if (soundReady) { resumeAudio(); scheduleAllCues(); } try { if (window.speechSynthesis && speechSynthesis.paused) speechSynthesis.resume(); } catch (e) {} }, 25000);   // heartbeat: keep the WS warm, keep me un-evictable, self-heal audio + a stuck TTS queue (desktop Chrome), re-arm cues
 
@@ -801,41 +810,55 @@
   }
   function closeReplacement(restoreFocus) {
     var origin = pendingReplacementOrigin || pendingReplacementPid;
-    pendingReplacementPid = ""; pendingReplacementOrigin = null;
+    pendingReplacementPid = ""; pendingReplacementOrigin = null; pendingReplacementIncumbents = null;
     if ($("replaceOvl")) $("replaceOvl").classList.remove("show");
-    if (restoreFocus) restoreRosterFocus(origin);
+    var page = document.querySelector(".wrap"); if (page) { page.inert = false; page.removeAttribute("inert"); }
+    if (restoreFocus) { if (pendingStageMutation || queuedStageByK[1] || queuedStageByK[2]) stageFocusByK[fireKingdom] = origin; restoreRosterFocus(origin); }
   }
   function openReplacement(pid) {
     if (!room || !room.players || !room.players[pid]) return;
     pendingReplacementPid = pid; pendingReplacementOrigin = pid;
     var weak = pickedByK[fireKingdom].filter(function (pick) { return pick.role === "weak"; })[0];
     var main = pickedByK[fireKingdom].filter(function (pick) { return pick.role === "main"; })[0];
+    pendingReplacementIncumbents = { weak: weak && weak.pid, main: main && main.pid, signature: pickSignature(pickedByK[fireKingdom]) };
     $("replaceTitle").textContent = tk("replace_choose");
     $("replaceWeak").hidden = !weak; $("replaceMain").hidden = !main;
     if (weak) $("replaceWeak").textContent = tkf("replace_weak", { n: playerDisplayText(weak.pid, room.players) });
     if (main) $("replaceMain").textContent = tkf("replace_main", { n: playerDisplayText(main.pid, room.players) });
     $("replaceCancel").textContent = tk("replace_cancel");
     $("replaceOvl").classList.add("show");
+    var page = document.querySelector(".wrap"); if (page) page.inert = true;
     setTimeout(function () { var first = !$("replaceWeak").hidden ? $("replaceWeak") : $("replaceMain"); if (first) first.focus(); }, 0);
   }
-  function rollbackStageSelection(message) {
-    if (!pendingStageRollback) return false;
-    var rollback = pendingStageRollback; pendingStageRollback = null;
-    pickedByK[rollback.kingdom] = clonePicks(rollback.previous);
+  function rollbackStageSelection(message, discardQueued) {
+    if (!pendingStageMutation) return false;
+    var rollback = pendingStageMutation, focusPid = stageFocusByK[rollback.kingdom]; pendingStageMutation = null;
+    if (discardQueued) { queuedStageByK[1] = null; queuedStageByK[2] = null; }
+    [1, 2].forEach(function (kingdom) {
+      pickedByK[kingdom] = queuedStageByK[kingdom]
+        ? reconcilePickList(queuedStageByK[kingdom], room && room.players)
+        : clonePicks(serverStagedByK[kingdom]);
+    });
     closeReplacement(false); if (room) renderRoster();
+    if (focusPid && !queuedStageByK[rollback.kingdom]) { stageFocusByK[rollback.kingdom] = ""; restoreRosterFocus(focusPid); }
     if (message) window.toast(message);
+    if (!discardQueued) pumpStageQueue();
     return true;
   }
   function commitPicks(next) {
     var previous = clonePicks(pickedByK[fireKingdom]);
+    var active = document.activeElement, focusPid = active && active.dataset && active.dataset.pid;
+    if (focusPid) stageFocusByK[fireKingdom] = focusPid;
     pickedByK[fireKingdom] = reconcilePickList(next, room && room.players);
+    if (pendingReplacementPid && pendingReplacementIncumbents && pickSignature(pickedByK[fireKingdom]) !== pendingReplacementIncumbents.signature) closeReplacement(true);
     picksTouched = true; renderRoster(); stageBroadcast(previous);
   }
   function applyReplacement(pid, role) {
     var candidate = pid || pendingReplacementPid, other = otherKingdomForPid(candidate, fireKingdom), current = pickedByK[fireKingdom];
-    if (!candidate || !room || !room.players[candidate] || other || !current.some(function (pick) { return pick.role === role; })) { closeReplacement(true); return; }
+    var currentRole = current.filter(function (pick) { return pick.role === role; })[0], expectedPid = pendingReplacementIncumbents && pendingReplacementIncumbents[role];
+    if (!candidate || !room || !room.players[candidate] || other || !currentRole || !expectedPid || currentRole.pid !== expectedPid) { closeReplacement(true); return; }
     var next = current.filter(function (pick) { return pick.role !== role && pick.pid !== candidate; }).concat([{ pid: candidate, role: role }]);
-    closeReplacement(false); commitPicks(next); restoreRosterFocus(candidate);
+    stageFocusByK[fireKingdom] = candidate; closeReplacement(false); commitPicks(next);
   }
   function selectOrReplacePlayer(pid) {
     var other = otherKingdomForPid(pid, fireKingdom), current = pickedByK[fireKingdom], existing = current.filter(function (pick) { return pick.pid === pid; })[0];
@@ -844,6 +867,153 @@
     if (current.length >= 2) { openReplacement(pid); return; }
     var role = current.some(function (pick) { return pick.role === "weak"; }) ? "main" : "weak";
     commitPicks(current.concat([{ pid: pid, role: role }]));
+  }
+  function parseMMSS(value) {
+    var match = /^(\d{1,2}):(\d{2})$/.exec(String(value || "").trim());
+    if (!match) return null;
+    var secondsPart = Number(match[2]);
+    if (secondsPart >= 60) return null;
+    var seconds = Number(match[1]) * 60 + secondsPart;
+    return Number.isInteger(seconds) && seconds >= 5 && seconds <= 180 ? seconds : null;
+  }
+  function canonicalMarchRecord(pid, players) {
+    var player = players && players[pid];
+    if (!player || !Number.isInteger(player.march)) return null;
+    return { pid: pid, march: player.march, revision: Number.isInteger(player.marchRevision) ? player.marchRevision : 0 };
+  }
+  function rememberCommanderMarchLatest(record) {
+    if (!record || record.pid !== editingPlayerPid) return;
+    if (!commanderMarchLatest || record.revision > commanderMarchLatest.revision ||
+        (record.revision === commanderMarchLatest.revision && record.march === commanderMarchLatest.march)) {
+      commanderMarchLatest = { pid: record.pid, march: record.march, revision: record.revision };
+    }
+  }
+  function restoreCommanderMarchFocus() {
+    setTimeout(function () {
+      var target = commanderMarchOriginPid && document.querySelector('.roster-time[data-pid="' + commanderMarchOriginPid + '"]');
+      var visible = function (element) { return !!(element && element.isConnected && !element.hidden && !element.closest("[hidden], .hide") && element.getClientRects().length); };
+      if (!visible(target)) { var search = $("rosterSearch"); if (visible(search)) target = search; }
+      if (!visible(target)) target = Array.from(document.querySelectorAll("#roster .rp")).filter(visible)[0] || $("console");
+      if (target && target.focus) target.focus();
+      commanderMarchOriginPid = "";
+    }, 0);
+  }
+  function closeCommanderMarchEditor(restoreFocus) {
+    if (pendingCommanderMarchMutation) return false;
+    var editor = $("commanderMarchEditor");
+    editingPlayerPid = ""; commanderMarchDraft = ""; commanderMarchDirty = false; commanderMarchLatest = null;
+    commanderMarchStatus = ""; commanderMarchStatusTone = ""; commanderMarchStale = false; commanderMarchRefreshAfterSnapshot = -1;
+    if (editor) { editor.classList.add("hide"); editor.removeAttribute("aria-busy"); }
+    if (room) renderRoster();
+    if (restoreFocus) restoreCommanderMarchFocus(); else commanderMarchOriginPid = "";
+    return true;
+  }
+  function renderCommanderMarchEditor() {
+    var editor = $("commanderMarchEditor"); if (!editor) return;
+    var player = editingPlayerPid && room && room.players && room.players[editingPlayerPid];
+    if (!editingPlayerPid || (!player && !commanderMarchStale)) { editor.classList.add("hide"); return; }
+    editor.classList.remove("hide");
+    var pending = !!pendingCommanderMarchMutation, latest = commanderMarchLatest || canonicalMarchRecord(editingPlayerPid, room && room.players);
+    var parts = player ? playerDisplayParts(editingPlayerPid, room.players) : { name: editingPlayerPid, suffix: "" };
+    $("commanderMarchTitle").textContent = tkf("edit_march", { n: parts.name + (parts.suffix ? " " + parts.suffix : "") });
+    $("commanderMarchCanonical").textContent = latest ? "r" + latest.revision : "";
+    $("commanderMarchLabel").textContent = tk("marchlab") + " · MM:SS";
+    var input = $("commanderMarchInput");
+    if (document.activeElement !== input || input.value !== commanderMarchDraft) input.value = commanderMarchDraft;
+    input.setAttribute("aria-invalid", commanderMarchStatus === "invalid" ? "true" : "false");
+    input.readOnly = pending || commanderMarchStale;
+    input.setAttribute("aria-disabled", pending || commanderMarchStale ? "true" : "false");
+    $("commanderMarchLatest").textContent = latest ? tkf("march_latest", { x: window.mmss(latest.march) }) : "";
+    $("commanderMarchActiveHint").textContent = tk("march_active_unchanged");
+    var status = $("commanderMarchStatus");
+    var statusKey = commanderMarchStatus === "invalid" ? "march_invalid" : commanderMarchStatus === "conflict" ? "march_conflict" : commanderMarchStatus === "pending" ? "march_pending" : commanderMarchStatus === "unsaved" ? "march_unsaved" : commanderMarchStatus === "stale" ? "march_stale" : commanderMarchStatus === "saved" ? "march_saved" : "";
+    status.textContent = statusKey ? tk(statusKey) : "";
+    status.className = "commander-march-status" + (commanderMarchStatusTone ? " " + commanderMarchStatusTone : "");
+    var conflict = $("commanderMarchConflict"), hasConflict = commanderMarchStatus === "conflict" && !!latest && !pending;
+    conflict.classList.toggle("hide", !hasConflict);
+    $("commanderMarchAdopt").textContent = tk("march_adopt"); $("commanderMarchRetry").textContent = tk("march_retry");
+    $("commanderMarchCancel").textContent = tk("march_cancel"); $("commanderMarchSave").textContent = tk("march_save");
+    var steps = editor.querySelector(".commander-march-steps");
+    if (steps) {
+      steps.setAttribute("aria-label", tk("march_adjust"));
+      steps.querySelectorAll("[data-march-delta]").forEach(function (button) {
+        var delta = Number(button.dataset.marchDelta || 0);
+        button.setAttribute("aria-label", tkf(delta < 0 ? "march_decrease" : "march_increase", { n: Math.abs(delta) }));
+      });
+    }
+    editor.setAttribute("aria-busy", pending ? "true" : "false");
+    editor.querySelectorAll("button, input").forEach(function (control) {
+      var conflictAction = control.id === "commanderMarchAdopt" || control.id === "commanderMarchRetry";
+      var unavailable = conflictAction ? pending || !hasConflict : pending || commanderMarchStale;
+      control.setAttribute("aria-disabled", unavailable ? "true" : "false");
+      if (control.tagName === "INPUT") control.readOnly = unavailable;
+      else control.disabled = conflictAction && !hasConflict;
+    });
+  }
+  function openCommanderMarchEditor(pid, origin) {
+    if (!roomPw) { window.toast(tk("march_locked")); return false; }
+    var canonical = canonicalMarchRecord(pid, room && room.players); if (!canonical) return false;
+    if (editingPlayerPid === pid) {
+      renderCommanderMarchEditor(); var current = $("commanderMarchInput"); if (current) current.focus(); return true;
+    }
+    if (editingPlayerPid && (commanderMarchDirty || pendingCommanderMarchMutation)) {
+      renderCommanderMarchEditor(); var existing = $("commanderMarchInput"); if (existing) existing.focus(); return false;
+    }
+    if (editingPlayerPid && editingPlayerPid !== pid) closeCommanderMarchEditor(false);
+    editingPlayerPid = pid; commanderMarchOriginPid = origin && origin.dataset ? origin.dataset.pid : pid;
+    commanderMarchDraft = window.mmss(Math.max(5, Math.min(180, canonical.march))); commanderMarchDirty = false; commanderMarchLatest = canonical;
+    commanderMarchStatus = ""; commanderMarchStatusTone = ""; commanderMarchStale = false; commanderMarchRefreshAfterSnapshot = -1;
+    renderRoster(); renderCommanderMarchEditor();
+    var input = $("commanderMarchInput"); if (input) { input.focus(); input.select(); }
+    return true;
+  }
+  function sendCommanderMarch(baseRevision) {
+    if (!editingPlayerPid || pendingCommanderMarchMutation || commanderMarchStale) return false;
+    var march = parseMMSS(commanderMarchDraft);
+    if (march == null) { commanderMarchStatus = "invalid"; commanderMarchStatusTone = "err"; renderCommanderMarchEditor(); $("commanderMarchInput").focus(); return false; }
+    var mutation = { mutationId: crypto.randomUUID(), pid: editingPlayerPid, requestedMarch: march, baseRevision: baseRevision, ackSeen: false, stateSeen: false, awaitingReconnect: false, reconnectAfterSnapshot: -1 };
+    var sent = !!(sock && sock.send({ t: "setPlayerMarch", mutationId: mutation.mutationId, password: roomPw, pid: mutation.pid, march: mutation.requestedMarch, baseRevision: mutation.baseRevision }));
+    if (!sent) { commanderMarchStatus = "unsaved"; commanderMarchStatusTone = "err"; commanderMarchDirty = true; renderCommanderMarchEditor(); return false; }
+    pendingCommanderMarchMutation = mutation; commanderMarchStatus = "pending"; commanderMarchStatusTone = ""; commanderMarchDirty = true; renderCommanderMarchEditor();
+    return true;
+  }
+  function saveCommanderMarch() {
+    var latest = commanderMarchLatest || canonicalMarchRecord(editingPlayerPid, room && room.players);
+    if (!latest) { commanderMarchStatus = "stale"; commanderMarchStatusTone = "err"; renderCommanderMarchEditor(); return false; }
+    return sendCommanderMarch(latest.revision);
+  }
+  function settleCommanderMarchMutation() {
+    var pending = pendingCommanderMarchMutation;
+    if (!pending || !pending.ackSeen || !pending.stateSeen) return false;
+    var current = canonicalMarchRecord(pending.pid, room && room.players);
+    if (!current || current.revision !== pending.baseRevision + 1 || current.march !== pending.requestedMarch) return false;
+    pendingCommanderMarchMutation = null; commanderMarchDirty = false; commanderMarchStatus = "saved"; commanderMarchStatusTone = "ok";
+    window.toast(tk("march_saved") + " · " + window.mmss(pending.requestedMarch));
+    closeCommanderMarchEditor(true);
+    return true;
+  }
+  function markCommanderMarchConflict(record) {
+    rememberCommanderMarchLatest(record);
+    pendingCommanderMarchMutation = null; commanderMarchDirty = true; commanderMarchStatus = "conflict"; commanderMarchStatusTone = "err";
+    renderCommanderMarchEditor();
+  }
+  function reconcileCommanderMarchState(players) {
+    if (!editingPlayerPid) return;
+    var record = canonicalMarchRecord(editingPlayerPid, players);
+    if (!record || (commanderMarchStale && roomSnapshotSequence > commanderMarchRefreshAfterSnapshot)) {
+      pendingCommanderMarchMutation = null; window.toast(tk("player_missing")); closeCommanderMarchEditor(true); return;
+    }
+    var prior = commanderMarchLatest;
+    rememberCommanderMarchLatest(record);
+    var pending = pendingCommanderMarchMutation;
+    if (pending) {
+      pending.stateSeen = record.revision === pending.baseRevision + 1 && record.march === pending.requestedMarch;
+      if (!pending.stateSeen && (record.revision > pending.baseRevision + 1 || (record.revision === pending.baseRevision + 1 && record.march !== pending.requestedMarch))) markCommanderMarchConflict(record);
+      else if (!pending.stateSeen && pending.awaitingReconnect && roomSnapshotSequence > pending.reconnectAfterSnapshot) markCommanderMarchConflict(record);
+      settleCommanderMarchMutation();
+    } else if (commanderMarchDirty && prior && (record.revision > prior.revision || (record.revision === prior.revision && record.march !== prior.march))) {
+      markCommanderMarchConflict(record);
+    } else if (!commanderMarchDirty) commanderMarchDraft = window.mmss(Math.max(5, Math.min(180, record.march)));
   }
   function renderRoster() {
     var box = $("roster"); if (!box || !room) return;
@@ -857,7 +1027,7 @@
     if (!players.length) {
       if ($("duplicateHint")) { $("duplicateHint").classList.add("hide"); $("duplicateHint").textContent = ""; }
       box.innerHTML = '<span class="hint">' + tk("mapempty") + '</span>';
-      refreshSyncPill(); renderSlots();
+      refreshSyncPill(); renderSlots(); renderCommanderMarchEditor();
       var emptyFire = $("fireDouble"); if (emptyFire) emptyFire.disabled = true;
       return;
     }
@@ -879,8 +1049,8 @@
       roleButton.textContent = sel ? tk(sel.role === "main" ? "main" : "weak") : inO ? "🌍" + otherK : "—";
       roleButton.setAttribute("aria-disabled", sel ? "false" : "true"); roleButton.setAttribute("aria-label", sel ? tk(sel.role === "main" ? "main" : "weak") : inO ? tkf("already_kingdom", { k: otherK }) : tk("slot_empty"));
       roleButton.onclick = function () { if (!sel) return; var next = cur.map(function (pick) { return { pid: pick.pid, role: pick.pid === sel.pid ? (sel.role === "main" ? "weak" : "main") : (pick.role === "main" ? "weak" : "main") }; }); commitPicks(next); };
-      var timeButton = document.createElement("button"); timeButton.type = "button"; timeButton.className = "roster-time"; timeButton.dataset.pid = p.pid; timeButton.textContent = window.mmss(p.march || 0); timeButton.setAttribute("aria-disabled", "true"); timeButton.setAttribute("aria-label", tk("marchlab") + " " + window.mmss(p.march || 0));
-      timeButton.onclick = function () {};
+      var timeButton = document.createElement("button"); timeButton.type = "button"; timeButton.className = "roster-time"; timeButton.dataset.pid = p.pid; timeButton.textContent = window.mmss(p.march || 0); timeButton.setAttribute("aria-disabled", roomPw ? "false" : "true"); timeButton.setAttribute("aria-expanded", editingPlayerPid === p.pid ? "true" : "false"); timeButton.setAttribute("aria-controls", "commanderMarchEditor"); timeButton.setAttribute("aria-label", tkf("edit_march", { n: playerDisplayText(p.pid, room.players) }) + " · " + window.mmss(p.march || 0));
+      timeButton.onclick = function () { openCommanderMarchEditor(p.pid, timeButton); };
       var del = document.createElement("button");
       del.type = "button"; del.className = "roster-actions rpdel"; del.dataset.pid = p.pid; del.textContent = "⋯"; del.setAttribute("aria-label", tkf("remove_aria", { n: playerName })); del.title = tkf("remove_aria", { n: playerName });
       del.onclick = function (ev) {
@@ -893,7 +1063,7 @@
       var haystack = ((p.name || "") + " " + p.pid).toLowerCase(); wrap.hidden = !!(rosterQuery && haystack.indexOf(rosterQuery) < 0);
       wrap.appendChild(el); wrap.appendChild(roleButton); wrap.appendChild(timeButton); wrap.appendChild(del); box.appendChild(wrap);
     });
-    refreshSyncPill(); renderSlots();
+    refreshSyncPill(); renderSlots(); renderCommanderMarchEditor();
     var ready = cur.length === 2 && cur.some(function (pick) { return pick.role === "weak"; }) && cur.some(function (pick) { return pick.role === "main"; });
     var fd = $("fireDouble"); if (fd) fd.disabled = !ready;
   }
@@ -951,10 +1121,23 @@
   }
   function stageBroadcast(previous) {
     if (!roomPw || !sock) return false;
-    var cur = clonePicks(pickedByK[fireKingdom]);
-    pendingStageRollback = { kingdom: fireKingdom, previous: clonePicks(previous || cur), expected: clonePicks(cur) };
-    var ok = sock.send({ t: "stage", password: roomPw, staged: { kingdom: fireKingdom, pairs: cur } });
-    if (!ok) rollbackStageSelection(tk("notconn"));
+    queuedStageByK[fireKingdom] = clonePicks(pickedByK[fireKingdom]);
+    return pumpStageQueue();
+  }
+  function pumpStageQueue() {
+    if (pendingStageMutation || !roomPw || !sock) return false;
+    var kingdom = queuedStageByK[1] ? 1 : queuedStageByK[2] ? 2 : 0;
+    if (!kingdom) return true;
+    var desired = clonePicks(queuedStageByK[kingdom]); queuedStageByK[kingdom] = null;
+    if (pickSignature(desired) === pickSignature(serverStagedByK[kingdom])) {
+      pickedByK[kingdom] = clonePicks(serverStagedByK[kingdom]);
+      var settledFocus = stageFocusByK[kingdom]; stageFocusByK[kingdom] = "";
+      if (room) renderRoster(); if (settledFocus) restoreRosterFocus(settledFocus);
+      return pumpStageQueue();
+    }
+    pendingStageMutation = { kingdom: kingdom, expected: desired, awaitingReconnect: false, reconnectAfterSnapshot: -1 };
+    var ok = sock.send({ t: "stage", password: roomPw, staged: { kingdom: kingdom, pairs: desired } });
+    if (!ok) rollbackStageSelection(tk("notconn"), true);
     return ok;
   }
   function tapFire(btn, labelEl, labelKey, fn) {   // double-TAP to confirm — no long-press, so iOS never pops the text-selection/copy callout
@@ -1130,7 +1313,16 @@
       if (viewMode === "defense") renderDefense();
     } else draftActive = true;
   }
+  function handleCommanderMarchAck(message) {
+    var pending = pendingCommanderMarchMutation;
+    if (!message || message.t !== "playerMarchSaved" || !pending || message.mutationId !== pending.mutationId) return false;
+    if (message.pid === pending.pid && message.march === pending.requestedMarch && message.revision === pending.baseRevision + 1) {
+      pending.ackSeen = true; settleCommanderMarchMutation();
+    }
+    return true;
+  }
   function handleSocketMessage(message) {
+    if (handleCommanderMarchAck(message)) return;
     if (!message || message.t !== "playerMarchSaved" || !pendingMarchMutation || message.mutationId !== pendingMarchMutation.mutationId) return;
     pendingMarchMutation.ackSeen = true;
     settlePendingMarchMutation();
@@ -1142,9 +1334,34 @@
     $("fillCard").classList.remove("hide"); $("youChip").classList.add("hide");
   }
   function markDraft() { draftActive = true; draftVersion += 1; }
+  function handleCommanderMarchProtocolError(message) {
+    var pending = pendingCommanderMarchMutation;
+    if (!pending || !message || message.mutationId !== pending.mutationId) return false;
+    pendingCommanderMarchMutation = null; commanderMarchDirty = true; commanderMarchStatusTone = "err";
+    if (message.error === "player_conflict") {
+      var latest = message.latest;
+      if (latest && latest.pid === pending.pid && Number.isInteger(latest.march) && Number.isInteger(latest.revision) && latest.revision >= 0) {
+        markCommanderMarchConflict({ pid: latest.pid, march: latest.march, revision: latest.revision });
+      } else { commanderMarchStatus = "unsaved"; renderCommanderMarchEditor(); }
+    } else if (message.error === "invalid_march") {
+      commanderMarchStatus = "invalid"; renderCommanderMarchEditor();
+    } else if (message.error === "player_missing") {
+      commanderMarchStale = true; commanderMarchStatus = "stale"; commanderMarchRefreshAfterSnapshot = roomSnapshotSequence; renderCommanderMarchEditor();
+      if (sock && typeof sock.refresh === "function") sock.refresh(); else if (sock) sock.kick();
+    } else if (message.error === "bad_password") {
+      commanderMarchStatus = "unsaved"; renderCommanderMarchEditor();
+      try { localStorage.removeItem(LS("pw")); } catch (e) {}
+      lockCmd();
+    } else {
+      commanderMarchStatus = "unsaved"; renderCommanderMarchEditor();
+    }
+    return true;
+  }
   function handlePlayerProtocolError(message) {
     var error = message && message.error;
     if (["invalid_march", "player_missing", "player_conflict"].indexOf(error) < 0 && error !== "invalid_pid") return false;
+    if (error === "player_missing" && !message.mutationId) return false;
+    if (message.mutationId && (!pendingMarchMutation || message.mutationId !== pendingMarchMutation.mutationId)) return false;
     if (pendingMarchMutation && message.mutationId === pendingMarchMutation.mutationId) {
       if (error === "player_conflict" && message.latest && myProfile && message.latest.pid === myProfile.pid) {
         saveProfile(Object.assign({}, myProfile, {
@@ -1170,12 +1387,21 @@
     sock = new window.RoomSocket(ROOM, onState);
     sock.onMessage = handleSocketMessage;
     sock.onOpen = function () { initialStateSeen = false; registrationPending = false; setNet(true); window.syncClock().then(updateSync); };
-    sock.onClose = function () { initialStateSeen = false; registrationPending = false; if (pendingMarchMutation && !pendingMarchMutation.ackSeen) pendingMarchMutation = null; setNet(false); };
+    sock.onClose = function () {
+      initialStateSeen = false; registrationPending = false;
+      if (pendingMarchMutation && !pendingMarchMutation.ackSeen) pendingMarchMutation = null;
+      if (pendingCommanderMarchMutation && !pendingCommanderMarchMutation.ackSeen) { pendingCommanderMarchMutation = null; commanderMarchStatus = "unsaved"; commanderMarchStatusTone = "err"; commanderMarchDirty = true; renderCommanderMarchEditor(); }
+      else if (pendingCommanderMarchMutation) { pendingCommanderMarchMutation.awaitingReconnect = true; pendingCommanderMarchMutation.reconnectAfterSnapshot = roomSnapshotSequence; }
+      if (pendingStageMutation) { pendingStageMutation.awaitingReconnect = true; pendingStageMutation.reconnectAfterSnapshot = roomSnapshotSequence; }
+      setNet(false);
+    };
     sock.onError = function (m) {
-      if (m.error === "player_staged_other_kingdom") { rollbackStageSelection(tk("stage_other_kingdom")); return; }
-      if (pendingStageRollback && m.error === "player_missing") { rollbackStageSelection(tk("player_missing")); return; }
-      if (m.error === "bad_password" && pendingStageRollback) rollbackStageSelection();
+      if (handleCommanderMarchProtocolError(m)) return;
       if (handlePlayerProtocolError(m)) return;
+      if (m && m.mutationId) return;
+      if (m.error === "player_staged_other_kingdom") { rollbackStageSelection(tk("stage_other_kingdom")); return; }
+      if (pendingStageMutation && m.error === "player_missing") { rollbackStageSelection(tk("player_missing")); return; }
+      if (m.error === "bad_password" && pendingStageMutation) rollbackStageSelection(null, true);
       if (m.error === "bad_password") {
         pendingRemovePid = ""; pendingRemoveName = "";
         try { localStorage.removeItem(LS("pw")); } catch (e) {}
@@ -1204,6 +1430,8 @@
   function updateSync(r) { if (r) syncedOK = r.rtt != null; paintChrome(); rebookCuesOnDrift(); }   // post-suspend resync: future beeps re-book on the corrected clock
   var lastStagedKey = "", lastMyMarch = 0;
   function onState(r) {
+    var freshRoomSnapshot = r !== room, settledStageFocusPid = "";
+    if (freshRoomSnapshot) roomSnapshotSequence += 1;
     var nextPlayers = r.players || {};
     var firstSnapshot = !initialStateSeen; initialStateSeen = true;
     var trackedPid = myProfile && myProfile.pid;
@@ -1222,11 +1450,17 @@
       });
     }
     reconcilePicks(nextPlayers);
-    if (pendingReplacementPid && (!nextPlayers[pendingReplacementPid] || pickedByK[fireKingdom].length < 2 || otherKingdomForPid(pendingReplacementPid, fireKingdom))) closeReplacement(true);
-    if (pendingStageRollback) {
-      var pendingStaged = r.live && r.live.staged && r.live.staged[pendingStageRollback.kingdom];
-      if (pickSignature((pendingStaged && pendingStaged.pairs) || []) === pickSignature(pendingStageRollback.expected)) pendingStageRollback = null;
+    if (pendingStageMutation) {
+      var stageKingdom = pendingStageMutation.kingdom;
+      if (pickSignature(serverStagedByK[stageKingdom]) === pickSignature(pendingStageMutation.expected)) {
+        pendingStageMutation = null;
+        if (!queuedStageByK[stageKingdom]) { pickedByK[stageKingdom] = clonePicks(serverStagedByK[stageKingdom]); settledStageFocusPid = stageFocusByK[stageKingdom]; stageFocusByK[stageKingdom] = ""; }
+      } else if (pendingStageMutation.awaitingReconnect && freshRoomSnapshot && roomSnapshotSequence > pendingStageMutation.reconnectAfterSnapshot) {
+        rollbackStageSelection();
+      }
     }
+    [1, 2].forEach(function (kd) { if ((!pendingStageMutation || pendingStageMutation.kingdom !== kd) && !queuedStageByK[kd]) pickedByK[kd] = clonePicks(serverStagedByK[kd]); });
+    if (pendingReplacementPid && (!nextPlayers[pendingReplacementPid] || pickedByK[fireKingdom].length < 2 || otherKingdomForPid(pendingReplacementPid, fireKingdom) || (pendingReplacementIncumbents && pickSignature(pickedByK[fireKingdom]) !== pendingReplacementIncumbents.signature))) closeReplacement(true);
     if (pendingRemovePid && !(r.players && r.players[pendingRemovePid])) {
       var removedPid = pendingRemovePid, removedName = pendingRemoveName || pendingRemovePid;
       acknowledgedOwnRemoval = ownRemoved && removedPid === trackedPid;
@@ -1265,7 +1499,7 @@
       var gone = liveCommands(room).filter(function (c) { return myTarget(c).anchor > nowS - 1 && newIds.indexOf(c.id) < 0; });
       if (gone.some(function (c) { return myTarget(c).mine; })) { beepCancelled(); window.toast(tk("order_cancelled")); }
     }
-    room = r; setNet(true); if (pendingUnlock && r.updatedBy && r.updatedBy === pendingTok) unlockedOK(); presenceN = r.presence || 1; paintChrome(); paintHero(); syncMap(); renderRoster(); scheduleAllCues(); paintAudioStatus();
+    room = r; if (!pendingStageMutation) pumpStageQueue(); reconcileCommanderMarchState(nextPlayers); setNet(true); if (pendingUnlock && r.updatedBy && r.updatedBy === pendingTok) unlockedOK(); presenceN = r.presence || 1; paintChrome(); paintHero(); syncMap(); renderRoster(); if (settledStageFocusPid) restoreRosterFocus(settledStageFocusPid); scheduleAllCues(); paintAudioStatus();
     var ew = (r.config && r.config.enemyWhales) || [], key = JSON.stringify(ew);
     if (key !== lastWhalesKey) {
       lastWhalesKey = key; enemyWhales = ew; setBadge(); if (viewMode === "defense") renderDefense();   // only re-render (resets the radar) when the whale list actually changed, not on every heartbeat
@@ -1338,7 +1572,42 @@
     $("replaceMain").onclick = function () { applyReplacement(pendingReplacementPid, "main"); };
     $("replaceCancel").onclick = function () { closeReplacement(true); };
     $("replaceOvl").addEventListener("click", function (event) { if (event.target === $("replaceOvl")) closeReplacement(true); });
-    document.addEventListener("keydown", function (event) { if (event.key === "Escape" && $("replaceOvl").classList.contains("show")) { event.preventDefault(); closeReplacement(true); } });
+    document.addEventListener("keydown", function (event) {
+      if (!$("replaceOvl").classList.contains("show")) return;
+      if (event.key === "Escape") { event.preventDefault(); closeReplacement(true); return; }
+      if (event.key !== "Tab") return;
+      var controls = Array.from($("replaceOvl").querySelectorAll("button:not([hidden]):not([disabled])"));
+      if (!controls.length) { event.preventDefault(); return; }
+      var first = controls[0], last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    });
+    $("commanderMarchInput").addEventListener("input", function () {
+      commanderMarchDraft = this.value; commanderMarchDirty = true;
+      if (commanderMarchStatus === "invalid" || commanderMarchStatus === "unsaved" || commanderMarchStatus === "saved") { commanderMarchStatus = ""; commanderMarchStatusTone = ""; }
+      renderCommanderMarchEditor();
+    });
+    $("commanderMarchEditor").addEventListener("submit", function (event) { event.preventDefault(); saveCommanderMarch(); });
+    $("commanderMarchEditor").querySelectorAll("[data-march-delta]").forEach(function (button) {
+      button.onclick = function () {
+        if (pendingCommanderMarchMutation || commanderMarchStale) return;
+        var current = parseMMSS(commanderMarchDraft), latest = commanderMarchLatest;
+        var next = Math.max(5, Math.min(180, (current == null ? (latest ? latest.march : 90) : current) + Number(button.dataset.marchDelta || 0)));
+        commanderMarchDraft = window.mmss(next); commanderMarchDirty = true;
+        if (commanderMarchStatus === "invalid" || commanderMarchStatus === "unsaved") { commanderMarchStatus = ""; commanderMarchStatusTone = ""; }
+        renderCommanderMarchEditor(); $("commanderMarchInput").focus(); $("commanderMarchInput").select();
+      };
+    });
+    $("commanderMarchCancel").onclick = function () { if (!pendingCommanderMarchMutation && !commanderMarchStale) closeCommanderMarchEditor(true); };
+    $("commanderMarchAdopt").onclick = function () {
+      if (pendingCommanderMarchMutation || !commanderMarchLatest) return;
+      commanderMarchDraft = window.mmss(commanderMarchLatest.march); commanderMarchDirty = false; closeCommanderMarchEditor(true);
+    };
+    $("commanderMarchRetry").onclick = function () { if (!pendingCommanderMarchMutation && commanderMarchLatest) sendCommanderMarch(commanderMarchLatest.revision); };
+    document.addEventListener("keydown", function (event) {
+      if (event.defaultPrevented || event.key !== "Escape" || $("commanderMarchEditor").classList.contains("hide") || $("replaceOvl").classList.contains("show")) return;
+      event.preventDefault(); if (!pendingCommanderMarchMutation && !commanderMarchStale) closeCommanderMarchEditor(true);
+    });
     $("saveBtn").onclick = function () {
       var identityValue = $("pid").value, resolvedName = $("nameOut").dataset.name || "";
       cancelIdentityLookup();

@@ -101,6 +101,23 @@ test('player and commander updates acknowledge mutationId and broadcast canonica
   assert.equal(h.room.room.updatedBy, configAuthor);
 });
 
+test('commander march update still broadcasts once when the initiator drops during ACK', async () => {
+  const { Room } = await loadRoom();
+  const h = createRoomHarness(Room);
+  await claimRoom(h);
+  h.ws.send = () => { throw new Error('initiator disconnected'); };
+
+  await assert.doesNotReject(() => h.room.webSocketMessage(h.ws, JSON.stringify({
+    t: 'setPlayerMarch', mutationId: 'cmd-dropped', password: 'commander-secret',
+    pid: '001', march: 35, baseRevision: 0
+  })));
+
+  assert.equal(h.room.room.players['001'].march, 35);
+  assert.equal(h.room.room.players['001'].marchRevision, 1);
+  assert.deepEqual(h.sent, []);
+  assert.deepEqual(h.calls, ['persist', 'broadcast']);
+});
+
 test('heartbeat refreshes presence without changing canonical march or revision', async () => {
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room);
@@ -144,6 +161,33 @@ test('stage atomically rejects a player already staged in the other kingdom', as
     { pid: 'kimchi', role: 'main' }
   ]);
   assert.equal(h.room.room.live.staged[2], null);
+});
+
+test('two commander sockets cannot concurrently stage one player in both kingdoms', async () => {
+  const { Room } = await loadRoom();
+  const h = createRoomHarness(Room);
+  await claimRoom(h);
+  const secondSent = [];
+  const secondCommander = { send(message) { secondSent.push(JSON.parse(message)); } };
+  h.reset();
+
+  await Promise.all([
+    h.room.webSocketMessage(h.ws, JSON.stringify({
+      t: 'stage', password: 'commander-secret', staged: { kingdom: 1, pairs: [{ pid: '001', role: 'weak' }] }
+    })),
+    h.room.webSocketMessage(secondCommander, JSON.stringify({
+      t: 'stage', password: 'commander-secret', staged: { kingdom: 2, pairs: [{ pid: '001', role: 'weak' }] }
+    }))
+  ]);
+
+  const staged = [h.room.room.live.staged[1], h.room.room.live.staged[2]];
+  assert.equal(staged.filter(Boolean).length, 1);
+  assert.equal(staged.filter(Boolean)[0].pairs[0].pid, '001');
+  const errors = h.sent.concat(secondSent).filter(message => message.t === 'error');
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].error, 'player_staged_other_kingdom');
+  assert.equal(errors[0].pid, '001');
+  assert.deepEqual(h.calls, ['persist', 'broadcast']);
 });
 
 test('Fire freezes canonical march values and exact Main landing offset from stale sender snapshots', async () => {

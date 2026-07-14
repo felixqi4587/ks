@@ -138,26 +138,39 @@ window.getRoomDeviceId = (room) => {
 
 /* ---- RoomSocket: WebSocket client with auto-reconnect ---- */
 window.RoomSocket = class {
-  constructor(room, onState) { this.room = room; this.onState = onState; this.onError = null; this.onMessage = null; this.onOpen = null; this.onClose = null; this.dead = false; this.connect(); }
+  constructor(room, onState) { this.room = room; this.onState = onState; this.onError = null; this.onMessage = null; this.onOpen = null; this.onClose = null; this.dead = false; this.connectionGeneration = 0; this.reconnectTimer = null; this.connect(); }
   connect() {
+    if (this.reconnectTimer !== null) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
+    const generation = ++this.connectionGeneration;
     const proto = location.protocol === "https:" ? "wss" : "ws";
     const ws = new WebSocket(`${proto}://${location.host}/api/ws?room=${encodeURIComponent(this.room)}`);
     this.ws = ws;
-    ws.onopen = () => { if (this.onOpen) this.onOpen(); };
+    const isCurrent = () => this.ws === ws && this.connectionGeneration === generation;
+    ws.onopen = () => { if (!isCurrent() || this.dead) return; if (this.onOpen) this.onOpen(); };
     ws.onmessage = (event) => {
+      if (!isCurrent() || this.dead) return;
       let message;
       try { message = JSON.parse(event.data); } catch (_) { return; }
       if (message.t === "state") this.onState(message.room);
       else if (message.t === "error") { if (this.onError) this.onError(message); }
       else if (this.onMessage) this.onMessage(message);
     };
-    ws.onclose = () => { if (this.onClose) this.onClose(); if (!this.dead) setTimeout(() => this.connect(), 1000 + Math.random() * 2000); };   // jitter avoids a synchronized reconnect storm on DO eviction / deploy
+    ws.onclose = () => {
+      if (!isCurrent()) return;
+      if (this.onClose) this.onClose();
+      if (!this.dead && isCurrent()) this.reconnectTimer = setTimeout(() => {
+        if (!isCurrent() || this.dead) return;
+        this.reconnectTimer = null;
+        this.connect();
+      }, 1000 + Math.random() * 2000);   // jitter avoids a synchronized reconnect storm on DO eviction / deploy
+    };
   }
   send(o) { try { if (this.ws && this.ws.readyState === 1) { this.ws.send(JSON.stringify(o)); return true; } } catch (e) {} return false; }
+  refresh() { if (this.dead) return false; const previous = this.ws; this.connect(); try { if (previous && previous.readyState < 2) previous.close(); } catch (e) {} return true; }
   // iOS may suspend a backgrounded socket without firing onclose; reconnect if it's not OPEN/CONNECTING when we resume
   kick() { if (this.dead) return; if (!this.ws || this.ws.readyState > 1) this.connect(); }
   get connected() { return this.ws && this.ws.readyState === 1; }
-  close() { this.dead = true; try { this.ws.close(); } catch (e) {} }
+  close() { this.dead = true; if (this.reconnectTimer !== null) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; } try { this.ws.close(); } catch (e) {} }
 };
 
 /* ---- shared KvK actor visual language (color-blind safe: ●circle=ally / ▼triangle=enemy; size+crown=captain) ----

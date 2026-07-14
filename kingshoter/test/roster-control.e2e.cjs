@@ -10,7 +10,7 @@ const duplicateTwo = 'n_bbbbbbbbbbbbbbbbbb2222';
 const players = [
   { pid: duplicateOne, name: 'Tester', march: 35, identityMode: 'nickname' },
   { pid: duplicateTwo, name: 'Tester', march: 36, identityMode: 'nickname' },
-  { pid: '900000001', name: 'Alpha', march: 37, identityMode: 'playerId' },
+  { pid: '900000001', name: '$&', march: 37, identityMode: 'playerId' },
   { pid: '900000002', name: 'Bravo', march: 38, identityMode: 'playerId' },
   { pid: '900000003', name: 'Charlie', march: 39, identityMode: 'playerId' },
   { pid: '900000004', name: 'Delta', march: 40, identityMode: 'playerId' },
@@ -92,8 +92,9 @@ async function assertLayout(page, width) {
     await page.locator('#pwGo').click();
     await page.locator('#console').waitFor({ state: 'visible' });
 
-    assert.equal(await page.locator('link[href="app.css?v=26"]').count(), 1);
-    assert.equal(await page.locator('script[src="kvk.js?v=36"]').count(), 1);
+    assert.equal(await page.locator('link[href="app.css?v=27"]').count(), 1);
+    assert.equal(await page.locator('script[src="app.js?v=10"]').count(), 1);
+    assert.equal(await page.locator('script[src="kvk.js?v=37"]').count(), 1);
     await page.locator('#roster .roster-row').first().waitFor();
     assert.equal(await page.locator('#roster .roster-row').count(), 7);
     assert.equal(await page.locator('#rosterSearchWrap').isVisible(), true);
@@ -105,6 +106,7 @@ async function assertLayout(page, width) {
     assert.match(await suffixOne.textContent(), /1111/);
     assert.match(await suffixTwo.textContent(), /2222/);
     assert.equal(await page.locator('#roster .roster-row[data-pid="900000001"] .roster-name-suffix').count(), 0);
+    assert.equal(await page.locator('#roster .roster-time[data-pid="900000001"]').getAttribute('aria-label'), "Edit $&'s march time · 0:37");
 
     const primary = pid => page.locator(`#roster .rp[data-pid="${pid}"]`);
     await primary('900000001').click();
@@ -123,7 +125,14 @@ async function assertLayout(page, width) {
     await primary('900000003').click();
     await page.locator('#replaceOvl').waitFor({ state: 'visible' });
     assert.equal(await page.locator('#roster .rp[aria-pressed="true"]').count(), 2, 'third tap does not silently shift a pick');
+    await page.locator('#replaceWeak').focus();
+    await page.keyboard.press('Shift+Tab');
+    assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.id), 'replaceCancel', 'modal wraps backward focus');
+    await page.keyboard.press('Tab');
+    assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.id), 'replaceWeak', 'modal wraps forward focus');
+    assert.equal(await page.locator('.wrap').getAttribute('inert'), '', 'replacement makes the background inert');
     await page.keyboard.press('Escape');
+    assert.equal(await page.locator('.wrap').getAttribute('inert'), null, 'closing replacement restores the background');
     await page.waitForFunction(() => document.activeElement && document.activeElement.matches('.rp[data-pid="900000003"]'));
     await primary('900000003').click();
     await page.locator('#replaceOvl').waitFor({ state: 'visible' });
@@ -134,6 +143,8 @@ async function assertLayout(page, width) {
     await page.locator('#replaceWeak').click();
     assert.equal(await primary('900000003').getAttribute('aria-pressed'), 'true');
     assert.equal(await page.locator('#pickSlots .slot.weak').getAttribute('data-pid'), '900000003');
+    await page.waitForTimeout(700);
+    assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.matches('.rp[data-pid="900000003"]')), true, 'Apply keeps focus after the canonical stage snapshot');
     await sendMessages(page, [{ t: 'updateOwnMarch', mutationId: 'roster-remote-1', pid: '900000003', march: 49, baseRevision: 0 }]);
     await page.locator('#roster .roster-time[data-pid="900000003"]').filter({ hasText: '0:49' }).waitFor();
     await page.locator('#pickSlots .slot.weak small').filter({ hasText: '0:49' }).waitFor();
@@ -160,6 +171,8 @@ async function assertLayout(page, width) {
       const weak = document.querySelector('#pickSlots .slot.weak');
       return rejected && rejected.getAttribute('aria-pressed') === 'false' && weak && weak.dataset.pid === '900000003';
     });
+    await page.waitForTimeout(100);
+    assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.matches('.rp[data-pid="900000005"]')), true, 'rejected Apply restores focus after rollback');
     hideK2Stage = false;
 
     await primary('900000004').click();
