@@ -27,16 +27,23 @@ import {
   touchDevice
 } from "./room-delivery.js";
 import {
+  createDeliveryRecord,
   DELIVERY_ACK_WINDOW_MS,
   DELIVERY_ARMED_LEASE_MS,
   DELIVERY_PROBE_INTERVAL_MS,
   DELIVERY_STORAGE_KEY,
   DELIVERY_VERSION,
   defaultDeliveryState,
+  dueDeliveryTargets,
   isQaRoomName,
   normalizeDeliveryAttachment,
   normalizeDeliveryState,
-  publicDeliverySummary
+  pruneDeliveryState,
+  publicDeliverySummary,
+  recordClassicAck,
+  recordDeliveryAttempt,
+  recordShadowAck,
+  upsertDeliveryTarget
 } from "./delivery.js";
 
 function defaultRoom() {
@@ -265,6 +272,69 @@ export class Room {
     } catch (error) {}
     return next;
   }
+  deliverySocketFor(action, nowMs) {
+    for (const ws of this.state.getWebSockets()) {
+      const attachment = this.readReliableAttachment(ws);
+      if (attachment.qa && attachment.soundReady === true && attachment.shadow &&
+          attachment.audioArmed && attachment.armedUntilMs > nowMs &&
+          attachment.pid === action.pid && attachment.deviceId === action.deviceId) return ws;
+    }
+    return null;
+  }
+  flushDeliveryTargets(nowMs) {
+    let changed = false;
+    for (const action of dueDeliveryTargets(this.delivery, nowMs)) {
+      const ws = this.deliverySocketFor(action, nowMs);
+      if (ws) {
+        try { ws.send(JSON.stringify(action.envelope)); } catch (error) {}
+      }
+      changed = recordDeliveryAttempt(this.delivery, action, nowMs) || changed;
+    }
+    return changed;
+  }
+  async dispatchDeliveryForCommand(command, nowMs) {
+    if (!isQaRoomName(this.roomName)) return false;
+    const record = createDeliveryRecord(command, nowMs);
+    if (!record) return false;
+    const previousDelivery = this.delivery;
+    this.delivery = normalizeDeliveryState(previousDelivery, nowMs);
+    this.delivery.roomName = this.roomName;
+    this.delivery.commands.push(record);
+    for (const ws of this.state.getWebSockets()) {
+      upsertDeliveryTarget(
+        this.delivery, record.commandId, this.readReliableAttachment(ws), nowMs
+      );
+    }
+    this.flushDeliveryTargets(nowMs);
+    pruneDeliveryState(this.delivery, nowMs);
+    try {
+      await this.persistDelivery();
+    } catch (error) {
+      this.delivery = previousDelivery;
+      throw error;
+    }
+    await this.scheduleExpiry();
+    return true;
+  }
+  async recordReliableClassicAck(ws, canonicalIdentity, message, nowMs) {
+    const attachment = this.readReliableAttachment(ws);
+    if (!canonicalIdentity || canonicalIdentity.pid !== attachment.pid ||
+        canonicalIdentity.deviceId !== attachment.deviceId ||
+        attachment.soundReady !== true) return false;
+    const previousDelivery = this.delivery;
+    const nextDelivery = normalizeDeliveryState(previousDelivery, nowMs);
+    if (!recordClassicAck(nextDelivery, attachment, message, nowMs)) return false;
+    this.delivery = nextDelivery;
+    try {
+      await this.persistDelivery();
+    } catch (error) {
+      this.delivery = previousDelivery;
+      throw error;
+    }
+    this.broadcast();
+    await this.scheduleExpiry();
+    return true;
+  }
   async handleDeliveryShadowMessage(ws, message) {
     const attachment = this.readReliableAttachment(ws);
     if (!attachment.qa) return this.deliveryError(ws, "qa_room_required");
@@ -302,12 +372,54 @@ export class Room {
       if (!attachment.shadow || message.v !== DELIVERY_VERSION || !attachment.lastProbeId ||
           message.probeId !== attachment.lastProbeId || nowMs > attachment.probeExpiresAtMs) return;
       const audioArmed = message.audioArmed === true;
-      this.writeReliableAttachment(ws, {
+      const armed = this.writeReliableAttachment(ws, {
         audioArmed,
         armedUntilMs: audioArmed ? nowMs + DELIVERY_ARMED_LEASE_MS : 0,
         lastProbeId: "",
         probeExpiresAtMs: 0
       });
+      const previousDelivery = this.delivery;
+      let deliveryChanged = false;
+      if (audioArmed) {
+        this.delivery = normalizeDeliveryState(previousDelivery, nowMs);
+        for (const record of this.delivery.commands) {
+          deliveryChanged = !!upsertDeliveryTarget(
+            this.delivery, record.commandId, armed, nowMs
+          ) || deliveryChanged;
+        }
+        deliveryChanged = this.flushDeliveryTargets(nowMs) || deliveryChanged;
+        deliveryChanged = pruneDeliveryState(this.delivery, nowMs) || deliveryChanged;
+      }
+      if (deliveryChanged) {
+        try {
+          await this.persistDelivery();
+        } catch (error) {
+          this.delivery = previousDelivery;
+          return this.deliveryError(ws, "delivery_persist_failed");
+        }
+        this.broadcast();
+      } else if (audioArmed) {
+        this.delivery = previousDelivery;
+      }
+      await this.scheduleExpiry();
+      return;
+    }
+    if (message.t === "deliveryShadowAck") {
+      if (typeof message.commandId !== "string" || !message.commandId ||
+          !Number.isInteger(message.futureCueCount) || message.futureCueCount < 0 ||
+          message.futureCueCount > 12) return;
+      const nowMs = this.nowMs();
+      const previousDelivery = this.delivery;
+      const nextDelivery = normalizeDeliveryState(previousDelivery, nowMs);
+      if (!recordShadowAck(nextDelivery, attachment, message, nowMs)) return;
+      this.delivery = nextDelivery;
+      try {
+        await this.persistDelivery();
+      } catch (error) {
+        this.delivery = previousDelivery;
+        return this.deliveryError(ws, "delivery_persist_failed");
+      }
+      this.broadcast();
       await this.scheduleExpiry();
       return;
     }
@@ -402,6 +514,12 @@ export class Room {
       }
       const { atMs, ...savedAck } = result.savedAck;
       try { ws.send(JSON.stringify({ t: "deliveryAckSaved", ...savedAck })); } catch (error) {}
+      try {
+        await this.recordReliableClassicAck(ws, {
+          pid: result.savedAck.pid,
+          deviceId: result.savedAck.deviceId
+        }, result.savedAck, this.nowMs());
+      } catch (error) {}
       return;
     }
 
@@ -520,7 +638,12 @@ export class Room {
       }
       this.room.live.staged[kd] = null;   // a real order supersedes that kingdom's staged pre-warning
       this.room.live.mode = (this.room.live.commands[1] || this.room.live.commands[2]) ? "live" : "idle";
-      await this.persistAll(); await this.scheduleExpiry(); this.broadcast(); return;
+      await this.persistAll(); await this.scheduleExpiry(); this.broadcast();
+      const reliableCommand = type === "double_rally" ? this.room.live.commands[kd] : null;
+      if (reliableCommand) {
+        try { await this.dispatchDeliveryForCommand(reliableCommand, this.nowMs()); } catch (error) {}
+      }
+      return;
     }
 
     if (m.t === "stage") {   // commander pre-warns the picked captains (before the actual fire) so a whale who stepped away can stand by

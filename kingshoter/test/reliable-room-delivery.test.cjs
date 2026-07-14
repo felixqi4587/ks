@@ -3,6 +3,19 @@ const assert = require('node:assert/strict');
 const { loadRoom, createRoomHarness } = require('./room-harness.cjs');
 
 const DEVICE_ID = '00000000-0000-4000-8000-000000000001';
+const DISPATCH_NOW_MS = 1_000_000;
+
+const DISPATCH_IDS = {
+  a1: '11111111-1111-4111-8111-111111111111',
+  a2: '22222222-2222-4222-8222-222222222222',
+  b1: '33333333-3333-4333-8333-333333333333',
+  member: '44444444-4444-4444-8444-444444444444',
+  commander: '55555555-5555-4555-8555-555555555555',
+  stale: '66666666-6666-4666-8666-666666666666',
+  unready: '77777777-7777-4777-8777-777777777777',
+  classicOnly: '88888888-8888-4888-8888-888888888888',
+  canonical: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+};
 
 function prepareReliableSocket(harness) {
   harness.room.delivery = { v: 1, roomName: '', commands: [] };
@@ -13,6 +26,94 @@ function prepareReliableSocket(harness) {
   harness.room.initializeReliableAttachment(harness.ws);
   harness.reset();
   return harness;
+}
+
+function installDispatchRoom(harness, nowMs = DISPATCH_NOW_MS) {
+  harness.room.room.players = {
+    '700001': { name: 'A', march: 31 },
+    '700002': { name: 'B', march: 30 },
+    '700003': { name: 'Member', march: 25 }
+  };
+  harness.room.room.live = {
+    mode: 'idle', commands: { 1: null, 2: null },
+    staged: { 1: null, 2: null }, sim: null
+  };
+  harness.room.delivery = {
+    v: 1, roomName: harness.roomName, commands: []
+  };
+  harness.room.devices = [];
+  harness.room.deliveryAcks = [];
+  harness.room._deliveryLoaded = true;
+  harness.room.authOK = async () => true;
+  harness.room.nowMs = () => nowMs;
+  harness.room.now = () => new Date(nowMs).toISOString();
+  return harness;
+}
+
+function doubleRallyMessage() {
+  return {
+    t: 'cmd', password: 'commander-secret',
+    cmd: {
+      type: 'double_rally', kingdom: 1, anchorUTC: 1010,
+      payload: {
+        leadSeconds: 10, firstPress: 1010, kingdom: 1,
+        pairs: [
+          { pid: '700001', role: 'weak', pressUTC: 1010 },
+          { pid: '700002', role: 'main', pressUTC: 1011 }
+        ]
+      }
+    }
+  };
+}
+
+function canonicalDoubleRally(id = 'command-reliable-dispatch') {
+  return {
+    id, type: 'double_rally', kingdom: 1,
+    payload: {
+      leadSeconds: 10,
+      pairs: [
+        { pid: '700001', role: 'weak', march: 31, pressUTC: 1010 },
+        { pid: '700002', role: 'main', march: 30, pressUTC: 1011 }
+      ]
+    }
+  };
+}
+
+function reliableSocket(harness, {
+  pid,
+  deviceId,
+  view = 'player',
+  soundReady = true,
+  shadow = true,
+  audioArmed = true,
+  armedUntilMs = DISPATCH_NOW_MS + 20_000,
+  onSend = null
+}) {
+  let attachment = null;
+  const raw = [];
+  const ws = {
+    send(message) {
+      raw.push(message);
+      if (onSend) onSend(JSON.parse(message), message);
+    },
+    close() { this.closed = true; },
+    serializeAttachment(value) { attachment = structuredClone(value); },
+    deserializeAttachment() { return attachment == null ? null : structuredClone(attachment); }
+  };
+  harness.room.attachSocket(ws, harness.roomName);
+  harness.room.initializeReliableAttachment(ws);
+  harness.room.writeSocketAttachment(ws, {
+    pid, deviceId, soundReady, clientBuild: 'classic-2026.07'
+  });
+  harness.room.writeReliableAttachment(ws, {
+    view, shadow, audioArmed, armedUntilMs
+  });
+  return {
+    ws,
+    raw,
+    messages() { return raw.map(message => JSON.parse(message)); },
+    shadowCommands() { return this.messages().filter(message => message.t === 'deliveryShadowCommand'); }
+  };
 }
 
 test('constructor loads Reliable delivery state separately from the Core room', async () => {
@@ -551,4 +652,520 @@ test('an unsupported deliveryShadow frame in QA gets a bounded error without mut
   assert.deepEqual(h.room.delivery, beforeDelivery);
   assert.equal(persists, 0);
   assert.equal(alarms, 0);
+});
+
+test('Fire completes exact Classic order before targeting only selected currently armed shadow devices', async () => {
+  const { Room } = await loadRoom();
+  const h = installDispatchRoom(createRoomHarness(Room, {
+    roomName: 'qa-kvk-dispatch-order', nowMs: DISPATCH_NOW_MS
+  }));
+  const events = [];
+  const socket = (options) => reliableSocket(h, {
+    ...options,
+    onSend(message) {
+      if (message.t === 'deliveryShadowCommand') events.push(`candidate:${options.deviceId}`);
+    }
+  });
+  const a1 = socket({ pid: '700001', deviceId: DISPATCH_IDS.a1 });
+  const a2 = socket({ pid: '700001', deviceId: DISPATCH_IDS.a2 });
+  const b1 = socket({ pid: '700002', deviceId: DISPATCH_IDS.b1 });
+  const member = socket({ pid: '700003', deviceId: DISPATCH_IDS.member });
+  const commander = socket({ pid: '700003', deviceId: DISPATCH_IDS.commander, view: 'commander' });
+  const stale = socket({
+    pid: '700001', deviceId: DISPATCH_IDS.stale, armedUntilMs: DISPATCH_NOW_MS
+  });
+  const unready = socket({
+    pid: '700002', deviceId: DISPATCH_IDS.unready, soundReady: false
+  });
+  const classicOnly = socket({
+    pid: '700002', deviceId: DISPATCH_IDS.classicOnly, shadow: false
+  });
+  h.room.persistAll = async () => { events.push('classic-persist'); };
+  h.room.scheduleExpiry = async () => { events.push('alarm'); };
+  h.room.broadcast = () => { events.push('classic-broadcast'); };
+  h.room.persistDelivery = async () => { events.push('delivery-persist'); };
+
+  await h.room.webSocketMessage(h.ws, JSON.stringify(doubleRallyMessage()));
+
+  assert.deepEqual(events.slice(0, 3), [
+    'classic-persist', 'alarm', 'classic-broadcast'
+  ]);
+  const classicIndex = events.indexOf('classic-broadcast');
+  const candidateIndexes = events
+    .map((event, index) => event.startsWith('candidate:') ? index : -1)
+    .filter(index => index >= 0);
+  assert.equal(candidateIndexes.length, 3);
+  assert.ok(candidateIndexes.every(index => index > classicIndex), JSON.stringify(events));
+
+  const command = h.room.room.live.commands[1];
+  const commands = [a1, a2, b1].flatMap(candidate => candidate.shadowCommands());
+  assert.deepEqual(commands, [
+    {
+      t: 'deliveryShadowCommand', v: 1, shadow: true,
+      commandId: command.id, pid: '700001', role: 'weak', kingdom: 1,
+      issuedAtMs: DISPATCH_NOW_MS, fireAtMs: 1_010_000,
+      audioExpiresAtMs: 1_010_150, marchSeconds: 31, leadSeconds: 10
+    },
+    {
+      t: 'deliveryShadowCommand', v: 1, shadow: true,
+      commandId: command.id, pid: '700001', role: 'weak', kingdom: 1,
+      issuedAtMs: DISPATCH_NOW_MS, fireAtMs: 1_010_000,
+      audioExpiresAtMs: 1_010_150, marchSeconds: 31, leadSeconds: 10
+    },
+    {
+      t: 'deliveryShadowCommand', v: 1, shadow: true,
+      commandId: command.id, pid: '700002', role: 'main', kingdom: 1,
+      issuedAtMs: DISPATCH_NOW_MS, fireAtMs: 1_012_000,
+      audioExpiresAtMs: 1_012_150, marchSeconds: 30, leadSeconds: 10
+    }
+  ]);
+  assert.equal(commands.some(message => Object.prototype.hasOwnProperty.call(message, 'deviceId')), false);
+  for (const silent of [member, commander, stale, unready, classicOnly]) {
+    assert.deepEqual(silent.shadowCommands(), []);
+  }
+  assert.deepEqual(h.room.delivery.commands[0].targets.map(target => target.deviceId), [
+    DISPATCH_IDS.a1, DISPATCH_IDS.a2, DISPATCH_IDS.b1
+  ]);
+});
+
+test('dispatch retries byte-identical envelopes only while the exact socket lease remains current', async () => {
+  const { Room } = await loadRoom();
+  const h = installDispatchRoom(createRoomHarness(Room, {
+    roomName: 'qa-kvk-dispatch-bytes', nowMs: DISPATCH_NOW_MS
+  }));
+  const a1 = reliableSocket(h, {
+    pid: '700001', deviceId: DISPATCH_IDS.a1,
+    armedUntilMs: DISPATCH_NOW_MS + 1_500
+  });
+  const a2 = reliableSocket(h, {
+    pid: '700001', deviceId: DISPATCH_IDS.a2,
+    armedUntilMs: DISPATCH_NOW_MS + 20_000
+  });
+  h.room.persistDelivery = async () => {};
+  h.room.scheduleExpiry = async () => {};
+
+  await h.room.dispatchDeliveryForCommand(
+    canonicalDoubleRally('command-byte-stable'), DISPATCH_NOW_MS
+  );
+  const firstBytes = a1.raw.find(message => JSON.parse(message).t === 'deliveryShadowCommand');
+  assert.ok(firstBytes);
+  const secondDeviceFirstBytes = a2.raw.find(
+    message => JSON.parse(message).t === 'deliveryShadowCommand'
+  );
+  assert.equal(secondDeviceFirstBytes, firstBytes);
+
+  h.room.writeSocketAttachment(a2.ws, { soundReady: false });
+  assert.equal(h.room.flushDeliveryTargets(DISPATCH_NOW_MS + 500), true);
+  const deliveryBytes = a1.raw.filter(message => JSON.parse(message).t === 'deliveryShadowCommand');
+  assert.deepEqual(deliveryBytes, [firstBytes, firstBytes]);
+  assert.deepEqual(
+    a2.raw.filter(message => JSON.parse(message).t === 'deliveryShadowCommand'),
+    [firstBytes],
+    'the send path rechecks current Core soundReady on every retry'
+  );
+
+  h.room.writeReliableAttachment(a1.ws, {
+    audioArmed: true, armedUntilMs: DISPATCH_NOW_MS + 1_500
+  });
+  assert.equal(h.room.flushDeliveryTargets(DISPATCH_NOW_MS + 1_500), true);
+  assert.deepEqual(
+    a1.raw.filter(message => JSON.parse(message).t === 'deliveryShadowCommand'),
+    [firstBytes, firstBytes],
+    'the send path rechecks armedUntilMs instead of trusting the earlier target admission'
+  );
+  assert.deepEqual(
+    a2.raw.filter(message => JSON.parse(message).t === 'deliveryShadowCommand'),
+    [firstBytes]
+  );
+});
+
+test('an exact armed probe ACK activates every still-actionable pending record but hello activates none', async () => {
+  const { Room } = await loadRoom();
+  const h = installDispatchRoom(createRoomHarness(Room, {
+    roomName: 'qa-kvk-probe-activation', nowMs: DISPATCH_NOW_MS
+  }));
+  let events = [];
+  const player = reliableSocket(h, {
+    pid: '700001', deviceId: DISPATCH_IDS.a1,
+    shadow: false, audioArmed: false, armedUntilMs: 0,
+    onSend(message) {
+      if (message.t === 'deliveryShadowCommand') events.push(`candidate:${message.commandId}`);
+    }
+  });
+  h.room.persistDelivery = async () => { events.push('delivery-persist'); };
+  h.room.broadcast = () => { events.push('aggregate-broadcast'); };
+  h.room.scheduleExpiry = async () => { events.push('alarm'); };
+
+  const first = canonicalDoubleRally('pending-first');
+  const second = canonicalDoubleRally('pending-second');
+  second.payload.pairs[0].pressUTC = 1013;
+  second.payload.pairs[1].pressUTC = 1014;
+  const expired = canonicalDoubleRally('pending-expired');
+  expired.payload.pairs[0].pressUTC = 999;
+  expired.payload.pairs[1].pressUTC = 999;
+  await h.room.dispatchDeliveryForCommand(first, DISPATCH_NOW_MS);
+  await h.room.dispatchDeliveryForCommand(second, DISPATCH_NOW_MS);
+  await h.room.dispatchDeliveryForCommand(expired, DISPATCH_NOW_MS);
+  assert.deepEqual(h.room.delivery.commands.map(record => record.targets.length), [0, 0, 0]);
+
+  events = [];
+  player.raw.length = 0;
+  await h.room.webSocketMessage(player.ws, JSON.stringify({
+    t: 'deliveryShadowHello', v: 1, shadow: true, view: 'player',
+    pid: '700001', deviceId: DISPATCH_IDS.a1
+  }));
+  const probe = player.messages().find(message => message.t === 'deliveryShadowProbe');
+  assert.ok(probe);
+  assert.deepEqual(h.room.delivery.commands.map(record => record.targets.length), [0, 0, 0]);
+  assert.deepEqual(events, ['delivery-persist', 'alarm']);
+
+  events = [];
+  player.raw.length = 0;
+  await h.room.webSocketMessage(player.ws, JSON.stringify({
+    t: 'deliveryShadowProbeAck', v: 1,
+    probeId: probe.probeId, audioArmed: true
+  }));
+
+  assert.deepEqual(h.room.delivery.commands.map(record => record.targets.length), [1, 1, 0]);
+  assert.deepEqual(player.shadowCommands().map(message => message.commandId), [
+    'pending-first', 'pending-second'
+  ]);
+  assert.equal(h.room.readReliableAttachment(player.ws).armedUntilMs, DISPATCH_NOW_MS + 8_000);
+  assert.deepEqual(events, [
+    'candidate:pending-first', 'candidate:pending-second',
+    'delivery-persist', 'aggregate-broadcast', 'alarm'
+  ]);
+});
+
+test('candidate ACK identity comes from its attached target and publishes only after private persistence', async () => {
+  const { Room } = await loadRoom();
+  const h = installDispatchRoom(createRoomHarness(Room, {
+    roomName: 'qa-kvk-candidate-identity', nowMs: DISPATCH_NOW_MS
+  }));
+  const a1 = reliableSocket(h, { pid: '700001', deviceId: DISPATCH_IDS.a1 });
+  const a2 = reliableSocket(h, { pid: '700001', deviceId: DISPATCH_IDS.a2 });
+  h.room.persistDelivery = async () => {};
+  h.room.scheduleExpiry = async () => {};
+  await h.room.dispatchDeliveryForCommand(
+    canonicalDoubleRally('candidate-identity'), DISPATCH_NOW_MS
+  );
+  a1.raw.length = 0;
+  a2.raw.length = 0;
+  const events = [];
+  h.room.persistDelivery = async () => { events.push('delivery-persist'); };
+  h.room.broadcast = () => { events.push('aggregate-broadcast'); };
+  h.room.scheduleExpiry = async () => { events.push('alarm'); };
+
+  await h.room.webSocketMessage(a2.ws, JSON.stringify({
+    t: 'deliveryShadowAck', v: 1, commandId: 'candidate-identity',
+    result: 'would_schedule', futureCueCount: 6.5
+  }));
+  assert.deepEqual(events, [], 'a fractional cue count is not an exact candidate ACK');
+
+  await h.room.webSocketMessage(a2.ws, JSON.stringify({
+    t: 'deliveryShadowAck', v: 1, commandId: 'candidate-identity',
+    result: 'would_schedule', futureCueCount: 6
+  }));
+
+  const targets = h.room.delivery.commands[0].targets;
+  assert.equal(targets.find(target => target.deviceId === DISPATCH_IDS.a1).candidateAck, null);
+  assert.deepEqual(targets.find(target => target.deviceId === DISPATCH_IDS.a2).candidateAck, {
+    result: 'would_schedule', futureCueCount: 6, atMs: DISPATCH_NOW_MS
+  });
+  assert.deepEqual(events, ['delivery-persist', 'aggregate-broadcast', 'alarm']);
+  assert.deepEqual(h.room.snapshot().deliveryShadow.commands[0], {
+    commandId: 'candidate-identity', expectedDevices: 2,
+    classicScheduled: 0, candidateAcked: 1, expired: 0, cancelled: false
+  });
+  assert.doesNotMatch(JSON.stringify(h.room.delivery), /forged/);
+});
+
+test('candidate ACK persistence failure rolls back its fact and never exposes an unpersisted aggregate', async () => {
+  const { Room } = await loadRoom();
+  const h = installDispatchRoom(createRoomHarness(Room, {
+    roomName: 'qa-kvk-candidate-rollback', nowMs: DISPATCH_NOW_MS
+  }));
+  const a1 = reliableSocket(h, { pid: '700001', deviceId: DISPATCH_IDS.a1 });
+  h.room.persistDelivery = async () => {};
+  h.room.scheduleExpiry = async () => {};
+  await h.room.dispatchDeliveryForCommand(
+    canonicalDoubleRally('candidate-rollback'), DISPATCH_NOW_MS
+  );
+  a1.raw.length = 0;
+  const beforeDelivery = structuredClone(h.room.delivery);
+  const beforeAggregate = structuredClone(h.room.snapshot().deliveryShadow);
+  const beforeCoreRoom = structuredClone(h.room.room);
+  let broadcasts = 0;
+  let alarms = 0;
+  h.room.persistDelivery = async () => { throw new Error('private storage unavailable'); };
+  h.room.broadcast = () => { broadcasts += 1; };
+  h.room.scheduleExpiry = async () => { alarms += 1; };
+
+  await assert.doesNotReject(h.room.webSocketMessage(a1.ws, JSON.stringify({
+    t: 'deliveryShadowAck', v: 1, commandId: 'candidate-rollback',
+    result: 'expired', futureCueCount: 0
+  })));
+
+  assert.deepEqual(a1.messages(), [{ t: 'error', error: 'delivery_persist_failed' }]);
+  assert.deepEqual(h.room.delivery, beforeDelivery);
+  assert.deepEqual(h.room.snapshot().deliveryShadow, beforeAggregate);
+  assert.deepEqual(h.room.room, beforeCoreRoom);
+  assert.equal(broadcasts, 0);
+  assert.equal(alarms, 0);
+});
+
+test('Core saved confirmation precedes canonical mirror and an idempotent retry recovers a failed private write', async () => {
+  const { Room } = await loadRoom();
+  const h = installDispatchRoom(createRoomHarness(Room, {
+    roomName: 'qa-kvk-classic-mirror', nowMs: DISPATCH_NOW_MS
+  }));
+  let events = [];
+  const player = reliableSocket(h, {
+    pid: '700001', deviceId: DISPATCH_IDS.canonical,
+    onSend(message) {
+      if (message.t === 'deliveryAckSaved') events.push('core-saved');
+    }
+  });
+  const command = canonicalDoubleRally('canonical-mirror');
+  command.delivery = [
+    { pid: '700001', expected: 1, received: 0, expired: 0 },
+    { pid: '700002', expected: 0, received: 0, expired: 0 }
+  ];
+  h.room.persistDelivery = async () => {};
+  h.room.scheduleExpiry = async () => {};
+  await h.room.dispatchDeliveryForCommand(command, DISPATCH_NOW_MS);
+  h.room.room.live.commands[1] = command;
+  h.room.room.live.mode = 'live';
+  h.room.devices = [{
+    pid: '700001', deviceId: DISPATCH_IDS.canonical,
+    soundReady: true, lastSeenMs: DISPATCH_NOW_MS
+  }];
+  player.raw.length = 0;
+
+  let reliablePersists = 0;
+  h.room.persistAll = async () => { events.push('core-persist'); };
+  h.room.persistDelivery = async () => {
+    events.push('reliable-persist');
+    reliablePersists += 1;
+    if (reliablePersists === 1) throw new Error('private delivery unavailable');
+  };
+  h.room.broadcast = () => { events.push('broadcast'); };
+  h.room.scheduleExpiry = async () => { events.push('alarm'); };
+  const rawAck = {
+    t: 'deliveryAck', commandId: command.id,
+    pid: ' 700001 ', deviceId: DISPATCH_IDS.canonical.toUpperCase(),
+    outcome: 'scheduled', targetUTC: 1010, scheduledAtMs: DISPATCH_NOW_MS + 100
+  };
+
+  await assert.doesNotReject(h.room.webSocketMessage(player.ws, JSON.stringify(rawAck)));
+
+  assert.deepEqual(events, [
+    'core-persist', 'broadcast', 'core-saved', 'reliable-persist'
+  ]);
+  assert.deepEqual(player.messages(), [{
+    t: 'deliveryAckSaved', commandId: command.id,
+    pid: '700001', deviceId: DISPATCH_IDS.canonical,
+    outcome: 'scheduled', targetUTC: 1010, scheduledAtMs: DISPATCH_NOW_MS + 100
+  }]);
+  assert.equal(command.delivery[0].received, 1);
+  assert.equal(h.room.deliveryAcks.length, 1);
+  assert.equal(h.room.delivery.commands[0].targets[0].classicAck, null);
+  assert.equal(h.room.snapshot().deliveryShadow.commands[0].classicScheduled, 0);
+
+  events = [];
+  await assert.doesNotReject(h.room.webSocketMessage(player.ws, JSON.stringify(rawAck)));
+
+  assert.deepEqual(events, [
+    'core-saved', 'reliable-persist', 'broadcast', 'alarm'
+  ]);
+  assert.equal(command.delivery[0].received, 1, 'the Core idempotent ACK stays counted once');
+  assert.deepEqual(h.room.delivery.commands[0].targets[0].classicAck, {
+    result: 'scheduled', futureCueCount: 1, atMs: DISPATCH_NOW_MS
+  });
+  assert.equal(h.room.snapshot().deliveryShadow.commands[0].classicScheduled, 1);
+  assert.deepEqual(player.messages().filter(message => message.t === 'deliveryAckSaved'), [
+    {
+      t: 'deliveryAckSaved', commandId: command.id,
+      pid: '700001', deviceId: DISPATCH_IDS.canonical,
+      outcome: 'scheduled', targetUTC: 1010, scheduledAtMs: DISPATCH_NOW_MS + 100
+    },
+    {
+      t: 'deliveryAckSaved', commandId: command.id,
+      pid: '700001', deviceId: DISPATCH_IDS.canonical,
+      outcome: 'scheduled', targetUTC: 1010, scheduledAtMs: DISPATCH_NOW_MS + 100
+    }
+  ]);
+});
+
+test('dispatch persistence failure leaves the already persisted and broadcast Core command intact while rolling private state back', async () => {
+  const { Room } = await loadRoom();
+  const h = installDispatchRoom(createRoomHarness(Room, {
+    roomName: 'qa-kvk-dispatch-rollback', nowMs: DISPATCH_NOW_MS
+  }));
+  const events = [];
+  reliableSocket(h, {
+    pid: '700001', deviceId: DISPATCH_IDS.a1,
+    onSend(message) {
+      if (message.t === 'deliveryShadowCommand') events.push('candidate-send');
+    }
+  });
+  const beforeDelivery = structuredClone(h.room.delivery);
+  h.room.persistAll = async () => { events.push('classic-persist'); };
+  h.room.scheduleExpiry = async () => { events.push('alarm'); };
+  h.room.broadcast = () => { events.push('classic-broadcast'); };
+  h.room.persistDelivery = async () => {
+    events.push('delivery-persist');
+    throw new Error('delivery storage unavailable');
+  };
+
+  await assert.doesNotReject(
+    h.room.webSocketMessage(h.ws, JSON.stringify(doubleRallyMessage()))
+  );
+
+  assert.deepEqual(events, [
+    'classic-persist', 'alarm', 'classic-broadcast',
+    'candidate-send', 'delivery-persist'
+  ]);
+  assert.equal(h.room.room.live.commands[1].type, 'double_rally');
+  assert.equal(h.room.room.live.mode, 'live');
+  assert.deepEqual(h.room.delivery, beforeDelivery);
+  assert.equal(Object.prototype.hasOwnProperty.call(h.room.snapshot(), 'deliveryShadow'), false);
+});
+
+test('dispatch derives QA only from the Core-bound room and rebinds contaminated private room state', async () => {
+  const { Room } = await loadRoom();
+  const qa = installDispatchRoom(createRoomHarness(Room, {
+    roomName: 'qa-kvk-core-bound-dispatch', nowMs: DISPATCH_NOW_MS
+  }));
+  reliableSocket(qa, { pid: '700001', deviceId: DISPATCH_IDS.a1 });
+  qa.room.delivery.roomName = 'operation-room';
+  qa.room.persistDelivery = async () => {};
+  qa.room.scheduleExpiry = async () => {};
+
+  assert.equal(await qa.room.dispatchDeliveryForCommand(
+    canonicalDoubleRally('core-bound-qa'), DISPATCH_NOW_MS
+  ), true);
+  assert.equal(qa.room.delivery.roomName, qa.roomName);
+  assert.equal(qa.room.delivery.commands[0].targets.length, 1);
+
+  const operation = installDispatchRoom(createRoomHarness(Room, {
+    roomName: 'qa-kvk-operation-fixture', nowMs: DISPATCH_NOW_MS
+  }));
+  reliableSocket(operation, { pid: '700001', deviceId: DISPATCH_IDS.a1 });
+  operation.room.roomName = 'operation-room';
+  operation.room.delivery.roomName = 'qa-kvk-forged-private-state';
+  let privateWrites = 0;
+  operation.room.persistDelivery = async () => { privateWrites += 1; };
+  operation.room.scheduleExpiry = async () => {};
+
+  assert.equal(await operation.room.dispatchDeliveryForCommand(
+    canonicalDoubleRally('forged-private-qa'), DISPATCH_NOW_MS
+  ), false);
+  assert.deepEqual(operation.room.delivery.commands, []);
+  assert.equal(privateWrites, 0);
+});
+
+test('probe activation persistence failure rolls pending targets back before any aggregate broadcast', async () => {
+  const { Room } = await loadRoom();
+  const h = installDispatchRoom(createRoomHarness(Room, {
+    roomName: 'qa-kvk-probe-rollback', nowMs: DISPATCH_NOW_MS
+  }));
+  const player = reliableSocket(h, {
+    pid: '700001', deviceId: DISPATCH_IDS.a1,
+    shadow: false, audioArmed: false, armedUntilMs: 0
+  });
+  h.room.persistDelivery = async () => {};
+  h.room.scheduleExpiry = async () => {};
+  await h.room.dispatchDeliveryForCommand(
+    canonicalDoubleRally('probe-rollback'), DISPATCH_NOW_MS
+  );
+  await h.room.webSocketMessage(player.ws, JSON.stringify({
+    t: 'deliveryShadowHello', v: 1, shadow: true, view: 'player',
+    pid: '700001', deviceId: DISPATCH_IDS.a1
+  }));
+  const probe = player.messages().find(message => message.t === 'deliveryShadowProbe');
+  assert.ok(probe);
+  player.raw.length = 0;
+  const beforeDelivery = structuredClone(h.room.delivery);
+  const beforeAggregate = structuredClone(h.room.snapshot().deliveryShadow);
+  let broadcasts = 0;
+  let alarms = 0;
+  h.room.persistDelivery = async () => { throw new Error('private storage unavailable'); };
+  h.room.broadcast = () => { broadcasts += 1; };
+  h.room.scheduleExpiry = async () => { alarms += 1; };
+
+  await assert.doesNotReject(h.room.webSocketMessage(player.ws, JSON.stringify({
+    t: 'deliveryShadowProbeAck', v: 1,
+    probeId: probe.probeId, audioArmed: true
+  })));
+
+  assert.equal(player.messages().at(-1).error, 'delivery_persist_failed');
+  assert.deepEqual(h.room.delivery, beforeDelivery);
+  assert.deepEqual(h.room.snapshot().deliveryShadow, beforeAggregate);
+  assert.equal(broadcasts, 0);
+  assert.equal(alarms, 0);
+});
+
+test('Core rejection paths never reach the Reliable mirror', async () => {
+  const { Room } = await loadRoom();
+  const h = installDispatchRoom(createRoomHarness(Room, {
+    roomName: 'qa-kvk-mirror-rejections', nowMs: DISPATCH_NOW_MS
+  }));
+  const player = reliableSocket(h, {
+    pid: '700001', deviceId: DISPATCH_IDS.a1
+  });
+  const command = canonicalDoubleRally('mirror-rejections');
+  command.delivery = [
+    { pid: '700001', expected: 1, received: 0, expired: 0 },
+    { pid: '700002', expected: 0, received: 0, expired: 0 }
+  ];
+  h.room.persistDelivery = async () => {};
+  h.room.scheduleExpiry = async () => {};
+  await h.room.dispatchDeliveryForCommand(command, DISPATCH_NOW_MS);
+  h.room.room.live.commands[1] = command;
+  h.room.room.live.mode = 'live';
+  const registry = {
+    pid: '700001', deviceId: DISPATCH_IDS.a1,
+    soundReady: true, lastSeenMs: DISPATCH_NOW_MS
+  };
+  h.room.devices = [registry];
+  player.raw.length = 0;
+  let privateWrites = 0;
+  h.room.persistDelivery = async () => { privateWrites += 1; };
+  h.room.broadcast = () => {};
+  h.room.scheduleExpiry = async () => {};
+  h.room.persistAll = async () => {};
+  const ack = {
+    t: 'deliveryAck', commandId: command.id,
+    pid: '700001', deviceId: DISPATCH_IDS.a1,
+    outcome: 'scheduled', targetUTC: 1010,
+    scheduledAtMs: DISPATCH_NOW_MS + 100
+  };
+
+  await h.room.webSocketMessage(player.ws, JSON.stringify({ ...ack, outcome: 'invalid' }));
+  await h.room.webSocketMessage(player.ws, JSON.stringify({
+    ...ack, pid: '700002', targetUTC: 1011
+  }));
+  h.room.devices = [];
+  await h.room.webSocketMessage(player.ws, JSON.stringify(ack));
+  h.room.devices = [registry];
+  h.room.persistAll = async () => { throw new Error('Core storage unavailable'); };
+  await h.room.webSocketMessage(player.ws, JSON.stringify(ack));
+
+  assert.equal(privateWrites, 0);
+  assert.equal(command.delivery[0].received, 0);
+  assert.equal(h.room.deliveryAcks.length, 0);
+  assert.equal(h.room.delivery.commands[0].targets[0].classicAck, null);
+  assert.deepEqual(player.messages().map(message => message.error), [
+    'invalid_ack', 'bad_delivery_identity', 'bad_delivery_identity', 'delivery_persist_failed'
+  ]);
+
+  h.room.persistAll = async () => {};
+  await h.room.webSocketMessage(player.ws, JSON.stringify(ack));
+  assert.equal(privateWrites, 1);
+  await h.room.webSocketMessage(player.ws, JSON.stringify({
+    ...ack, scheduledAtMs: ack.scheduledAtMs + 1
+  }));
+  assert.equal(privateWrites, 1, 'a Core ack_conflict cannot write a second comparison fact');
+  assert.equal(player.messages().at(-1).error, 'ack_conflict');
 });
