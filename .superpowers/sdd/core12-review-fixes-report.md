@@ -51,7 +51,8 @@ The QA WebSocket guard test was added before the helper edit.
   cue targets.
 - Three fresh-socket forged ACK probes cover unbound, mismatched ready binding,
   and `soundReady:false`; each receives `bad_delivery_identity`, receives no
-  `deliveryAckSaved`, and leaves the complete delivery aggregate unchanged.
+  `deliveryAckSaved` across a bounded 200 ms post-error observation window,
+  and leaves the complete delivery aggregate unchanged.
 - Player-originated 61 s and commander-originated 63 s march changes are
   verified in raw state and rendered roster for all eight live contexts.
   Both Captain A contexts persist the exact canonical march revision.
@@ -65,16 +66,16 @@ The QA WebSocket guard test was added before the helper edit.
 - Focused unit: `node --test test/qa-kvk.test.cjs` — exit 0, 3/3.
 - Full unit suite: `npm test` — exit 0, 67/67.
 - Focused Chromium: exit 0:
-  - core `qa-kvk-kvk-core-multibrowser-e2-mrkt9h4w-c95732`
-  - compatibility `qa-kvk-kvk-core-multibrowser-e2-mrkt9q1a-c3c12b`
+  - core `qa-kvk-kvk-core-multibrowser-e2-mrktmh24-9bb6d1`
+  - compatibility `qa-kvk-kvk-core-multibrowser-e2-mrktmpns-845e9c`
 - Final `npm run test:kvk-core:all` — exit 0, 3/3 projects:
-  - Chromium: `qa-kvk-kvk-core-multibrowser-e2-mrktc49t-4d35f5`,
-    `qa-kvk-kvk-core-multibrowser-e2-mrktccvt-c4ceb7`
-  - Firefox: `qa-kvk-kvk-core-multibrowser-e2-mrktcdyn-df842b`,
-    `qa-kvk-kvk-core-multibrowser-e2-mrktco6b-7b1534`
+  - Chromium: `qa-kvk-kvk-core-multibrowser-e2-mrktmujy-625c65`,
+    `qa-kvk-kvk-core-multibrowser-e2-mrktn48r-171cc6`
+  - Firefox: `qa-kvk-kvk-core-multibrowser-e2-mrktn5kd-0270cb`,
+    `qa-kvk-kvk-core-multibrowser-e2-mrktnga0-b6373d`
   - WebKit desktop automation:
-    `qa-kvk-kvk-core-multibrowser-e2-mrktcq51-4dcd0e`,
-    `qa-kvk-kvk-core-multibrowser-e2-mrktczha-dd316d`
+    `qa-kvk-kvk-core-multibrowser-e2-mrktniib-583eba`,
+    `qa-kvk-kvk-core-multibrowser-e2-mrktnsgf-ca04a3`
 - Duplicate parser negative:
   `node test/kvk-core-multibrowser.e2e.cjs --project=chromium --project=firefox`
   — expected exit 1 with `Duplicate --project argument` and no room/browser
@@ -88,3 +89,10 @@ The first sequential all-engine run passed Chromium and Firefox, then WebKit's
 browser process closed while opening contexts. WebKit alone passed both
 scenarios, and a fresh full three-engine command subsequently passed 3/3.
 No code change was made for that non-reproducing process closure.
+
+An independent post-implementation review found that a single microtask did
+not provide a sound negative window for late `deliveryAckSaved` messages. The
+forged-ACK helper now keeps each socket open for a bounded 200 ms observation
+after the exact identity error before checking for saved ACKs and closing.
+The follow-up staged GitNexus check was **LOW**: 2 changed files, 5 indexed
+symbols, 0 affected execution flows.

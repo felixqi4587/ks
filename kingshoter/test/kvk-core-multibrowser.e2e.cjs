@@ -464,7 +464,7 @@ async function verifyForgedDeliveryAcks(page, room, legitimateAck) {
       `${label} bad_delivery_identity`);
       socket.send(JSON.stringify({ ...ack, deviceId: claimedDeviceId }));
       const response = await rejected;
-      await Promise.resolve();
+      await new Promise(resolve => setTimeout(resolve, 200));
       const deliveryAckSaved = received.filter(message => message.t === 'deliveryAckSaved');
       await closeSocket(socket);
       return {
