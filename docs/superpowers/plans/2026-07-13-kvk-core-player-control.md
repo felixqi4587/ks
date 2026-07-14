@@ -20,14 +20,17 @@
 - March updates accept only integer seconds from 5 through 180 inclusive; values are rejected rather than clamped.
 - A staged player may be removed, clearing all staged references atomically. A player in an unexpired live command may not be removed.
 - Green `Received` means at least one exact `commandId + pid + deviceId` acknowledgement after successful future personal-cue scheduling. WebSocket state, heartbeat freshness, AudioContext state, and Push-provider acceptance are not `Received`.
+- The sending WebSocket must already be bound to that exact `{pid, deviceId, soundReady:true}` identity before its ACK is accepted. A client cannot make another device green by copying fields into a message.
 - The ACK/device aggregation must iterate `command.payload.pairs` without requiring exactly two targets, so later rally types can reuse storage without changing Classic semantics.
 - No Reliable shadow delivery, Triple Rally behavior, Web Push, Battle Audio Stream, native app, SMS, phone, Discord, or platform promotion is implemented in this plan.
 - Do not modify the current countdown formula or `scheduleBeeps()` unless a new failing regression test proves it is necessary.
 - Preserve the no-build frontend and all unrelated user changes. Stage and commit only the files named in each task.
 - Before editing every existing function, method, or class, run upstream GitNexus impact for that symbol. Warn the user before any HIGH or CRITICAL edit, then continue within the approved scope.
-- Before every implementation commit, run `gitnexus_detect_changes({scope:"all", repo:"kingshot"})` and verify only the expected symbols and flows are reported.
+- Resolve `KVK_WORKTREE` and `GITNEXUS_REPO` with the master plan's executable worktree block before using this leaf. In every GitNexus example, pass the printed literal repository name, never a root-checkout index whose path differs from the active worktree.
+- Before every implementation commit, stage only this task and run `gitnexus_detect_changes({scope:"staged", repo:"$GITNEXUS_REPO"})`; verify only the expected symbols and flows are reported.
+- Continuous `stableSince`/`Online Xm` UI is deferred. This plan reports neutral current presence plus exact per-command receipt only; it must not synthesize an online duration from heartbeat timestamps.
 - Desktop automation proves routing, timing calculations, synchronization, and deduplication only; it must not be described as physical iOS or Android background-delivery proof.
-- Before any browser-test command in this plan, start `cd /Users/ff/Documents/kingshot/kingshoter && npm run dev -- --port 8791` in a separate terminal and wait for Wrangler's ready line; stop that process after the task's browser tests finish.
+- Before any browser-test command in this plan, start `cd $KVK_WORKTREE/kingshoter && npm run dev -- --port 8791` in a separate terminal and wait for Wrangler's ready line; stop that process after the task's browser tests finish.
 
 ## Shared Interfaces
 
@@ -51,6 +54,11 @@ rallyTargetPids(command) // => unique target PIDs from any-length payload.pairs
 // public/app.js
 window.getRoomDeviceId(room) // => room-local crypto.randomUUID()
 sock.onMessage = function (message) {} // every non-state/non-error WebSocket message
+
+// src/room.js — Core owns the base hibernation attachment for all later plans
+Room.attachSocket(server, roomName)
+Room.readSocketAttachment(ws) // => merge-safe Core identity plus unknown additive fields
+Room.writeSocketAttachment(ws, patch) // => shallow merge, normalize Core-owned fields, serialize
 
 // public/kvk.js
 canonicalPick(pid, role, players) // => {pid,role,name,march,marchRevision} or null
@@ -88,6 +96,7 @@ The core WebSocket contracts are additive:
 { t: "deviceStatus", pid, deviceId, soundReady }
 { t: "hb", pid, deviceId, soundReady }
 { t: "deliveryAck", commandId, pid, deviceId, outcome: "scheduled" | "expired", targetUTC, scheduledAtMs }
+{ t: "deliveryAckSaved", commandId, pid, deviceId, outcome: "scheduled" | "expired", targetUTC, scheduledAtMs }
 ```
 
 ---
@@ -140,7 +149,7 @@ test('QA rooms are generated safely and every non-QA room is rejected', () => {
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 node --test test/qa-kvk.test.cjs
 ```
 
@@ -827,8 +836,8 @@ Expected: FAIL because current `setMarch` overwrites, update messages are unknow
 Run:
 
 ```text
-gitnexus_impact({repo:"kingshot", target:"constructor", file_path:"kingshoter/src/room.js", kind:"Method", direction:"upstream"})
-gitnexus_impact({repo:"kingshot", target:"webSocketMessage", file_path:"kingshoter/src/room.js", kind:"Method", direction:"upstream"})
+gitnexus_impact({repo:"$GITNEXUS_REPO", target:"constructor", file_path:"kingshoter/src/room.js", kind:"Method", direction:"upstream"})
+gitnexus_impact({repo:"$GITNEXUS_REPO", target:"webSocketMessage", file_path:"kingshoter/src/room.js", kind:"Method", direction:"upstream"})
 ```
 
 Expected graph result is LOW, but explicitly report that `webSocketMessage` is a framework callback and manual architectural risk is HIGH because it handles every room mutation.
@@ -839,6 +848,7 @@ Add imports at the top of `src/room.js`:
 
 ```js
 import {
+  activeCommandPids,
   normalizeMutationId,
   normalizePlayerRecords,
   normalizeRoutingKey,
@@ -959,8 +969,8 @@ Expected: FAIL because unknown messages are discarded and `getRoomDeviceId` does
 Run:
 
 ```text
-gitnexus_impact({repo:"kingshot", target:"constructor", file_path:"kingshoter/public/app.js", kind:"Method", direction:"upstream"})
-gitnexus_impact({repo:"kingshot", target:"connect", file_path:"kingshoter/public/app.js", kind:"Method", direction:"upstream"})
+gitnexus_impact({repo:"$GITNEXUS_REPO", target:"constructor", file_path:"kingshoter/public/app.js", kind:"Method", direction:"upstream"})
+gitnexus_impact({repo:"$GITNEXUS_REPO", target:"connect", file_path:"kingshoter/public/app.js", kind:"Method", direction:"upstream"})
 ```
 
 Expected: LOW; repository search confirms KvK is the only `RoomSocket` consumer.
@@ -1309,8 +1319,8 @@ Expected: FAIL because the roster scrolls horizontally and silently shifts the f
 Run:
 
 ```text
-gitnexus_impact({repo:"kingshot", target:"renderRoster", file_path:"kingshoter/public/kvk.js", direction:"upstream"})
-gitnexus_impact({repo:"kingshot", target:"renderSlots", file_path:"kingshoter/public/kvk.js", direction:"upstream"})
+gitnexus_impact({repo:"$GITNEXUS_REPO", target:"renderRoster", file_path:"kingshoter/public/kvk.js", direction:"upstream"})
+gitnexus_impact({repo:"$GITNEXUS_REPO", target:"renderSlots", file_path:"kingshoter/public/kvk.js", direction:"upstream"})
 ```
 
 Expected: both CRITICAL. Report the blast radius: `renderRoster` reaches `renderKingdomPick`, `renderSlots`, `connect`, `onState`, and `openCmd`; `renderSlots` feeds back through `renderRoster`. Continue only after the warning is visible to the user.
@@ -1396,7 +1406,7 @@ var controls =
   '<button type="button" class="roster-actions" data-pid="' + safePid + '" aria-haspopup="menu">⋯</button>';
 ```
 
-`renderSlots(kingdom = fireKingdom)` must resolve both picks through `canonicalPick`; it may not read `pick.name` or `pick.march`.
+`renderSlots(kingdom = fireKingdom)` must resolve both picks through `canonicalPick`; it may not read `pick.name` or `pick.march`. While staged pairs exist they remain the editable source. After Fire clears staging, fall back to that kingdom's current unexpired rally command `payload.pairs` so the fired captains and delivery status remain visible. This live-command fallback is read-only: selection/replacement/remove-role handlers are disabled, it never repopulates staging, and Cancel/expiry removes it on the next state. Add a roster regression that Fires, observes cleared staging plus both read-only live slots, then Cancels and observes the fallback disappear.
 
 `renderRoster` keeps selected players first, then present, then stale. It shows `#rosterSearchWrap` only when `Object.keys(room.players).length > 6`; the search input lowercases and trims its draft and filters by both canonical name and PID without changing selection state. Before calling `selectOrReplacePlayer`, the primary button checks the other kingdom's PID/role-only picks; an occupied player stays disabled and its localized explanation names that kingdom.
 
@@ -1626,7 +1636,7 @@ Expected: FAIL on unselected commander silence.
 Run:
 
 ```text
-gitnexus_impact({repo:"kingshot", target:"scheduleAllCues", file_path:"kingshoter/public/kvk.js", direction:"upstream"})
+gitnexus_impact({repo:"$GITNEXUS_REPO", target:"scheduleAllCues", file_path:"kingshoter/public/kvk.js", direction:"upstream"})
 ```
 
 GitNexus may report LOW because the scheduler is an execution root; manually report HIGH behavioral risk. Do not edit HIGH-risk `scheduleBeeps`.
@@ -1695,11 +1705,13 @@ git commit -m "fix: silence unselected KVK commanders"
 
 **Interfaces:**
 - Consumes: `getRoomDeviceId`, `rallyTargetPids`, commander silence, and existing cue map.
-- Produces: private device registry, public per-command aggregates, idempotent `deliveryAck`, and green-only-after-ACK UI.
+- Produces: private device registry, immutable Core-owned merge-safe socket identity, public per-command aggregates, idempotent socket-bound `deliveryAck`, persisted `deliveryAckSaved`, and green-only-after-ACK UI.
 
 - [ ] **Step 1: Write failing delivery-domain tests without a two-target assumption**
 
-Create tests for a command containing three arbitrary target pairs. Register two fresh sound-ready devices for PID A and one for B, create the aggregate, and assert expected counts 2, 1, 0. Record A/device-1 scheduled twice and assert received remains 1; record A/device-2 and assert 2; reject a non-target PID; record an expired outcome without incrementing received. Assert serialized public command delivery contains no device IDs.
+Create tests for a command containing three arbitrary target pairs. Register two fresh sound-ready devices for PID A and one for B, create the aggregate, and assert expected counts 2, 1, 0. Record A/device-1 scheduled twice with the exact immutable payload and assert received remains 1 plus the same `savedAck`; reject a duplicate whose outcome/target/scheduled timestamp differs with `ack_conflict`; record A/device-2 and assert 2; reject a non-target PID; record an expired outcome without incrementing received. Add attachment-normalization tests proving unknown fields survive shallow merges and `coreAttachmentMatchesAck()` accepts only an exact bound PID/device with `soundReady:true`.
+
+Test `bindCoreSocketIdentity()` separately: first valid bind succeeds; the same socket may only change `soundReady`; a PID or device change returns `socket_identity_locked`; a new socket may reconnect the same PID/device; a new socket may bind another device to the same PID; and a fresh registry device ID owned by a different PID returns `device_owned_by_other_pid`. After the previous owner expires, rebinding may succeed and `touchDevice()` leaves only one owner for that device ID. Assert serialized public command delivery contains no device IDs.
 
 - [ ] **Step 2: Run and verify RED**
 
@@ -1725,6 +1737,44 @@ export function normalizeDeviceId(value) {
   return /^[0-9a-f-]{36}$/i.test(id) ? id : '';
 }
 
+export function normalizeCoreSocketAttachment(raw, roomName) {
+  const value = raw && typeof raw === 'object' ? raw : {};
+  return {
+    roomName: String(value.roomName || roomName || '').slice(0, 48),
+    pid: normalizeRoutingKey(value.pid),
+    deviceId: normalizeDeviceId(value.deviceId),
+    soundReady: value.soundReady === true
+  };
+}
+
+export function coreAttachmentMatchesAck(attachment, message) {
+  const current = normalizeCoreSocketAttachment(attachment, attachment && attachment.roomName);
+  return current.soundReady === true &&
+    current.pid === normalizeRoutingKey(message && message.pid) &&
+    current.deviceId === normalizeDeviceId(message && message.deviceId);
+}
+
+export function bindCoreSocketIdentity(attachment, devices, observation, nowMs) {
+  const current = normalizeCoreSocketAttachment(attachment, attachment && attachment.roomName);
+  const pid = normalizeRoutingKey(observation && observation.pid);
+  const deviceId = normalizeDeviceId(observation && observation.deviceId);
+  if (!pid || !deviceId) return { ok: false, error: 'invalid_device_identity' };
+  if ((current.pid || current.deviceId) && (current.pid !== pid || current.deviceId !== deviceId)) {
+    return { ok: false, error: 'socket_identity_locked' };
+  }
+  const fresh = pruneDevices(devices, nowMs);
+  const otherOwner = fresh.find(device => device.deviceId === deviceId && device.pid !== pid);
+  if (otherOwner) return { ok: false, error: 'device_owned_by_other_pid' };
+  const nextAttachment = {
+    ...current, pid, deviceId, soundReady: observation && observation.soundReady === true
+  };
+  return {
+    ok: true,
+    attachment: nextAttachment,
+    devices: touchDevice(fresh, nextAttachment, nowMs)
+  };
+}
+
 export function pruneDevices(devices, nowMs) {
   return (Array.isArray(devices) ? devices : []).filter(device =>
     normalizeRoutingKey(device.pid) && normalizeDeviceId(device.deviceId) && nowMs - Number(device.lastSeenMs) < DEVICE_TTL_MS
@@ -1734,7 +1784,7 @@ export function pruneDevices(devices, nowMs) {
 export function touchDevice(devices, observation, nowMs) {
   const pid = normalizeRoutingKey(observation && observation.pid);
   const deviceId = normalizeDeviceId(observation && observation.deviceId);
-  const next = pruneDevices(devices, nowMs).filter(device => !(device.pid === pid && device.deviceId === deviceId));
+  const next = pruneDevices(devices, nowMs).filter(device => device.deviceId !== deviceId);
   if (pid && deviceId) next.push({ pid, deviceId, soundReady: !!observation.soundReady, lastSeenMs: nowMs });
   return next.slice(-600);
 }
@@ -1761,17 +1811,23 @@ export function recordCommandAck(command, ackRecords, message, nowMs) {
   const pair = command.payload.pairs.find(value => value.pid === pid);
   if (!pair || Math.abs(Number(pair.pressUTC) - targetUTC) > 0.001) return { ok: false, error: 'invalid_ack_target', ackRecords };
   const records = (Array.isArray(ackRecords) ? ackRecords : []).filter(record => nowMs - Number(record.atMs) < 3600000).slice(-1199);
-  if (records.some(record => record.commandId === commandId && record.pid === pid && record.deviceId === deviceId)) {
-    return { ok: true, changed: false, ackRecords: records };
+  const existing = records.find(record => record.commandId === commandId && record.pid === pid && record.deviceId === deviceId);
+  if (existing) {
+    if (existing.outcome !== outcome || Math.abs(Number(existing.targetUTC) - targetUTC) > 0.001 ||
+        Number(existing.scheduledAtMs) !== scheduledAtMs) {
+      return { ok: false, error: 'ack_conflict', ackRecords: records };
+    }
+    return { ok: true, changed: false, ackRecords: records, savedAck: existing };
   }
-  records.push({ commandId, pid, deviceId, outcome, atMs: nowMs });
+  const savedAck = { commandId, pid, deviceId, outcome, targetUTC, scheduledAtMs, atMs: nowMs };
+  records.push(savedAck);
   const aggregate = command.delivery.find(value => value.pid === pid);
   if (aggregate) {
     if (outcome === 'scheduled') aggregate.received += 1;
     else aggregate.expired += 1;
     aggregate.expected = Math.max(aggregate.expected, aggregate.received + aggregate.expired);
   }
-  return { ok: true, changed: true, ackRecords: records };
+  return { ok: true, changed: true, ackRecords: records, savedAck };
 }
 
 export function removePlayerDelivery(devices, ackRecords, pid) {
@@ -1804,6 +1860,10 @@ Use isolated contexts for commander-only, Captain A device 1, Captain A device 2
 - dropping A device 2 client `deliveryAck` with `shouldDropClientMessage` yields `Received 1/2` while its local audio cue still exists;
 - duplicate room snapshots and repeated ACK messages do not increase counts or duplicate cues;
 - a target whose AudioContext cannot schedule never becomes green.
+- an unbound socket, a socket naming another device, a socket rebound to a different PID, and a socket whose latest bound status is `soundReady:false` cannot mutate `deliveryAcks` or turn any slot green;
+- dropping the first client `deliveryAck` causes the exact immutable payload to retry after timeout/reconnect;
+- dropping the first server `deliveryAckSaved` causes an exact duplicate retry, the server aggregate remains 1, the duplicate response re-sends `deliveryAckSaved`, and the client then stops retrying;
+- `ws.send(...) === true` alone never marks the client ACK confirmed; only the exact persisted server response does.
 
 Migrate `fixes.cjs` to `makeQaRoom`, `qaRoomUrl`, and `installQaWebSocketGuard` in the same RED commit, before the regression is invoked later in this task.
 
@@ -1821,13 +1881,45 @@ async persistAll() {
 }
 ```
 
-On `deviceStatus` and extended `hb`, update private devices and persist them on the existing 20-second throttle. At command creation, after the command gets its UUID, set:
+Core, rather than Reliable, now owns the base hibernation attachment. Import `normalizeCoreSocketAttachment` and `coreAttachmentMatchesAck`, then add merge-safe methods that preserve fields later owned by Reliable and Triple:
+
+```js
+attachSocket(server, roomName) {
+  this.state.acceptWebSocket(server);
+  this.writeSocketAttachment(server, { roomName, pid: '', deviceId: '', soundReady: false });
+}
+
+readSocketAttachment(ws) {
+  let raw = null;
+  try { raw = ws.deserializeAttachment(); } catch (error) {}
+  const source = raw && typeof raw === 'object' ? raw : {};
+  return { ...source, ...normalizeCoreSocketAttachment(source, source.roomName || this.roomName) };
+}
+
+writeSocketAttachment(ws, patch) {
+  const current = this.readSocketAttachment(ws);
+  const merged = { ...current, ...(patch && typeof patch === 'object' ? patch : {}) };
+  if (current.pid || current.deviceId) {
+    merged.pid = current.pid;
+    merged.deviceId = current.deviceId;
+  }
+  const next = { ...merged, ...normalizeCoreSocketAttachment(merged, merged.roomName || this.roomName) };
+  ws.serializeAttachment(next);
+  return next;
+}
+```
+
+In the existing WebSocket-upgrade path, call `attachSocket(server, roomName)` instead of accepting the socket directly. Cloudflare acceptance occurs before the first `serializeAttachment`; the harness asserts the exact order `accept`, then `attachment`.
+
+On every `deviceStatus` and identity-bearing `hb`, call `bindCoreSocketIdentity(currentAttachment, this.devices, m, nowMs)` before writing anything. On success, assign its device array and write its attachment; an existing socket's PID/device pair is immutable while `soundReady` may change. On failure, return the explicit error without changing the attachment, registry, persistence, or broadcasts. Persist valid registry observations on the existing 20-second throttle. This permits the same PID/device on a reconnecting socket and multiple device IDs for one PID, but prevents one fresh device ID from being claimed by two PIDs. At command creation, after the command gets its UUID, set:
 
 ```js
 command.delivery = startCommandDelivery(command, this.devices, this.nowMs());
 ```
 
-On `deliveryAck`, locate the current command by exact ID across kingdoms, call `recordCommandAck`, and only when `changed` is true assign the returned records, call `persistAll()` once, and `broadcast()` once. Invalid/spoofed/non-target ACKs do not mutate room state.
+On `deliveryAck`, read the sending socket attachment and require `coreAttachmentMatchesAck(attachment, m)` before locating the command or calling `recordCommandAck`. Reject an unbound, mismatched, or not-sound-ready sender with `bad_delivery_identity` and no persistence/broadcast. Only after that identity gate, locate the current command by exact ID across kingdoms and call `recordCommandAck`.
+
+When `changed:true`, assign the returned records, call `persistAll()` once, then `broadcast()` once. Only after persistence succeeds, send that same socket `{t:'deliveryAckSaved', ...savedAck}` without the private `atMs`. When `changed:false`, do not persist or broadcast again, but re-send the same `deliveryAckSaved` from the already-persisted `savedAck`; this recovers a lost server response. An `ack_conflict`, invalid, spoofed, or non-target ACK never receives `deliveryAckSaved` and never mutates room state.
 
 On successful player removal, call `removePlayerDelivery`, assign both private arrays, then use `persistAll()` once before broadcast.
 
@@ -1836,7 +1928,9 @@ On successful player removal, call `removePlayerDelivery`, assign both private a
 Add client helpers without changing `scheduleBeeps`:
 
 ```js
-var acknowledgedCommands = Object.create(null);
+var pendingDeliveryAcks = Object.create(null);
+var confirmedDeliveryAcks = Object.create(null);
+var DELIVERY_ACK_RETRY_MS = 1200;
 
 function hasFuturePersonalCue(baseKey) {
   var nowMs = window.serverNow();
@@ -1851,21 +1945,61 @@ function sendDeviceStatus() {
   return sock.send({ t: 'deviceStatus', pid: myPid, deviceId: deviceId, soundReady: soundReady });
 }
 
+function deliveryAckKey(value) {
+  return value.commandId + ':' + value.pid + ':' + value.deviceId;
+}
+
+function sameDeliveryAck(a, b) {
+  return !!a && !!b && a.commandId === b.commandId && a.pid === b.pid &&
+    a.deviceId === b.deviceId && a.outcome === b.outcome &&
+    Number(a.targetUTC) === Number(b.targetUTC) &&
+    Number(a.scheduledAtMs) === Number(b.scheduledAtMs);
+}
+
+function sendPendingDeliveryAck(key) {
+  var entry = pendingDeliveryAcks[key];
+  if (!entry || confirmedDeliveryAcks[key]) return;
+  if (entry.timer) clearTimeout(entry.timer);
+  entry.lastGeneration = sock ? sock.connectionGeneration : -1;
+  if (sock) sock.send(entry.payload);
+  entry.timer = setTimeout(function () { sendPendingDeliveryAck(key); }, DELIVERY_ACK_RETRY_MS);
+}
+
 function acknowledgeClassicCommand(command, target) {
   if (!sock || !target.mine || !myPid) return;
-  var key = command.id + ':' + myPid + ':' + deviceId;
   var nowMs = window.serverNow();
   var outcome = target.anchor * 1000 <= nowMs ? 'expired' : hasFuturePersonalCue(command.id + '-me') ? 'scheduled' : '';
-  if (!outcome || acknowledgedCommands[key]) return;
-  var sent = sock.send({
+  if (!outcome) return;
+  var payload = Object.freeze({
     t: 'deliveryAck', commandId: command.id, pid: myPid, deviceId: deviceId,
     outcome: outcome, targetUTC: target.anchor, scheduledAtMs: nowMs
   });
-  if (sent) acknowledgedCommands[key] = true;
+  var key = deliveryAckKey(payload);
+  if (confirmedDeliveryAcks[key]) return;
+  if (!pendingDeliveryAcks[key]) pendingDeliveryAcks[key] = { payload: payload, timer: 0, lastGeneration: -1 };
+  sendPendingDeliveryAck(key);
+}
+
+function handleDeliveryAckSaved(message) {
+  var key = deliveryAckKey(message || {}), entry = pendingDeliveryAcks[key];
+  if (!entry || !sameDeliveryAck(entry.payload, message)) return false;
+  if (entry.timer) clearTimeout(entry.timer);
+  confirmedDeliveryAcks[key] = true;
+  delete pendingDeliveryAcks[key];
+  return true;
+}
+
+function retryPendingDeliveryAcks() {
+  Object.keys(pendingDeliveryAcks).forEach(function (key) {
+    var entry = pendingDeliveryAcks[key];
+    if (!sock || entry.lastGeneration !== sock.connectionGeneration) sendPendingDeliveryAck(key);
+  });
 }
 ```
 
-Call `sendDeviceStatus()` after registration reconciliation, after `enableSound`, and in the 25-second heartbeat. In `scheduleAllCues`, call `acknowledgeClassicCommand` only after personal `scheduleBeeps`/`schedulePrepareCue` calls.
+The first immutable payload wins for a key; later scheduling/state passes reuse it and never move `scheduledAtMs` or `targetUTC`. `sock.send() === true` means only that bytes entered the browser socket API and never sets `confirmedDeliveryAcks`.
+
+Call `sendDeviceStatus()` after registration reconciliation, after `enableSound`, and in the 25-second heartbeat. In `scheduleAllCues`, call `acknowledgeClassicCommand` only after personal `scheduleBeeps`/`schedulePrepareCue` calls. At the start of the existing additive socket-message handler, consume only `deliveryAckSaved` through `handleDeliveryAckSaved`. Append `retryPendingDeliveryAcks()` to the existing `sock.onOpen` path so a new `connectionGeneration` retries immediately; the timeout covers a lost client frame or lost server response without waiting for reconnect. Preserve pending entries across state snapshots and connection generations, and clear their timers on page teardown.
 
 - [ ] **Step 9: Render truthful command status and neutral presence**
 
@@ -1877,7 +2011,7 @@ Add `deliveryForPlayer(command, pid)` with the stable return contract `{ kind: '
 - `No confirmation` after 1.5 seconds with zero ACK;
 - `Expired` when expired is nonzero and received is zero.
 
-Both the Double slot renderer and future pair-count extensions must render the returned text as `<span class="delivery KIND">…</span>` using `window.esc(status.text)`. Use a dedicated `.delivery.received` green class. Change roster presence glyphs from green/red to neutral teal/gray and change `.syncpill.allgo` away from `--green-deep`; presence must not visually claim exact receipt.
+Both the Double slot renderer and future pair-count extensions must render the returned text as `<span class="delivery KIND">…</span>` using `window.esc(status.text)`. The status lookup uses the same current live-command object that supplies the read-only post-Fire slot fallback after staging clears; it must not require staged pairs to remain present. Use a dedicated `.delivery.received` green class. Change roster presence glyphs from green/red to neutral teal/gray and change `.syncpill.allgo` away from `--green-deep`; presence must not visually claim exact receipt.
 
 - [ ] **Step 10: Run delivery, audio, lead, cancel, and reconnect regressions**
 
@@ -1941,7 +2075,7 @@ For each requested engine, use independent contexts for:
 7. nickname Tester browser 2;
 8. commander registered and selected as captain in a separate command.
 
-Cover exact 10-second lead, personal/ordinary/commander audio routing, `Received 1/2` and `2/2`, Player ID/nickname semantics, remote march update, explicit third-player replacement, staged removal, live-command removal rejection, cancel, and reconnect without stale overwrite.
+Cover exact 10-second lead, personal/ordinary/commander audio routing, `Received 1/2` and `2/2`, immutable socket/device binding, lost-client-ACK retry, lost-`deliveryAckSaved` retry/deduplication, post-Fire read-only live slots, Player ID/nickname semantics, remote march update, explicit third-player replacement, staged removal, live-command removal rejection, cancel, and reconnect without stale overwrite.
 
 Accept `--project=chromium|firefox|webkit|all`; launch the matching Playwright browser object without using shared contexts.
 
@@ -1986,7 +2120,7 @@ node --check public/kvk.js
 git status --short
 ```
 
-Run `gitnexus_detect_changes({scope:"all", repo:"kingshot"})`. Expected affected scope is player registration/update/removal, commander roster/slots, Classic audio audience, and exact receipt. No Defense calculation, counter-rally, Push, stream, gift, or production-room flow may appear unexpectedly.
+Run `gitnexus_detect_changes({scope:"staged", repo:"$GITNEXUS_REPO"})`. Expected affected scope is player registration/update/removal, commander roster/slots, Classic audio audience, and exact receipt. No Defense calculation, counter-rally, Push, stream, gift, or production-room flow may appear unexpectedly.
 
 - [ ] **Step 7: Commit the consolidated QA suite**
 
@@ -2008,6 +2142,9 @@ git commit -m "test: verify KVK core across isolated browsers"
 - [ ] Player ID is recommended; equal Nickname test identities remain distinct.
 - [ ] Unselected commander is silent; selected commander receives personal audio; ordinary member receives one JOIN cue.
 - [ ] Green `Received` is produced only by exact scheduled-cue ACK and survives later connection loss as command history.
+- [ ] The browser confirms an ACK only after exact `deliveryAckSaved`; lost client/server frames retry one immutable payload without incrementing the aggregate twice.
+- [ ] A socket cannot change PID/device after binding, and a fresh device ID cannot be owned by two PIDs; same-identity reconnect and `soundReady` changes remain valid.
+- [ ] After Fire clears staging, current live captains/status remain visible as read-only slots until Cancel/expiry.
 - [ ] Presence, AudioContext, WebSocket, and heartbeat states never masquerade as `Received`.
 - [ ] Classic remains the only production audio authority and has no public mode selector.
 - [ ] No Reliable, Triple, Push, Stream, native-app, or external-message implementation entered this plan's commits.

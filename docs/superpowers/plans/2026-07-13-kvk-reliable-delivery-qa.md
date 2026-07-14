@@ -10,13 +10,14 @@
 
 ## Global Constraints
 
-- Complete docs/superpowers/plans/2026-07-13-kvk-core-player-control.md first. This plan consumes, and does not recreate, test/support/qa-kvk.cjs, test/room-harness.cjs, window.getRoomDeviceId(room), and RoomSocket.onMessage.
+- Complete docs/superpowers/plans/2026-07-13-kvk-core-player-control.md first. This plan consumes, and does not recreate, test/support/qa-kvk.cjs, test/room-harness.cjs, window.getRoomDeviceId(room), RoomSocket.onMessage, or Core's merge-safe `attachSocket/readSocketAttachment/writeSocketAttachment` methods.
 - test/support/qa-kvk.cjs exports assertQaRoomName(room), makeQaRoom(testInfo), qaRoomUrl(baseURL, room, params = {}), and installQaWebSocketGuard(context, room, options = {}).
 - installQaWebSocketGuard options are exactly { shouldDropClientMessage?: ({ url: string, data: string | Buffer }) => boolean, shouldDropServerMessage?: ({ url: string, data: string | Buffer }) => boolean }. It validates the expected room and the WebSocket URL room before connectToServer(), forwards frames unchanged by default, and drops only frames whose predicate returns true.
 - test/room-harness.cjs exports loadRoom(): Promise<{ Room }>, createRoomHarness(Room, options = {}), and claimRoom(harness, password = 'commander-secret').
 - kingshoter/package.json already has type=module when this plan starts; all tests remain .cjs.
 - public/app.js already exposes window.getRoomDeviceId(room): string using local-storage key kvk:<room>:delivery-device:v1, and RoomSocket delivers additive non-state/non-error messages through .onMessage.
-- The core plan's production deliveryAck, private devices/deliveryAcks, command.delivery aggregate, Received UI, and exact Classic cue ACK remain authoritative and continue in every room. Reliable mirrors a validated core ACK for comparison; it never replaces or intercepts it.
+- The core plan's production deliveryAck/deliveryAckSaved handshake, private devices/deliveryAcks, command.delivery aggregate, Received UI, and exact Classic cue ACK remain authoritative and continue in every room. Reliable mirrors a validated, persisted Core ACK for comparison; it never replaces, delays, or intercepts the server's saved confirmation.
+- Core owns attachment `roomName`, `pid`, `deviceId`, and `soundReady`. Reliable hello/probe code may read but never overwrite those fields; a shadow hello whose claimed identity does not exactly match the bound Core identity is rejected before challenge or persistence.
 - Classic is always the only code allowed to create, schedule, stop, or play audio nodes. Reliable computes would-schedule facts, ACKs, retries, cancellation, and telemetry only.
 - Reliable is enabled only when the URL room passes the qa-kvk-* guard and deliveryShadow=1. A non-QA room with deliveryShadow=1 still runs Classic and sends no Reliable hello.
 - Every server-side message whose type begins with deliveryShadow is rejected uniformly with { t: 'error', error: 'qa_room_required' } when its WebSocket attachment is not QA. Production deliveryAck is not a shadow message and must never enter this guard. There is no room-name exception, including no branch for 1406.
@@ -32,7 +33,9 @@
 - Do not add any out-of-scope rally mode, backup transport, audio transport, mode picker, build pipeline, build/version manifest, or native/PWA companion.
 - Do not describe Playwright WebKit as physical iOS evidence. Desktop automation can prove routing, dedupe, state transitions, and timing calculations only.
 - Before editing every existing function, class, or method, run GitNexus upstream impact and report the direct callers, affected processes, and risk level to the user before editing. Warn before every HIGH or CRITICAL edit, then proceed under the user's standing approval; snapshot() is already expected to be HIGH risk because it participates in fetch, alarm, close, and error flows.
-- Before every implementation commit, run gitnexus_detect_changes({scope:"all", repo:"kingshot"}) and verify that only the task's named symbols and flows changed.
+- Resolve `KVK_WORKTREE` and `GITNEXUS_REPO` with the master plan's executable worktree block before using this leaf. In every GitNexus example, pass the printed literal repository name.
+- Before every implementation commit, stage only the current task and run `gitnexus_detect_changes({scope:"staged", repo:"$GITNEXUS_REPO"})`; verify that only the task's named symbols and flows changed.
+- Continuous `stableSince`/`Online Xm` UI is deferred. The eight-second `audioArmed` lease is a private QA readiness fact, resets on challenge failure/expiry, and is never rendered as an invented continuous duration or as Classic `Received`.
 - Preserve unrelated dirty-worktree content and stage only files named by the current task.
 
 ## File and Interface Map
@@ -120,10 +123,10 @@ test('one immutable record holds role-specific frozen timing and two devices for
   const mod = await load();
   const state = mod.defaultDeliveryState('qa-kvk-model-a');
   state.commands.push(mod.createDeliveryRecord(command, 1_000_000));
-  const a1 = mod.upsertDeliveryTarget(state, 'cmd-1', attachment('700001', 'dev-a1'), 1_000_000);
-  const a2 = mod.upsertDeliveryTarget(state, 'cmd-1', attachment('700001', 'dev-a2'), 1_000_000);
-  const b1 = mod.upsertDeliveryTarget(state, 'cmd-1', attachment('700002', 'dev-b1'), 1_000_000);
-  assert.equal(mod.upsertDeliveryTarget(state, 'cmd-1', attachment('700001', 'dev-a1'), 1_000_001), a1);
+  const a1 = mod.upsertDeliveryTarget(state, 'cmd-1', attachment('700001', '00000000-0000-4000-8000-000000000001'), 1_000_000);
+  const a2 = mod.upsertDeliveryTarget(state, 'cmd-1', attachment('700001', '00000000-0000-4000-8000-000000000002'), 1_000_000);
+  const b1 = mod.upsertDeliveryTarget(state, 'cmd-1', attachment('700002', '00000000-0000-4000-8000-000000000003'), 1_000_000);
+  assert.equal(mod.upsertDeliveryTarget(state, 'cmd-1', attachment('700001', '00000000-0000-4000-8000-000000000001'), 1_000_001), a1);
   assert.equal(state.commands[0].targets.length, 3);
   assert.deepEqual(a1.envelope, {
     t: 'deliveryShadowCommand', v: 1, shadow: true, commandId: 'cmd-1',
@@ -143,7 +146,7 @@ test('initial send and 500/1500ms retries reuse the exact envelope and stop at t
   const mod = await load();
   const state = mod.defaultDeliveryState('qa-kvk-model-a');
   state.commands.push(mod.createDeliveryRecord(command, 1_000_000));
-  mod.upsertDeliveryTarget(state, 'cmd-1', attachment('700001', 'dev-a1'), 1_000_000);
+  mod.upsertDeliveryTarget(state, 'cmd-1', attachment('700001', '00000000-0000-4000-8000-000000000001'), 1_000_000);
 
   const bytes = [];
   for (const now of [1_000_000, 1_000_500, 1_001_500]) {
@@ -165,16 +168,16 @@ test('a mirrored Core ACK must match the challenged socket identity and public o
   const mod = await load();
   const state = mod.defaultDeliveryState('qa-kvk-model-a');
   state.commands.push(mod.createDeliveryRecord(command, 1_000_000));
-  mod.upsertDeliveryTarget(state, 'cmd-1', attachment('700001', 'dev-a1'), 1_000_000);
-  assert.equal(mod.recordClassicAck(state, attachment('700001', 'dev-a1'), {
+  mod.upsertDeliveryTarget(state, 'cmd-1', attachment('700001', '00000000-0000-4000-8000-000000000001'), 1_000_000);
+  assert.equal(mod.recordClassicAck(state, attachment('700001', '00000000-0000-4000-8000-000000000001'), {
     t: 'deliveryAck', commandId: 'cmd-1', pid: 'forged',
     deviceId: 'forged', outcome: 'scheduled', targetUTC: 1010, scheduledAtMs: 1_000_100
   }, 1_000_100), false);
-  assert.equal(mod.recordClassicAck(state, attachment('700001', 'dev-a1'), {
+  assert.equal(mod.recordClassicAck(state, attachment('700001', '00000000-0000-4000-8000-000000000001'), {
     t: 'deliveryAck', commandId: 'cmd-1', pid: '700001',
-    deviceId: 'dev-a1', outcome: 'scheduled', targetUTC: 1010, scheduledAtMs: 1_000_100
+    deviceId: '00000000-0000-4000-8000-000000000001', outcome: 'scheduled', targetUTC: 1010, scheduledAtMs: 1_000_100
   }, 1_000_100), true);
-  assert.equal(mod.recordShadowAck(state, attachment('700001', 'dev-a1'), {
+  assert.equal(mod.recordShadowAck(state, attachment('700001', '00000000-0000-4000-8000-000000000001'), {
     t: 'deliveryShadowAck', v: 1, commandId: 'cmd-1',
     result: 'would_schedule', futureCueCount: 6
   }, 1_000_110), true);
@@ -194,12 +197,12 @@ test('duplicate ACKs do not downgrade a success, cancel is explicit, and history
   const mod = await load();
   const state = mod.defaultDeliveryState('qa-kvk-model-a');
   state.commands.push(mod.createDeliveryRecord(command, 1_000_000));
-  mod.upsertDeliveryTarget(state, 'cmd-1', attachment('700001', 'dev-a1'), 1_000_000);
-  mod.recordShadowAck(state, attachment('700001', 'dev-a1'), {
+  mod.upsertDeliveryTarget(state, 'cmd-1', attachment('700001', '00000000-0000-4000-8000-000000000001'), 1_000_000);
+  mod.recordShadowAck(state, attachment('700001', '00000000-0000-4000-8000-000000000001'), {
     t: 'deliveryShadowAck', v: 1, commandId: 'cmd-1',
     result: 'would_schedule', futureCueCount: 5
   }, 1_000_100);
-  assert.equal(mod.recordShadowAck(state, attachment('700001', 'dev-a1'), {
+  assert.equal(mod.recordShadowAck(state, attachment('700001', '00000000-0000-4000-8000-000000000001'), {
     t: 'deliveryShadowAck', v: 1, commandId: 'cmd-1',
     result: 'duplicate', futureCueCount: 5
   }, 1_000_200), false);
@@ -221,8 +224,8 @@ test('history wake and pruning use the final useful ACK timestamp', async () => 
   const mod = await load();
   const state = mod.defaultDeliveryState('qa-kvk-model-a');
   state.commands.push(mod.createDeliveryRecord(command, 1_000_000));
-  mod.upsertDeliveryTarget(state, 'cmd-1', attachment('700001', 'dev-a1'), 1_000_000);
-  mod.recordShadowAck(state, attachment('700001', 'dev-a1'), {
+  mod.upsertDeliveryTarget(state, 'cmd-1', attachment('700001', '00000000-0000-4000-8000-000000000001'), 1_000_000);
+  mod.recordShadowAck(state, attachment('700001', '00000000-0000-4000-8000-000000000001'), {
     t: 'deliveryShadowAck', v: 1, commandId: 'cmd-1',
     result: 'expired', futureCueCount: 0
   }, 1_040_000);
@@ -235,7 +238,7 @@ test('history wake and pruning use the final useful ACK timestamp', async () => 
 
 - [ ] **Step 2: Run the focused test and verify the missing-module failure**
 
-Run: cd /Users/ff/Documents/kingshot/kingshoter && node --test test/delivery-model.test.cjs
+Run: cd $KVK_WORKTREE/kingshoter && node --test test/delivery-model.test.cjs
 
 Expected: FAIL with ERR_MODULE_NOT_FOUND for src/delivery.js; no assertion should run before that import.
 
@@ -282,6 +285,7 @@ export function normalizeDeliveryAttachment(raw, roomName) {
     qa: isQaRoomName(normalizedRoom),
     pid: text(raw.pid, 24),
     deviceId: text(raw.deviceId, 64),
+    soundReady: raw.soundReady === true,
     view: raw.view === 'commander' ? 'commander' : 'player',
     shadow: raw.shadow === true,
     audioArmed: raw.audioArmed === true,
@@ -545,19 +549,19 @@ export function pruneDeliveryState(state, nowMs) {
 
 - [ ] **Step 4: Run the model tests**
 
-Run: cd /Users/ff/Documents/kingshot/kingshoter && node --test test/delivery-model.test.cjs
+Run: cd $KVK_WORKTREE/kingshoter && node --test test/delivery-model.test.cjs
 
 Expected: PASS for all six subtests, ending with # fail 0.
 
 - [ ] **Step 5: Run the full pre-integration suite**
 
-Run: cd /Users/ff/Documents/kingshot/kingshoter && npm test
+Run: cd $KVK_WORKTREE/kingshoter && npm test
 
 Expected: all core-plan and existing unit tests pass, ending with # fail 0.
 
 - [ ] **Step 6: Detect scope and commit**
 
-Call gitnexus_detect_changes({scope:"all", repo:"kingshot"}) and verify only the new delivery model symbols and delivery-model test are reported.
+Call gitnexus_detect_changes({scope:"staged", repo:"$GITNEXUS_REPO"}) and verify only the new delivery model symbols and delivery-model test are reported.
 
 ~~~bash
 git add kingshoter/src/delivery.js kingshoter/test/delivery-model.test.cjs
@@ -573,10 +577,10 @@ git commit -m "feat: add reliable delivery shadow model"
 - Modify: kingshoter/src/room.js
 
 **Interfaces:**
-- Consumes: Task 1 model exports and the core plan's loadRoom()/createRoomHarness() helpers.
-- Produces: Room.attachSocket(server, roomName), Room.readSocketAttachment(ws), Room.writeSocketAttachment(ws, patch), Room.issueDeliveryProbe(ws, attachment, nowMs), Room.handleDeliveryShadowMessage(ws, message), and Room.persistDelivery().
-- readSocketAttachment preserves additive server-owned fields such as a later clientBuild. writeSocketAttachment shallow-merges a patch and re-normalizes only Reliable fields, so a probe or hello cannot erase another protocol's attachment field.
-- Reliable owns exactly these attachment fields: { v: 1, roomName: string, qa: boolean, pid: string, deviceId: string, view: 'player'|'commander', shadow: boolean, audioArmed: boolean, armedUntilMs: number, lastProbeId: string, probeExpiresAtMs: number, nextProbeAtMs: number }. Unrelated additive fields are preserved by the merge API.
+- Consumes: Task 1 model exports, the core plan's loadRoom()/createRoomHarness() helpers, and Core-owned `Room.attachSocket/readSocketAttachment/writeSocketAttachment`.
+- Produces: Room.issueDeliveryProbe(ws, attachment, nowMs), Room.handleDeliveryShadowMessage(ws, message), and Room.persistDelivery(); it extends but does not recreate Core socket attachment methods.
+- Core's read/write helpers preserve additive server-owned fields such as a later `clientBuild`. Reliable always passes a normalized Reliable-only patch through Core's shallow-merge writer, so a probe or hello cannot erase Core identity or another protocol's field.
+- Core owns `{ roomName, pid, deviceId, soundReady }`. Reliable owns exactly `{ v, qa, view, shadow, audioArmed, armedUntilMs, lastProbeId, probeExpiresAtMs, nextProbeAtMs }`. `normalizeDeliveryAttachment()` copies bounded Core identity only for pure model decisions, but Reliable write patches never source those fields from a shadow message; server integration always begins from Core's normalized attachment and unrelated additive fields are preserved by Core's merge API.
 - Private storage key is exactly delivery:v1 and never becomes a property of this.room.
 
 - [ ] **Step 1: Run impact analysis and report the known snapshot risk**
@@ -604,7 +608,8 @@ const { loadRoom, createRoomHarness } = require('./room-harness.cjs');
 
 function fakeSocket(roomName) {
   let attachment = {
-    v: 1, roomName, qa: roomName.startsWith('qa-kvk-'), pid: '', deviceId: '',
+    roomName, pid: '', deviceId: '', soundReady: false,
+    v: 1, qa: roomName.startsWith('qa-kvk-'),
     view: 'player', shadow: false, audioArmed: false, armedUntilMs: 0,
     lastProbeId: '', probeExpiresAtMs: 0, nextProbeAtMs: 0
   };
@@ -647,7 +652,7 @@ test('constructor loads room and private delivery records from separate keys', a
   assert.equal(Object.prototype.hasOwnProperty.call(instance.room, 'delivery'), false);
 });
 
-test('attachSocket serializes the full private attachment before accepting the socket', async () => {
+test('Reliable extends the Core attachment without replacing identity or later fields', async () => {
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room);
   const events = [];
@@ -656,15 +661,19 @@ test('attachSocket serializes the full private attachment before accepting the s
   ws.serializeAttachment = (value) => { events.push('attachment'); originalSerialize(value); };
   h.room.state.acceptWebSocket = () => events.push('accept');
   h.room.attachSocket(ws, 'qa-kvk-attach-a');
-  assert.deepEqual(events, ['attachment', 'accept']);
-  assert.deepEqual(ws.deserializeAttachment(), {
-    v: 1, roomName: 'qa-kvk-attach-a', qa: true, pid: '', deviceId: '',
-    view: 'player', shadow: false, audioArmed: false, armedUntilMs: 0,
-    lastProbeId: '', probeExpiresAtMs: 0, nextProbeAtMs: 0
+  assert.deepEqual(events, ['accept', 'attachment']);
+  h.room.writeSocketAttachment(ws, {
+    pid: '700001', deviceId: '00000000-0000-4000-8000-000000000001',
+    soundReady: true, clientBuild: 7
   });
-  ws.serializeAttachment({ ...ws.deserializeAttachment(), clientBuild: 7 });
-  const merged = h.room.writeSocketAttachment(ws, { audioArmed: true });
+  const merged = h.room.writeSocketAttachment(ws, {
+    v: 1, qa: true, view: 'player', shadow: true, audioArmed: true,
+    armedUntilMs: 0, lastProbeId: '', probeExpiresAtMs: 0, nextProbeAtMs: 0
+  });
   assert.equal(merged.clientBuild, 7);
+  assert.equal(merged.pid, '700001');
+  assert.equal(merged.deviceId, '00000000-0000-4000-8000-000000000001');
+  assert.equal(merged.soundReady, true);
   assert.equal(ws.deserializeAttachment().clientBuild, 7);
   assert.equal(ws.deserializeAttachment().audioArmed, true);
 });
@@ -678,14 +687,14 @@ test('all non-QA shadow messages receive the same error and never mutate storage
     h.room.persistDelivery = async () => writes.push('delivery');
     await h.room.webSocketMessage(ws, JSON.stringify({
       t: 'deliveryShadowHello', v: 1, shadow: true, pid: '700001',
-      deviceId: 'device-a', view: 'player', audioArmed: true
+      deviceId: '00000000-0000-4000-8000-000000000001', view: 'player', audioArmed: true
     }));
     assert.deepEqual(ws.sent, [{ t: 'error', error: 'qa_room_required' }], roomName);
     assert.deepEqual(writes, [], roomName);
   }
 });
 
-test('QA hello records identity in the attachment, ignores claimed armed state, and sends a challenge', async () => {
+test('QA hello requires the bound Core identity, never rewrites it, and sends a challenge', async () => {
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room);
   const ws = fakeSocket('qa-kvk-hello-a');
@@ -694,13 +703,16 @@ test('QA hello records identity in the attachment, ignores claimed armed state, 
   h.room.persistDelivery = async () => writes.push('delivery');
   h.room.scheduleExpiry = async () => writes.push('alarm');
   h.room._deliveryNow = () => 50_000;
+  h.room.writeSocketAttachment(ws, {
+    pid: '700001', deviceId: '00000000-0000-4000-8000-000000000001', soundReady: true
+  });
   await h.room.webSocketMessage(ws, JSON.stringify({
     t: 'deliveryShadowHello', v: 1, shadow: true, pid: '700001',
-    deviceId: 'device-a', view: 'commander', audioArmed: true
+    deviceId: '00000000-0000-4000-8000-000000000001', view: 'commander', audioArmed: true
   }));
   const saved = ws.deserializeAttachment();
   assert.equal(saved.pid, '700001');
-  assert.equal(saved.deviceId, 'device-a');
+  assert.equal(saved.deviceId, '00000000-0000-4000-8000-000000000001');
   assert.equal(saved.view, 'commander');
   assert.equal(saved.audioArmed, false);
   assert.equal(saved.probeExpiresAtMs, 52_000);
@@ -713,13 +725,28 @@ test('QA hello records identity in the attachment, ignores claimed armed state, 
   assert.deepEqual(writes, ['delivery', 'alarm']);
 });
 
+test('a shadow hello cannot claim another Core socket identity', async () => {
+  const { Room } = await loadRoom();
+  const h = createRoomHarness(Room);
+  h.room.writeSocketAttachment(h.ws, {
+    pid: '700001', deviceId: '00000000-0000-4000-8000-000000000001', soundReady: true
+  });
+  await h.room.webSocketMessage(h.ws, JSON.stringify({
+    t: 'deliveryShadowHello', v: 1, shadow: true, pid: '700002',
+    deviceId: '00000000-0000-4000-8000-000000000002', view: 'player'
+  }));
+  assert.deepEqual(h.ws.sent.at(-1), { t: 'error', error: 'core_identity_mismatch' });
+  assert.equal(h.ws.deserializeAttachment().pid, '700001');
+  assert.equal(h.ws.deserializeAttachment().shadow, false);
+});
+
 test('only the matching unexpired probe ACK grants the eight-second audio-armed lease', async () => {
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room);
   const ws = fakeSocket('qa-kvk-probe-a');
   const attachment = ws.deserializeAttachment();
   Object.assign(attachment, {
-    pid: '700001', deviceId: 'device-a', shadow: true,
+    pid: '700001', deviceId: '00000000-0000-4000-8000-000000000001', soundReady: true, shadow: true,
     lastProbeId: 'probe-1', probeExpiresAtMs: 52_000
   });
   ws.serializeAttachment(attachment);
@@ -764,9 +791,9 @@ test('snapshot exposes bounded aggregate counts but no private attachment or sto
 
 - [ ] **Step 3: Run the boundary tests and verify the first missing behavior**
 
-Run: cd /Users/ff/Documents/kingshot/kingshoter && node --test test/room-delivery.test.cjs
+Run: cd $KVK_WORKTREE/kingshoter && node --test test/room-delivery.test.cjs
 
-Expected: FAIL because Room.attachSocket is not a function and the constructor has not loaded delivery:v1.
+Expected: FAIL because the constructor has not loaded `delivery:v1` and Reliable challenge handlers do not exist. Core `Room.attachSocket/readSocketAttachment/writeSocketAttachment` already pass their prerequisite tests and must not be recreated here.
 
 - [ ] **Step 4: Add the private state import, constructor load, socket attachment, and public aggregate**
 
@@ -809,48 +836,26 @@ Add this clock method immediately after normalizeLive():
 _deliveryNow() { return Date.now(); }
 ~~~
 
-Replace fetch() with:
+Do not replace Core's WebSocket upgrade or recreate its attachment methods. Extend the existing `fetch()` only at these points:
 
 ~~~js
-async fetch(request) {
-  const url = new URL(request.url);
-  const roomName = (url.searchParams.get('room') || '').slice(0, 48);
-  this.roomName = roomName;
-  if (request.headers.get('Upgrade') === 'websocket') {
-    const pair = new WebSocketPair();
-    const [client, server] = Object.values(pair);
-    this.attachSocket(server, roomName);
-    server.send(this.stateMsg());
-    return new Response(null, { status: 101, webSocket: client });
-  }
-  return Response.json(JSON.parse(this.stateMsg()));
-}
+// after Core parses and stores the exact room
+this.roomName = roomName;
+
+// immediately after Core attachSocket(server, roomName), before the first state send
+const reliableDefaults = normalizeDeliveryAttachment(
+  this.readSocketAttachment(server), roomName
+);
+this.writeSocketAttachment(server, {
+  v: reliableDefaults.v, qa: reliableDefaults.qa, view: reliableDefaults.view,
+  shadow: reliableDefaults.shadow, audioArmed: reliableDefaults.audioArmed,
+  armedUntilMs: reliableDefaults.armedUntilMs, lastProbeId: reliableDefaults.lastProbeId,
+  probeExpiresAtMs: reliableDefaults.probeExpiresAtMs,
+  nextProbeAtMs: reliableDefaults.nextProbeAtMs
+});
 ~~~
 
-Add these methods immediately after fetch():
-
-~~~js
-attachSocket(server, roomName) {
-  this.writeSocketAttachment(server, normalizeDeliveryAttachment(null, roomName));
-  this.state.acceptWebSocket(server);
-}
-
-readSocketAttachment(ws) {
-  let raw = null;
-  try { raw = ws.deserializeAttachment(); } catch (error) {}
-  const normalized = normalizeDeliveryAttachment(raw, raw && raw.roomName ? raw.roomName : this.roomName);
-  return { ...(raw && typeof raw === 'object' ? raw : {}), ...normalized };
-}
-
-writeSocketAttachment(ws, patch) {
-  const current = this.readSocketAttachment(ws);
-  const merged = { ...current, ...(patch && typeof patch === 'object' ? patch : {}) };
-  const normalized = normalizeDeliveryAttachment(merged, merged.roomName || this.roomName);
-  const next = { ...merged, ...normalized };
-  ws.serializeAttachment(next);
-  return next;
-}
-~~~
+The patch sent to `writeSocketAttachment` is derived from the already-bound current attachment, never from client-supplied identity. Core's method remains the only serializer/normalizer of `pid`, `deviceId`, and `soundReady`.
 
 At the end of snapshot(), immediately before return r, add:
 
@@ -881,7 +886,12 @@ issueDeliveryProbe(ws, attachment, nowMs) {
   next.lastProbeId = crypto.randomUUID();
   next.probeExpiresAtMs = nowMs + DELIVERY_ACK_WINDOW_MS;
   next.nextProbeAtMs = nowMs + DELIVERY_PROBE_INTERVAL_MS;
-  const stored = this.writeSocketAttachment(ws, next);
+  const stored = this.writeSocketAttachment(ws, {
+    v: next.v, qa: next.qa, view: next.view, shadow: next.shadow,
+    audioArmed: next.audioArmed, armedUntilMs: next.armedUntilMs,
+    lastProbeId: next.lastProbeId, probeExpiresAtMs: next.probeExpiresAtMs,
+    nextProbeAtMs: next.nextProbeAtMs
+  });
   try {
     ws.send(JSON.stringify({
       t: 'deliveryShadowProbe',
@@ -900,18 +910,25 @@ async handleDeliveryShadowMessage(ws, message) {
   if (!current.qa) return this.deliveryError(ws, 'qa_room_required');
 
   if (message.t === 'deliveryShadowHello') {
+    if (message.pid !== current.pid || message.deviceId !== current.deviceId ||
+        !current.pid || !current.deviceId || current.soundReady !== true) {
+      return this.deliveryError(ws, 'core_identity_mismatch');
+    }
     const next = normalizeDeliveryAttachment({
       ...current,
-      pid: message.pid,
-      deviceId: message.deviceId,
       view: message.view,
       shadow: message.v === DELIVERY_VERSION && message.shadow === true,
       audioArmed: false,
       armedUntilMs: 0
     }, current.roomName);
-    if (!next.shadow || !next.deviceId) return this.deliveryError(ws, 'bad_delivery_hello');
+    if (!next.shadow) return this.deliveryError(ws, 'bad_delivery_hello');
     this.delivery.roomName = current.roomName;
-    this.writeSocketAttachment(ws, next);
+    this.writeSocketAttachment(ws, {
+      v: next.v, qa: next.qa, view: next.view, shadow: next.shadow,
+      audioArmed: next.audioArmed, armedUntilMs: next.armedUntilMs,
+      lastProbeId: next.lastProbeId, probeExpiresAtMs: next.probeExpiresAtMs,
+      nextProbeAtMs: next.nextProbeAtMs
+    });
     this.issueDeliveryProbe(ws, next, nowMs);
     await this.persistDelivery();
     await this.scheduleExpiry();
@@ -925,7 +942,12 @@ async handleDeliveryShadowMessage(ws, message) {
     current.armedUntilMs = current.audioArmed ? nowMs + DELIVERY_ARMED_LEASE_MS : 0;
     current.lastProbeId = '';
     current.probeExpiresAtMs = 0;
-    this.writeSocketAttachment(ws, current);
+    this.writeSocketAttachment(ws, {
+      v: current.v, qa: current.qa, view: current.view, shadow: current.shadow,
+      audioArmed: current.audioArmed, armedUntilMs: current.armedUntilMs,
+      lastProbeId: current.lastProbeId, probeExpiresAtMs: current.probeExpiresAtMs,
+      nextProbeAtMs: current.nextProbeAtMs
+    });
     await this.scheduleExpiry();
     return;
   }
@@ -946,17 +968,17 @@ This insertion must remain before the core branches, but it matches deliveryShad
 
 - [ ] **Step 6: Run boundary, security, and full unit tests**
 
-Run: cd /Users/ff/Documents/kingshot/kingshoter && node --test test/room-delivery.test.cjs test/worker-security.test.cjs
+Run: cd $KVK_WORKTREE/kingshoter && node --test test/room-delivery.test.cjs test/worker-security.test.cjs
 
 Expected: all room-delivery and worker-security subtests pass, ending with # fail 0. The existing Classic alarm test still records exactly [['set', 150600], ['delete']].
 
-Run: cd /Users/ff/Documents/kingshot/kingshoter && npm test
+Run: cd $KVK_WORKTREE/kingshoter && npm test
 
 Expected: all tests pass, ending with # fail 0.
 
 - [ ] **Step 7: Detect scope and commit**
 
-Call gitnexus_detect_changes({scope:"all", repo:"kingshot"}). Expected existing symbols: Room.constructor, Room.fetch, snapshot, and webSocketMessage; expected new symbols are the attachment, challenge, and private-persistence methods. No player, audio, or other out-of-scope flow may appear.
+Call gitnexus_detect_changes({scope:"staged", repo:"$GITNEXUS_REPO"}). Expected existing symbols: Room.constructor, Room.fetch, snapshot, and webSocketMessage; expected new symbols are the attachment, challenge, and private-persistence methods. No player, audio, or other out-of-scope flow may appear.
 
 ~~~bash
 git add kingshoter/src/room.js kingshoter/test/room-delivery.test.cjs
@@ -974,7 +996,7 @@ git commit -m "feat: add private reliable socket challenge"
 **Interfaces:**
 - Consumes: immutable Task 1 records, Task 2 attachments, canonical command.id, payload.pairs, pressUTC, march, role, and leadSeconds.
 - Produces: Room.flushDeliveryTargets(nowMs), Room.dispatchDeliveryForCommand(command, nowMs), Room.recordReliableClassicAck(ws, canonicalIdentity, message, nowMs), candidate deliveryShadowCommand messages, and deliveryShadowAck processing.
-- The core production deliveryAck remains exactly as defined by the prerequisite plan: { t: 'deliveryAck', commandId, pid, deviceId, outcome: 'scheduled'|'expired', targetUTC, scheduledAtMs }. Reliable observes it only after the core validator succeeds.
+- The Core production handshake remains exactly as defined by the prerequisite plan: client `{ t:'deliveryAck', commandId, pid, deviceId, outcome, targetUTC, scheduledAtMs }`, followed only after authoritative persistence by exact server `{ t:'deliveryAckSaved', ...same immutable fields }`. Reliable observes the persisted result after Core validation and never emits, consumes, delays, or substitutes the saved confirmation.
 - deliveryShadowAck is exactly { t: 'deliveryShadowAck', v: 1, commandId: string, result: 'would_schedule'|'audio_unarmed'|'expired'|'duplicate', futureCueCount: integer 0..12 }. pid/deviceId fields are absent; server identity comes from the attachment.
 - A duplicate ACK carries the original futureCueCount only when the first result was would_schedule; otherwise it carries 0, so a dropped success ACK can recover without misclassifying a duplicate unarmed or expired result.
 - deliveryShadowCommand is exactly { t: 'deliveryShadowCommand', v: 1, shadow: true, commandId, pid, role, kingdom, issuedAtMs, fireAtMs, audioExpiresAtMs, marchSeconds, leadSeconds }.
@@ -998,7 +1020,7 @@ function armedSocket(pid, deviceId, view = 'player') {
   const ws = fakeSocket('qa-kvk-dispatch-a');
   const value = ws.deserializeAttachment();
   Object.assign(value, {
-    pid, deviceId, view, shadow: true, audioArmed: true,
+    pid, deviceId, soundReady: true, view, shadow: true, audioArmed: true,
     armedUntilMs: 1_020_000
   });
   ws.serializeAttachment(value);
@@ -1024,11 +1046,11 @@ test('Fire broadcasts Classic before sending immutable metadata only to selected
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room);
   installDoubleRoom(h);
-  const a1 = armedSocket('700001', 'dev-a1');
-  const a2 = armedSocket('700001', 'dev-a2');
-  const b1 = armedSocket('700002', 'dev-b1');
-  const member = armedSocket('700003', 'dev-member');
-  const commanderOnly = armedSocket('', 'dev-command');
+  const a1 = armedSocket('700001', '00000000-0000-4000-8000-000000000001');
+  const a2 = armedSocket('700001', '00000000-0000-4000-8000-000000000002');
+  const b1 = armedSocket('700002', '00000000-0000-4000-8000-000000000003');
+  const member = armedSocket('700003', '00000000-0000-4000-8000-000000000004');
+  const commanderOnly = armedSocket('', '00000000-0000-4000-8000-000000000005');
   const order = [];
   for (const ws of [a1, a2, b1, member, commanderOnly]) {
     const send = ws.send.bind(ws);
@@ -1077,7 +1099,7 @@ test('Classic scheduled and candidate would-schedule ACKs are per attached devic
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room);
   installDoubleRoom(h);
-  const a1 = armedSocket('700001', 'dev-a1');
+  const a1 = armedSocket('700001', '00000000-0000-4000-8000-000000000001');
   h.room.state.getWebSockets = () => [a1];
   h.room.persistDelivery = async () => {};
   h.room.scheduleExpiry = async () => {};
@@ -1094,17 +1116,17 @@ test('Classic scheduled and candidate would-schedule ACKs are per attached devic
   };
   await h.room.dispatchDeliveryForCommand(canonical, 1_000_000);
   assert.equal(await h.room.recordReliableClassicAck(a1, {
-    pid: '700001', deviceId: 'dev-a1'
+    pid: '700001', deviceId: '00000000-0000-4000-8000-000000000001'
   }, {
     t: 'deliveryAck', commandId: 'cmd-ack',
     pid: 'forged', deviceId: 'forged',
     outcome: 'scheduled', targetUTC: 1010, scheduledAtMs: 1_000_100
   }, 1_000_100), false);
   assert.equal(await h.room.recordReliableClassicAck(a1, {
-    pid: '700001', deviceId: 'dev-a1'
+    pid: '700001', deviceId: '00000000-0000-4000-8000-000000000001'
   }, {
     t: 'deliveryAck', commandId: 'cmd-ack',
-    pid: '700001', deviceId: 'dev-a1',
+    pid: '700001', deviceId: '00000000-0000-4000-8000-000000000001',
     outcome: 'scheduled', targetUTC: 1010, scheduledAtMs: 1_000_100
   }, 1_000_100), true);
   await h.room.webSocketMessage(a1, JSON.stringify({
@@ -1124,7 +1146,7 @@ test('Reliable persistence failure cannot prevent the already-persisted Classic 
   const h = createRoomHarness(Room);
   installDoubleRoom(h);
   const events = [];
-  h.room.state.getWebSockets = () => [armedSocket('700001', 'dev-a1')];
+  h.room.state.getWebSockets = () => [armedSocket('700001', '00000000-0000-4000-8000-000000000001')];
   h.room.persistAll = async () => events.push('classic-persist');
   h.room.persist = async () => events.push('classic-persist');
   h.room.scheduleExpiry = async () => events.push('alarm');
@@ -1150,7 +1172,7 @@ test('Reliable persistence failure cannot prevent the already-persisted Classic 
 
 - [ ] **Step 3: Run the focused test and verify dispatch is absent**
 
-Run: cd /Users/ff/Documents/kingshot/kingshoter && node --test --test-name-pattern="Fire broadcasts|ACKs are per|persistence failure" test/room-delivery.test.cjs
+Run: cd $KVK_WORKTREE/kingshoter && node --test --test-name-pattern="Fire broadcasts|ACKs are per|persistence failure" test/room-delivery.test.cjs
 
 Expected: FAIL with TypeError: h.room.dispatchDeliveryForCommand is not a function and no Classic assertion failure.
 
@@ -1210,12 +1232,8 @@ async dispatchDeliveryForCommand(command, nowMs) {
 
 async recordReliableClassicAck(ws, canonicalIdentity, message, nowMs) {
   const attachment = this.readSocketAttachment(ws);
-  const identity = normalizeDeliveryAttachment({
-    ...attachment,
-    pid: canonicalIdentity && canonicalIdentity.pid,
-    deviceId: canonicalIdentity && canonicalIdentity.deviceId
-  }, attachment.roomName);
-  if (identity.pid !== attachment.pid || identity.deviceId !== attachment.deviceId) return false;
+  if (!canonicalIdentity || canonicalIdentity.pid !== attachment.pid ||
+      canonicalIdentity.deviceId !== attachment.deviceId || attachment.soundReady !== true) return false;
   if (!recordClassicAck(this.delivery, attachment, message, nowMs)) return false;
   await this.persistDelivery();
   this.broadcast();
@@ -1228,18 +1246,25 @@ Replace the deliveryShadowHello branch in handleDeliveryShadowMessage() with:
 
 ~~~js
 if (message.t === 'deliveryShadowHello') {
+  if (message.pid !== current.pid || message.deviceId !== current.deviceId ||
+      !current.pid || !current.deviceId || current.soundReady !== true) {
+    return this.deliveryError(ws, 'core_identity_mismatch');
+  }
   const next = normalizeDeliveryAttachment({
     ...current,
-    pid: message.pid,
-    deviceId: message.deviceId,
     view: message.view,
     shadow: message.v === DELIVERY_VERSION && message.shadow === true,
     audioArmed: false,
     armedUntilMs: 0
   }, current.roomName);
-  if (!next.shadow || !next.deviceId) return this.deliveryError(ws, 'bad_delivery_hello');
+  if (!next.shadow) return this.deliveryError(ws, 'bad_delivery_hello');
   this.delivery.roomName = current.roomName;
-  this.writeSocketAttachment(ws, next);
+  this.writeSocketAttachment(ws, {
+    v: next.v, qa: next.qa, view: next.view, shadow: next.shadow,
+    audioArmed: next.audioArmed, armedUntilMs: next.armedUntilMs,
+    lastProbeId: next.lastProbeId, probeExpiresAtMs: next.probeExpiresAtMs,
+    nextProbeAtMs: next.nextProbeAtMs
+  });
   this.issueDeliveryProbe(ws, next, nowMs);
   for (const record of this.delivery.commands) {
     upsertDeliveryTarget(this.delivery, record.commandId, next, nowMs);
@@ -1277,7 +1302,7 @@ if (reliableCommand) {
 
 Do not move or replace core command.delivery creation, private device aggregation, Classic persistence, alarm scheduling, or broadcast.
 
-In the core deliveryAck branch, keep its existing recordCommandAck validation. Reject ok:false exactly as Core does. For ok:true, first complete any authoritative persist/broadcast required when changed:true; then run this mirror for both changed:true and idempotent changed:false so a previously failed shadow write can recover from a duplicate valid Core ACK. The mirror also requires the Core-validated identity to match the challenged socket attachment exactly:
+In the core deliveryAck branch, keep its existing socket identity and `recordCommandAck` validation. Reject `ok:false` exactly as Core does. For `ok:true`, first complete any authoritative persist/broadcast required when `changed:true`, then send/re-send the exact Core `deliveryAckSaved` as specified by Core. Only after that confirmation path, run this best-effort mirror for both `changed:true` and idempotent `changed:false` so a previously failed shadow write can recover from a duplicate valid Core ACK. Reliable failure must never suppress or delay `deliveryAckSaved`. The mirror also requires the Core-validated identity to match the challenged socket attachment exactly:
 
 ~~~js
 try { await this.recordReliableClassicAck(ws, {
@@ -1290,17 +1315,17 @@ Invalid, spoofed, non-target, non-QA, or attachment-mismatched core ACKs never r
 
 - [ ] **Step 7: Run focused and full tests**
 
-Run: cd /Users/ff/Documents/kingshot/kingshoter && node --test test/delivery-model.test.cjs test/room-delivery.test.cjs test/worker-security.test.cjs
+Run: cd $KVK_WORKTREE/kingshoter && node --test test/delivery-model.test.cjs test/room-delivery.test.cjs test/worker-security.test.cjs
 
 Expected: all model, room-delivery, and worker-security tests pass, ending with # fail 0.
 
-Run: cd /Users/ff/Documents/kingshot/kingshoter && npm test
+Run: cd $KVK_WORKTREE/kingshoter && npm test
 
 Expected: all unit tests pass, ending with # fail 0.
 
 - [ ] **Step 8: Detect scope and commit**
 
-Call gitnexus_detect_changes({scope:"all", repo:"kingshot"}). Expected affected flow: cmd -> Classic persist/alarm/broadcast, followed by isolated dispatch; ACK affects only private delivery persistence and QA aggregate broadcast. No audio function may be affected.
+Call gitnexus_detect_changes({scope:"staged", repo:"$GITNEXUS_REPO"}). Expected affected flow: cmd -> Classic persist/alarm/broadcast, followed by isolated dispatch; ACK affects only private delivery persistence and QA aggregate broadcast. No audio function may be affected.
 
 ~~~bash
 git add kingshoter/src/room.js kingshoter/test/room-delivery.test.cjs
@@ -1355,7 +1380,7 @@ test('the one alarm chooses the earliest Classic expiry, retry, or probe without
   await h.room.scheduleExpiry();
   assert.deepEqual(calls, [['set', 150_600]]);
 
-  const retry = armedSocket('700001', 'dev-a1');
+  const retry = armedSocket('700001', '00000000-0000-4000-8000-000000000001');
   retry.serializeAttachment({
     ...retry.deserializeAttachment(),
     audioArmed: true, armedUntilMs: 110_000, nextProbeAtMs: 120_000
@@ -1366,7 +1391,7 @@ test('the one alarm chooses the earliest Classic expiry, retry, or probe without
     audiences: [{ pid: '700001', role: 'weak', fireAtMs: 130_000,
       audioExpiresAtMs: 130_150, marchSeconds: 31, leadSeconds: 10 }],
     targets: [{
-      pid: '700001', deviceId: 'dev-a1',
+      pid: '700001', deviceId: '00000000-0000-4000-8000-000000000001',
       envelope: {
         t: 'deliveryShadowCommand', v: 1, shadow: true, commandId: 'cmd-alarm',
         pid: '700001', role: 'weak', kingdom: 1, issuedAtMs: 100_000,
@@ -1388,7 +1413,7 @@ test('alarm retries are byte-identical at 500 and 1500ms and stop before the fir
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room);
   installDoubleRoom(h);
-  const a1 = armedSocket('700001', 'dev-a1');
+  const a1 = armedSocket('700001', '00000000-0000-4000-8000-000000000001');
   h.room.state.getWebSockets = () => [a1];
   h.room.persistDelivery = async () => {};
   h.room.persistAll = async () => {};
@@ -1427,7 +1452,7 @@ test('Cancel broadcasts Classic removal before the shadow cancel and marks the s
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room);
   installDoubleRoom(h);
-  const a1 = armedSocket('700001', 'dev-a1');
+  const a1 = armedSocket('700001', '00000000-0000-4000-8000-000000000001');
   h.room.state.getWebSockets = () => [a1];
   h.room.persistDelivery = async () => {};
   h.room.persistAll = async () => {};
@@ -1491,7 +1516,7 @@ test('a late hello gets the pending immutable command, while an expired reconnec
   h.room._deliveryNow = () => 1_001_000;
   await h.room.webSocketMessage(reconnect, JSON.stringify({
     t: 'deliveryShadowHello', v: 1, shadow: true,
-    pid: '700001', deviceId: 'dev-reconnect', view: 'player'
+    pid: '700001', deviceId: '00000000-0000-4000-8000-000000000006', view: 'player'
   }));
   assert.equal(reconnect.sent.filter((message) => message.t === 'deliveryShadowCommand').length, 1);
   assert.equal(reconnect.sent.find((message) => message.t === 'deliveryShadowCommand').commandId, 'cmd-reconnect');
@@ -1501,7 +1526,7 @@ test('a late hello gets the pending immutable command, while an expired reconnec
   h.room._deliveryNow = () => 1_010_151;
   await h.room.webSocketMessage(expired, JSON.stringify({
     t: 'deliveryShadowHello', v: 1, shadow: true,
-    pid: '700001', deviceId: 'dev-expired', view: 'player'
+    pid: '700001', deviceId: '00000000-0000-4000-8000-000000000007', view: 'player'
   }));
   assert.equal(expired.sent.some((message) => message.t === 'deliveryShadowCommand'), false);
 });
@@ -1509,7 +1534,7 @@ test('a late hello gets the pending immutable command, while an expired reconnec
 
 - [ ] **Step 3: Run focused tests and verify alarm/cancel behavior is missing**
 
-Run: cd /Users/ff/Documents/kingshot/kingshoter && node --test --test-name-pattern="one alarm|byte-identical|Cancel broadcasts|late hello" test/room-delivery.test.cjs
+Run: cd $KVK_WORKTREE/kingshoter && node --test --test-name-pattern="one alarm|byte-identical|Cancel broadcasts|late hello" test/room-delivery.test.cjs
 
 Expected: FAIL because scheduleExpiry does not choose delivery retries, alarm does not resend, and no deliveryShadowCancel is emitted.
 
@@ -1665,17 +1690,17 @@ assert.deepEqual(calls[1], ['delete']);
 
 - [ ] **Step 8: Run protocol, alarm, and full tests**
 
-Run: cd /Users/ff/Documents/kingshot/kingshoter && node --test test/delivery-model.test.cjs test/room-delivery.test.cjs test/worker-security.test.cjs
+Run: cd $KVK_WORKTREE/kingshoter && node --test test/delivery-model.test.cjs test/room-delivery.test.cjs test/worker-security.test.cjs
 
 Expected: all tests pass, retry sends exactly three byte-identical frames, cancel references cmd-cancel, the expired reconnect receives no deliveryShadowCommand, and output ends with # fail 0.
 
-Run: cd /Users/ff/Documents/kingshot/kingshoter && npm test
+Run: cd $KVK_WORKTREE/kingshoter && npm test
 
 Expected: all tests pass, ending with # fail 0.
 
 - [ ] **Step 9: Detect scope and commit**
 
-Call gitnexus_detect_changes({scope:"all", repo:"kingshot"}). Expected processes are Alarm -> Classic expiry plus QA delivery wake, cmd cancel -> Classic broadcast -> shadow cancel, and deliveryShadowHello -> reconnect resend. No non-QA protocol or audio process may change.
+Call gitnexus_detect_changes({scope:"staged", repo:"$GITNEXUS_REPO"}). Expected processes are Alarm -> Classic expiry plus QA delivery wake, cmd cancel -> Classic broadcast -> shadow cancel, and deliveryShadowHello -> reconnect resend. No non-QA protocol or audio process may change.
 
 ~~~bash
 git add kingshoter/src/room.js kingshoter/test/room-delivery.test.cjs kingshoter/test/worker-security.test.cjs
@@ -1720,7 +1745,7 @@ function fixture(overrides = {}) {
   const events = [];
   let nowMs = 1_000_000;
   let identity = {
-    pid: '700001', deviceId: 'device-a', view: 'player', audioArmed: true
+    pid: '700001', deviceId: '00000000-0000-4000-8000-000000000001', view: 'player', audioArmed: true
   };
   const { api, source } = load();
   const controller = api.create({
@@ -1751,7 +1776,7 @@ test('non-QA or disabled controllers never introduce the candidate protocol', ()
     const controller = api.create({
       room, enabled: true, send: (message) => sent.push(message),
       now: () => 1, getIdentity: () => ({
-        pid: '700001', deviceId: 'device-a', view: 'player', audioArmed: true
+        pid: '700001', deviceId: '00000000-0000-4000-8000-000000000001', view: 'player', audioArmed: true
       })
     });
     assert.equal(controller.enabled, false, room);
@@ -1765,7 +1790,7 @@ test('open and probe send versioned identity and a current armed observation', (
   assert.equal(f.controller.onOpen(), true);
   assert.deepEqual(f.sent.shift(), {
     t: 'deliveryShadowHello', v: 1, shadow: true,
-    pid: '700001', deviceId: 'device-a', view: 'player', audioArmed: true
+    pid: '700001', deviceId: '00000000-0000-4000-8000-000000000001', view: 'player', audioArmed: true
   });
   f.setIdentity({ audioArmed: false });
   f.controller.handleMessage({
@@ -1854,7 +1879,7 @@ test('unarmed, cancelled, and expired deliveries remain silent facts', () => {
 
 - [ ] **Step 2: Run the controller tests and verify the file is absent**
 
-Run: cd /Users/ff/Documents/kingshot/kingshoter && node --test test/delivery-shadow-client.test.cjs
+Run: cd $KVK_WORKTREE/kingshoter && node --test test/delivery-shadow-client.test.cjs
 
 Expected: FAIL with ENOENT for public/kvk-delivery-shadow.js.
 
@@ -2002,13 +2027,13 @@ Create kingshoter/public/kvk-delivery-shadow.js:
 
 - [ ] **Step 4: Run controller and model tests**
 
-Run: cd /Users/ff/Documents/kingshot/kingshoter && node --test test/delivery-shadow-client.test.cjs test/delivery-model.test.cjs
+Run: cd $KVK_WORKTREE/kingshoter && node --test test/delivery-shadow-client.test.cjs test/delivery-model.test.cjs
 
 Expected: all controller and model subtests pass, the source dependency assertion is green, and output ends with # fail 0.
 
 - [ ] **Step 5: Detect scope and commit**
 
-Call gitnexus_detect_changes({scope:"all", repo:"kingshot"}). Expected output contains only the new isolated browser module and its tests.
+Call gitnexus_detect_changes({scope:"staged", repo:"$GITNEXUS_REPO"}). Expected output contains only the new isolated browser module and its tests.
 
 ~~~bash
 git add kingshoter/public/kvk-delivery-shadow.js kingshoter/test/delivery-shadow-client.test.cjs
@@ -2088,7 +2113,7 @@ test('the isolated candidate remains free of every Classic sound primitive', () 
 
 - [ ] **Step 3: Run the wiring tests and verify script/controller wiring is absent**
 
-Run: cd /Users/ff/Documents/kingshot/kingshoter && node --test test/delivery-browser-wiring.test.cjs
+Run: cd $KVK_WORKTREE/kingshoter && node --test test/delivery-browser-wiring.test.cjs
 
 Expected: FAIL because kvk-delivery-shadow.js is not loaded by kvk.html and initDeliveryShadow is absent.
 
@@ -2194,17 +2219,17 @@ Do not alter the existing sock.onClose, sock.onError, scheduleAllCues, acknowled
 
 - [ ] **Step 7: Run browser wiring and countdown regressions**
 
-Run: cd /Users/ff/Documents/kingshot/kingshoter && node --test test/delivery-shadow-client.test.cjs test/delivery-browser-wiring.test.cjs test/command-scope.test.cjs
+Run: cd $KVK_WORKTREE/kingshoter && node --test test/delivery-shadow-client.test.cjs test/delivery-browser-wiring.test.cjs test/command-scope.test.cjs
 
 Expected: all tests pass, including the candidate source ban and the existing 10-second/no-counter scope assertions; output ends with # fail 0.
 
-Run: cd /Users/ff/Documents/kingshot/kingshoter && npm test
+Run: cd $KVK_WORKTREE/kingshoter && npm test
 
 Expected: all unit tests pass, ending with # fail 0.
 
 - [ ] **Step 8: Detect scope and commit**
 
-Call gitnexus_detect_changes({scope:"all", repo:"kingshot"}). The only expected existing browser symbol is connect. No scheduleAllCues, acknowledgeClassicCommand, scheduleBeeps, schedulePrepareCue, beep, stopCue, paintHero, identity UI, roster UI, status UI, or command timing formula may be reported as modified.
+Call gitnexus_detect_changes({scope:"staged", repo:"$GITNEXUS_REPO"}). The only expected existing browser symbol is connect. No scheduleAllCues, acknowledgeClassicCommand, scheduleBeeps, schedulePrepareCue, beep, stopCue, paintHero, identity UI, roster UI, status UI, or command timing formula may be reported as modified.
 
 ~~~bash
 git add kingshoter/public/kvk.html kingshoter/public/kvk.js kingshoter/test/delivery-browser-wiring.test.cjs
@@ -2304,7 +2329,7 @@ test('production source has no hard-coded named-room equality branch', () => {
 
 - [ ] **Step 2: Run guard tests against the core helper contract**
 
-Run: cd /Users/ff/Documents/kingshot/kingshoter && node --test test/qa-kvk-delivery-guard.test.cjs
+Run: cd $KVK_WORKTREE/kingshoter && node --test test/qa-kvk-delivery-guard.test.cjs
 
 Expected: PASS for all four subtests, ending with # fail 0. If it fails because the core helper does not yet implement the agreed double-predicate options or pre-connect rejection, finish the core-plan prerequisite; do not create a second helper.
 
@@ -2653,31 +2678,31 @@ Do not alter type=module, test, deploy, dev, dependencies, or devDependencies.
 
 - [ ] **Step 6: Run guard and focused unit tests**
 
-Run: cd /Users/ff/Documents/kingshot/kingshoter && npm run test:delivery
+Run: cd $KVK_WORKTREE/kingshoter && npm run test:delivery
 
 Expected: all five focused test files pass, candidate source contains no audio primitive, helper-side operation-room attempts abort with Refusing non-QA KvK room:, direct server shadow messages return qa_room_required, and output ends with # fail 0.
 
 - [ ] **Step 7: Install the declared browser engines**
 
-Run: cd /Users/ff/Documents/kingshot/kingshoter && npx playwright install chromium firefox webkit
+Run: cd $KVK_WORKTREE/kingshoter && npx playwright install chromium firefox webkit
 
 Expected: command exits 0 and Chromium, Firefox, and WebKit browser binaries are present. This installs test browsers only and does not change package.json or package-lock.json.
 
 - [ ] **Step 8: Run the isolated local acceptance topology**
 
-Run: cd /Users/ff/Documents/kingshot/kingshoter && npm run test:qa:delivery
+Run: cd $KVK_WORKTREE/kingshoter && npm run test:qa:delivery
 
-Expected: nine passing tests total: three specs in each of chromium, firefox, and webkit. Each project creates unique qa-kvk-* rooms; the first spec uses eight BrowserContexts; the dropped first deliveryShadowCommand is retried byte-for-byte with the same ID; candidate and Classic ACK counts reach 3/3; unselected commander is silent; selected commander has one personal base; cancel removes future bases; reconnect reaches 2/2; no test is described as physical iOS/Android evidence.
+Expected at the end of Task 7: six passing tests total, two specs in each of chromium, firefox, and webkit. Each project creates unique qa-kvk-* rooms; the first spec uses eight BrowserContexts; the dropped first deliveryShadowCommand is retried byte-for-byte with the same ID; candidate and Classic ACK counts reach 3/3; unselected commander is silent; selected commander has one personal base; cancel removes future bases; reconnect reaches 2/2; no test is described as physical iOS/Android evidence. Task 8 adds the third rollback spec and raises the final total to nine.
 
 - [ ] **Step 9: Run the entire local unit suite**
 
-Run: cd /Users/ff/Documents/kingshot/kingshoter && npm test
+Run: cd $KVK_WORKTREE/kingshoter && npm test
 
 Expected: all tests pass, ending with # fail 0.
 
 - [ ] **Step 10: Detect scope and commit**
 
-Call gitnexus_detect_changes({scope:"all", repo:"kingshot"}). Expected additions are QA test/config/scripts only. The helper itself must remain owned by the core plan, and no operation-room mutation or 1406 branch may appear.
+Call gitnexus_detect_changes({scope:"staged", repo:"$GITNEXUS_REPO"}). Expected additions are QA test/config/scripts only. The helper itself must remain owned by the core plan, and no operation-room mutation or 1406 branch may appear.
 
 ~~~bash
 git add kingshoter/test/qa-kvk-delivery-guard.test.cjs kingshoter/playwright.qa-kvk.config.cjs kingshoter/test/qa-kvk-delivery.spec.cjs kingshoter/package.json
@@ -2762,7 +2787,7 @@ test('omitting the shadow flag is a zero-candidate Classic rollback', async ({
 
 - [ ] **Step 2: Run rollback test and verify its helper is intentionally absent**
 
-Run: cd /Users/ff/Documents/kingshot/kingshoter && npx playwright test -c playwright.qa-kvk.config.cjs --project=chromium --grep="zero-candidate Classic rollback"
+Run: cd $KVK_WORKTREE/kingshoter && npx playwright test -c playwright.qa-kvk.config.cjs --project=chromium --grep="zero-candidate Classic rollback"
 
 Expected: FAIL with ReferenceError: openClassicDevice is not defined; the guard must create a qa-kvk-* room before that failure.
 
@@ -2795,7 +2820,7 @@ This helper still installs the universal QA WebSocket guard before the page is c
 
 - [ ] **Step 4: Run the rollback test**
 
-Run: cd /Users/ff/Documents/kingshot/kingshoter && npx playwright test -c playwright.qa-kvk.config.cjs --project=chromium --grep="zero-candidate Classic rollback"
+Run: cd $KVK_WORKTREE/kingshoter && npx playwright test -c playwright.qa-kvk.config.cjs --project=chromium --grep="zero-candidate Classic rollback"
 
 Expected: one passing Chromium test. It observes personal Classic bases for both selected captains, one join base for the member, no deliveryShadow frame, no deliveryShadow snapshot, and no QA candidate controller. The production Classic deliveryAck remains expected and untouched.
 
@@ -2815,7 +2840,7 @@ Every mutation in this runbook uses a newly generated room beginning with qa-kvk
 Generate a room:
 
 ~~~bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 node -e "const h=require('./test/support/qa-kvk.cjs'); console.log(h.makeQaRoom({title:'manual-reliable',project:{name:'manual'},workerIndex:0,retry:0,repeatEachIndex:0}))"
 ~~~
 
@@ -2824,7 +2849,7 @@ The command must print one lowercase qa-kvk-* value no longer than 48 characters
 ## Local automated gate
 
 ~~~bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 npm test
 npm run test:delivery
 npx playwright install chromium firefox webkit
@@ -2838,7 +2863,7 @@ Required result: every command exits 0; the Playwright run reports nine passing 
 Do not run this command as part of normal implementation. Run it only with operator authorization after every local gate is green:
 
 ~~~bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 QA_BASE_URL=https://kingshoter.com ALLOW_PRODUCTION_QA=1 npm run test:qa:delivery
 ~~~
 
@@ -2900,29 +2925,29 @@ Rollback is omission of deliveryShadow=1. It requires no room migration and must
 
 - [ ] **Step 6: Run the complete local verification**
 
-Run: cd /Users/ff/Documents/kingshot/kingshoter && npm test
+Run: cd $KVK_WORKTREE/kingshoter && npm test
 
 Expected: every unit test passes with # fail 0.
 
-Run: cd /Users/ff/Documents/kingshot/kingshoter && npm run test:delivery
+Run: cd $KVK_WORKTREE/kingshoter && npm run test:delivery
 
 Expected: every Reliable unit/guard test passes with # fail 0.
 
-Run: cd /Users/ff/Documents/kingshot/kingshoter && npm run test:qa:delivery
+Run: cd $KVK_WORKTREE/kingshoter && npm run test:qa:delivery
 
 Expected: nine passing tests total: topology, reconnect, and rollback in each of chromium, firefox, and webkit.
 
-Run: cd /Users/ff/Documents/kingshot/kingshoter && rg -n "AudioContext|createOscillator|scheduleBeeps|schedulePrepareCue|speechSynthesis|vibrate" public/kvk-delivery-shadow.js
+Run: cd $KVK_WORKTREE/kingshoter && rg -n "AudioContext|createOscillator|scheduleBeeps|schedulePrepareCue|speechSynthesis|vibrate" public/kvk-delivery-shadow.js
 
 Expected: no output and exit status 1.
 
-Run: cd /Users/ff/Documents/kingshot/kingshoter && rg -n "\\b(room|roomName)\\s*===\\s*['\\\"][a-z0-9-]+['\\\"]" src/delivery.js src/room.js public/kvk-delivery-shadow.js test/support/qa-kvk.cjs
+Run: cd $KVK_WORKTREE/kingshoter && rg -n "\\b(room|roomName)\\s*===\\s*['\\\"][a-z0-9-]+['\\\"]" src/delivery.js src/room.js public/kvk-delivery-shadow.js test/support/qa-kvk.cjs
 
 Expected: no output and exit status 1.
 
 - [ ] **Step 7: Run final change detection and commit evidence**
 
-Call gitnexus_detect_changes({scope:"all", repo:"kingshot"}). Expected final scope is the Classic rollback QA spec and the runbook only. Review the cumulative report: Classic command timing and audio-authority flows are unchanged; Reliable changes are additive QA-only flows.
+Call gitnexus_detect_changes({scope:"staged", repo:"$GITNEXUS_REPO"}). Expected final scope is the Classic rollback QA spec and the runbook only. Review the cumulative report: Classic command timing and audio-authority flows are unchanged; Reliable changes are additive QA-only flows.
 
 ~~~bash
 git add kingshoter/test/qa-kvk-delivery.spec.cjs kingshoter/docs/qa/kvk-reliable-shadow.md

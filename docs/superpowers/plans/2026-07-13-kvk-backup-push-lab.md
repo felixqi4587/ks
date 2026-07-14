@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Prerequisite: the core delivery change has landed `kingshoter/test/support/qa-kvk.cjs` with the four shared exports shown below and has migrated every production-capable Classic QA script used here to that guard. If the helper or migration is absent, stop; do not recreate it or fall back to a literal room.
+- Prerequisite: Core, Reliable, and Triple plans are complete. Consume Core's shared QA helper and room-local device ID, Reliable's canonical `isQaRoomName`, and Triple's `weak2` role unchanged. If any prerequisite is absent, stop; do not recreate it or fall back to a literal room.
 - Classic remains the production default and rollback path; do not modify `kingshoter/src/room.js`, `kingshoter/public/kvk.js`, `kingshoter/public/kvk.html`, `kingshoter/public/app.js`, or `kingshoter/public/app.css` in this plan.
 - Do not add a link, badge, prompt, manifest, service-worker registration, warning, or mode selector to any ordinary-user page.
 - Disabled Backup never blocks Fire, warns a commander, lowers normal status, or asks again for permission.
@@ -29,7 +29,7 @@
 - No retry may create a duplicate notification. Ambiguous Push-service failures are recorded and not retried after the short useful window.
 - No promotion or reliability claim is allowed from headless tests, Playwright WebKit, Push-provider acceptance, or service-worker receipt alone; physical-device evidence is mandatory.
 - Before modifying an existing function, class, or method, run `gitnexus_impact` upstream and report direct callers, affected processes, and risk. Warn on HIGH or CRITICAL risk, then proceed under the user's standing approval.
-- Before every implementation commit, verify the index is current, confirm there are no pre-existing staged files, stage only that task's listed paths, then run `gitnexus_detect_changes(scope="staged")`; confirm Classic Fire, state, countdown, and audio flows are unchanged. Never unstage or absorb user-owned changes to make this check pass.
+- Resolve `KVK_WORKTREE` and `GITNEXUS_REPO` with the master plan's executable worktree block. Before every implementation commit, verify that worktree's index is current, confirm there are no pre-existing staged files, stage only that task's listed paths, then run `gitnexus_detect_changes(scope="staged", repo="$GITNEXUS_REPO")` with the printed literal name; confirm Classic Fire, state, countdown, and audio flows are unchanged. Never unstage or absorb user-owned changes to make this check pass.
 - Preserve all unrelated dirty-worktree changes.
 
 ---
@@ -45,7 +45,7 @@
 
 ### New server files
 
-- `kingshoter/src/lab/qa-room.mjs` — canonical QA-room validation shared by Worker routing and the DO.
+- `kingshoter/src/lab/qa-room.mjs` — thin throwing wrapper around Reliable's canonical `isQaRoomName`; it contains no second regex.
 - `kingshoter/src/lab/push-policy.mjs` — immutable timing, bounds, and event-name constants.
 - `kingshoter/src/lab/router.mjs` — kill-switch and QA-room gate before DO lookup.
 - `kingshoter/src/lab/push.mjs` — VAPID configuration, payload construction, TTL/urgency/topic, and Push-service result normalization.
@@ -86,8 +86,9 @@ module.exports = {
   installQaWebSocketGuard(context, room, options = {})
 };
 
-// installQaWebSocketGuard() accepts an optional asynchronous
-// options.installFaults(context, room) hook; its default behavior adds no faults.
+// Supported options are exactly:
+// shouldDropClientMessage({url,data}) and shouldDropServerMessage({url,data}).
+// Lab WebSocket routes use a separate test-local exact-room guard.
 
 // Core Classic ACK remains separate and is never sent to DeliveryLab:
 // {t:'deliveryAck', commandId, pid, deviceId,
@@ -99,7 +100,7 @@ module.exports = {
 
 // DeliveryLab Push payload and live command use an explicit directed field:
 // {commandId, issuedAtMs, eventAtMs, expiresAtMs,
-//  role:'main'|'weak', targetDeviceId}
+//  role:'main'|'weak'|'weak2', targetDeviceId}
 ```
 
 ---
@@ -128,7 +129,7 @@ gitnexus_impact({
   kind: "Method",
   direction: "upstream",
   includeTests: true,
-  repo: "kingshot"
+  repo: "$GITNEXUS_REPO"
 })
 ```
 
@@ -149,8 +150,10 @@ const load = (file) => import(pathToFileURL(path.join(root, file)).href + `?v=${
 
 test('QA-room validator accepts only bounded qa-kvk names', async () => {
   const { normalizeQaRoom, requireQaRoom } = await load('src/lab/qa-room.mjs');
+  const { isQaRoomName } = await load('src/delivery.js');
   assert.equal(normalizeQaRoom('qa-kvk-20260713-7f3a'), 'qa-kvk-20260713-7f3a');
   for (const room of ['operation-room', '', 'qa-kvk-', 'QA-KVK-x', 'qa-kvk-x_', '__proto__', `qa-kvk-${'x'.repeat(42)}`]) {
+    assert.equal(Boolean(normalizeQaRoom(room)), isQaRoomName(room), `validator parity: ${room}`);
     assert.equal(normalizeQaRoom(room), null, room);
     assert.throws(() => requireQaRoom(room), /invalid_qa_room/);
   }
@@ -198,7 +201,7 @@ test('either disabled switch is indistinguishable from a missing route', async (
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 node --test test/delivery-lab-guard.test.cjs
 ```
 
@@ -209,12 +212,11 @@ Expected: FAIL with `ERR_MODULE_NOT_FOUND` for `src/lab/qa-room.mjs` or `src/lab
 Create `kingshoter/src/lab/qa-room.mjs`:
 
 ```js
-const QA_ROOM = /^qa-kvk-[a-z0-9](?:[a-z0-9-]{0,39}[a-z0-9])?$/;
+import { isQaRoomName } from '../delivery.js';
 
 export function normalizeQaRoom(value) {
   const room = typeof value === 'string' ? value : '';
-  if (room.length > 48 || !QA_ROOM.test(room)) return null;
-  return room;
+  return isQaRoomName(room) ? room : null;
 }
 
 export function requireQaRoom(value) {
@@ -291,7 +293,7 @@ git diff --cached --quiet
 git add kingshoter/src/worker.js kingshoter/src/lab/qa-room.mjs kingshoter/src/lab/router.mjs kingshoter/test/delivery-lab-guard.test.cjs
 ```
 
-If the first command reports pre-existing staged work, stop without unstaging it. Otherwise run `gitnexus_detect_changes(scope="staged", repo="kingshot")` and verify the only existing symbol touched is `worker.fetch`; no Classic browser process is affected. Then run:
+If the first command reports pre-existing staged work, stop without unstaging it. Otherwise run `gitnexus_detect_changes(scope="staged", repo="$GITNEXUS_REPO")` and verify the only existing symbol touched is `worker.fetch`; no Classic browser process is affected. Then run:
 
 ```bash
 git commit -m "test: protect delivery lab room boundary"
@@ -504,7 +506,7 @@ export const PUSH_POLICY = Object.freeze({
 });
 
 export const PUSH_VARIANTS = Object.freeze(['immediate', 'no_ack']);
-export const DEVICE_ROLES = Object.freeze(['main', 'weak', 'commander', 'member']);
+export const DEVICE_ROLES = Object.freeze(['main', 'weak', 'weak2', 'commander', 'member']);
 ```
 
 - [ ] **Step 4: Implement the minimal private session class**
@@ -713,7 +715,7 @@ git diff --cached --quiet
 git add kingshoter/src/worker.js kingshoter/src/lab/push-policy.mjs kingshoter/src/lab/delivery-lab.mjs kingshoter/wrangler.toml kingshoter/test/support/delivery-lab-fakes.cjs kingshoter/test/delivery-lab-storage.test.cjs
 ```
 
-Stop on pre-existing staged work. Otherwise run `gitnexus_detect_changes(scope="staged", repo="kingshot")` and confirm no `Room`, `fireDouble`, `onState`, `scheduleAllCues`, or `enableSound` changes. Then run:
+Stop on pre-existing staged work. Otherwise run `gitnexus_detect_changes(scope="staged", repo="$GITNEXUS_REPO")` and confirm no `Room`, `fireDouble`, `onState`, `scheduleAllCues`, or `enableSound` changes. Then run:
 
 ```bash
 git commit -m "feat: add private backup push lab object"
@@ -744,7 +746,7 @@ Expected: commit succeeds, then GitNexus refreshes the index so Task 3 can impac
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 npm install --save-exact web-push@3.6.7
 ```
 
@@ -907,7 +909,7 @@ gitnexus_impact({
   file_path: "kingshoter/src/lab/delivery-lab.mjs",
   direction: "upstream",
   includeTests: true,
-  repo: "kingshot"
+  repo: "$GITNEXUS_REPO"
 })
 ```
 
@@ -983,7 +985,7 @@ git diff --cached --quiet
 git add kingshoter/package.json kingshoter/package-lock.json kingshoter/.dev.vars.example kingshoter/src/lab/push.mjs kingshoter/src/lab/delivery-lab.mjs kingshoter/test/delivery-lab-push.test.cjs
 ```
 
-Stop on pre-existing staged work. Otherwise run `gitnexus_detect_changes(scope="staged", repo="kingshot")` and verify only new lab symbols and the already-reviewed Worker entry/config are affected. Then run:
+Stop on pre-existing staged work. Otherwise run `gitnexus_detect_changes(scope="staged", repo="$GITNEXUS_REPO")` and verify only new lab symbols and the already-reviewed Worker entry/config are affected. Then run:
 
 ```bash
 git commit -m "feat: send expiring backup push alerts"
@@ -1024,11 +1026,12 @@ const now = 1_000;
 const operation = {
   operationId: '22222222-2222-4222-8222-222222222222', kind: 'issue',
   room: 'qa-kvk-ab', dueAtMs: now, expiresAtMs: 61_000,
-  targetDeviceIds: ['device-main-0001', 'device-weak-0001', 'device-command-1', 'device-member-01']
+  targetDeviceIds: ['device-main-0001', 'device-weak-0001', 'device-weak2-001', 'device-command-1', 'device-member-01']
 };
 const devices = [
   { deviceId: 'device-main-0001', role: 'main', pushVariant: 'immediate', subscription: { endpoint: 'https://push.example/main' } },
   { deviceId: 'device-weak-0001', role: 'weak', pushVariant: 'no_ack', subscription: { endpoint: 'https://push.example/weak' } },
+  { deviceId: 'device-weak2-001', role: 'weak2', pushVariant: 'immediate', subscription: { endpoint: 'https://push.example/weak2' } },
   { deviceId: 'device-command-1', role: 'commander', pushVariant: 'immediate', subscription: { endpoint: 'https://push.example/commander' } },
   { deviceId: 'device-member-01', role: 'member', pushVariant: 'immediate', subscription: { endpoint: 'https://push.example/member' } }
 ];
@@ -1044,9 +1047,10 @@ test('issue planning targets only main/weak and delays only no-ACK', async () =>
     targetDeviceId: item.targetDeviceId, role: item.role, variant: item.variant, dueAtMs: item.dueAtMs
   })), [
     { targetDeviceId: 'device-main-0001', role: 'main', variant: 'immediate', dueAtMs: 1_000 },
-    { targetDeviceId: 'device-weak-0001', role: 'weak', variant: 'no_ack', dueAtMs: 2_500 }
+    { targetDeviceId: 'device-weak-0001', role: 'weak', variant: 'no_ack', dueAtMs: 2_500 },
+    { targetDeviceId: 'device-weak2-001', role: 'weak2', variant: 'immediate', dueAtMs: 1_000 }
   ]);
-  assert.deepEqual(plan.liveMessages.map((message) => message.targetDeviceId), ['device-main-0001', 'device-weak-0001']);
+  assert.deepEqual(plan.liveMessages.map((message) => message.targetDeviceId), ['device-main-0001', 'device-weak-0001', 'device-weak2-001']);
 });
 
 test('only an exact scheduled pushLabAck suppresses the matching no-ACK operation', async () => {
@@ -1132,7 +1136,7 @@ Create `kingshoter/src/lab/push-ab.mjs`:
 ```js
 import { PUSH_POLICY } from './push-policy.mjs';
 
-const PUSH_ROLES = new Set(['main', 'weak']);
+const PUSH_ROLES = new Set(['main', 'weak', 'weak2']);
 
 export function selectPushTargets(devices, targetDeviceIds) {
   const byId = new Map(devices.map((device) => [device.deviceId, device]));
@@ -1209,7 +1213,7 @@ gitnexus_impact({
   file_path: "kingshoter/src/lab/delivery-lab.mjs",
   direction: "upstream",
   includeTests: true,
-  repo: "kingshot"
+  repo: "$GITNEXUS_REPO"
 })
 ```
 
@@ -1273,7 +1277,7 @@ git diff --cached --quiet
 git add kingshoter/src/lab/push-ab.mjs kingshoter/src/lab/delivery-lab.mjs kingshoter/test/delivery-lab-ab.test.cjs
 ```
 
-Stop on pre-existing staged work. Otherwise run `gitnexus_detect_changes(scope="staged", repo="kingshot")` and verify no Classic command, state, or audio process appears. Then run:
+Stop on pre-existing staged work. Otherwise run `gitnexus_detect_changes(scope="staged", repo="$GITNEXUS_REPO")` and verify no Classic command, state, or audio process appears. Then run:
 
 ```bash
 git commit -m "feat: compare immediate and no-ack backup push"
@@ -1343,6 +1347,7 @@ test('shared validator rejects stale or misdirected payloads', () => {
     role: 'main', targetDeviceId: 'device-12345678'
   };
   assert.equal(sandbox.self.KvkPushLab.validatePayload(payload, 10_999).ok, true);
+  assert.equal(sandbox.self.KvkPushLab.validatePayload({ ...payload, role: 'weak2' }, 10_999).ok, true);
   assert.deepEqual(
     JSON.parse(JSON.stringify(sandbox.self.KvkPushLab.validatePayload(payload, 11_000))),
     { ok: false, reason: 'expired', payload }
@@ -1374,7 +1379,7 @@ Create `kingshoter/public/lab/push-shared.js` as a side-effect-free IIFE:
     if (!value || value.v !== 1) return { ok: false, reason: 'invalid_payload' };
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value.commandId || ''))) return { ok: false, reason: 'invalid_payload' };
     if (!QA_ROOM.test(String(value.room || ''))) return { ok: false, reason: 'invalid_payload' };
-    if (!['main', 'weak'].includes(value.role)) return { ok: false, reason: 'invalid_payload' };
+    if (!['main', 'weak', 'weak2'].includes(value.role)) return { ok: false, reason: 'invalid_payload' };
     if (!/^[A-Za-z0-9-]{8,64}$/.test(String(value.targetDeviceId || ''))) return { ok: false, reason: 'invalid_payload' };
     if (!Number.isSafeInteger(value.issuedAtMs) || !Number.isSafeInteger(value.eventAtMs) || !Number.isSafeInteger(value.expiresAtMs)) return { ok: false, reason: 'invalid_payload' };
     if (value.issuedAtMs >= value.eventAtMs || value.expiresAtMs !== value.eventAtMs) return { ok: false, reason: 'invalid_payload' };
@@ -1407,7 +1412,7 @@ The notification call is:
 
 ```js
 await self.registration.showNotification('KvK backup alert', {
-  body: `${payload.role === 'main' ? 'MAIN' : 'SACRIFICE'} · launch ${new Date(payload.eventAtMs).toLocaleTimeString()}`,
+  body: `${payload.role === 'main' ? 'MAIN' : payload.role === 'weak2' ? 'SACRIFICE 2' : 'SACRIFICE 1'} · launch ${new Date(payload.eventAtMs).toLocaleTimeString()}`,
   tag: `kvk-lab-${payload.commandId}`,
   renotify: false,
   requireInteraction: false,
@@ -1477,7 +1482,7 @@ git diff --cached --quiet
 git add kingshoter/public/lab/push-shared.js kingshoter/public/lab/push-sw.js kingshoter/public/lab/push.webmanifest kingshoter/public/lab/icons kingshoter/test/delivery-lab-pwa.test.cjs
 ```
 
-Stop on pre-existing staged work. Otherwise run `gitnexus_detect_changes(scope="staged", repo="kingshot")`; expect new public lab files only, with no Classic browser symbol changes. Then run:
+Stop on pre-existing staged work. Otherwise run `gitnexus_detect_changes(scope="staged", repo="$GITNEXUS_REPO")`; expect new public lab files only, with no Classic browser symbol changes. Then run:
 
 ```bash
 git commit -m "feat: add stale-safe backup push service worker"
@@ -1496,7 +1501,7 @@ npx gitnexus analyze
 - Modify: `kingshoter/package.json`
 
 **Interfaces:**
-- Consumes: shared `assertQaRoomName/makeQaRoom/qaRoomUrl/installQaWebSocketGuard` test helper, session API, VAPID public key, scoped service worker, PushManager, lab WebSocket, arm/status/observation APIs.
+- Consumes: shared `assertQaRoomName/makeQaRoom/qaRoomUrl/installQaWebSocketGuard` test helper, Core `window.getRoomDeviceId(room)`, session API, VAPID public key, scoped service worker, PushManager, lab WebSocket, arm/status/observation APIs.
 - Produces: explicit buttons `#joinLab`, `#enablePush`, `#disablePush`, `#arm5`, `#arm15`, `#arm60`, `#arm180`, `#observedYes`, `#observedNo`, and `#exportEvidence`.
 - Guarantees: no valid room means no API/WebSocket/SW activity; denied permission stays neutral and does not re-prompt automatically.
 
@@ -1526,7 +1531,7 @@ url.searchParams.set('room', room);
 const qaPassword = crypto.randomBytes(24).toString('base64url');
 ```
 
-Call `await installQaWebSocketGuard(context, room)` immediately after each context is created and before its first page or socket is opened. This harness uses the helper's fault-free default; ACK suppression is exercised by the real lab socket and no browser fault hook is installed.
+Call `await installQaWebSocketGuard(context, room)` immediately after each context is created and before its first page or socket is opened. Then install a second test-local `context.routeWebSocket(/\/api\/lab\/delivery\/ws/)` guard that parses the URL, throws before `connectToServer()` unless `room` equals the exact generated room, and transparently forwards valid client/server frames. The shared helper remains unchanged and has no `installFaults` hook. ACK suppression is exercised by the real lab socket.
 
 Continue the same file with deterministic capability stubs and isolated contexts:
 
@@ -1590,7 +1595,7 @@ async function join(context, role, variant) {
   await page.locator('#variant').selectOption(variant);
   await page.locator('#joinLab').click();
   await page.locator('#pushPanel').waitFor({ state: 'visible' });
-  const deviceId = await page.evaluate(() => localStorage.getItem('kingshoter_push_lab_device'));
+  const deviceId = await page.evaluate((roomName) => window.getRoomDeviceId(roomName), room);
   return { context, page, requests, deviceId };
 }
 
@@ -1627,14 +1632,15 @@ test('invalid rooms stay inert and ordinary Classic has no lab entry', async () 
   await context.close();
 });
 
-test('five isolated profiles exercise denial, scoped opt-in, server delay, and role targeting', async () => {
+test('six isolated profiles exercise denial, Triple roles, scoped opt-in, server delay, and role targeting', async () => {
   const commander = await join(await newGuardedContext(), 'commander', 'immediate');
   const mainDenied = await join(await newGuardedContext('denied'), 'main', 'immediate');
   const weak = await join(await newGuardedContext(), 'weak', 'no_ack');
+  const weak2 = await join(await newGuardedContext(), 'weak2', 'immediate');
   const member = await join(await newGuardedContext(), 'member', 'immediate');
   const mainTwo = await join(await newGuardedContext(), 'main', 'immediate');
-  const clients = [commander, mainDenied, weak, member, mainTwo];
-  assert.equal(new Set(clients.map((client) => client.deviceId)).size, 5);
+  const clients = [commander, mainDenied, weak, weak2, member, mainTwo];
+  assert.equal(new Set(clients.map((client) => client.deviceId)).size, 6);
 
   await mainDenied.page.locator('#enablePush').click();
   await mainDenied.page.waitForFunction(() => /Classic continues|Notifications remain off/.test(document.querySelector('#pushStatus').textContent));
@@ -1646,7 +1652,7 @@ test('five isolated profiles exercise denial, scoped opt-in, server delay, and r
   assert.equal(await classicAfterDenial.locator('#soundGate').isDisabled(), false);
   await classicAfterDenial.close();
 
-  for (const client of [commander, weak, member]) {
+  for (const client of [commander, weak, weak2, member]) {
     await client.page.locator('#enablePush').click();
     await client.page.locator('#pushStatus').filter({ hasText: 'Test notifications on' }).waitFor();
   }
@@ -1657,7 +1663,7 @@ test('five isolated profiles exercise denial, scoped opt-in, server delay, and r
   assert.equal(beforeWeak.body.device.lastCommandId || null, null);
   const armed = await api(commander.page, '/api/lab/delivery/push/arm', {
     method: 'POST',
-    body: { delaySeconds: 5, targetDeviceIds: [weak.deviceId, commander.deviceId, member.deviceId] }
+    body: { delaySeconds: 5, targetDeviceIds: [weak.deviceId, weak2.deviceId, commander.deviceId, member.deviceId] }
   });
   assert.equal(armed.status, 200);
   assert.ok(armed.body.dueAtMs >= Date.now() + 4_000);
@@ -1670,6 +1676,11 @@ test('five isolated profiles exercise denial, scoped opt-in, server delay, and r
   }, room, { timeout: 10_000 });
   assert.equal((await api(commander.page, '/api/lab/delivery/status')).body.device.lastCommandId || null, null);
   assert.equal((await api(member.page, '/api/lab/delivery/status')).body.device.lastCommandId || null, null);
+  await weak2.page.waitForFunction(async (roomName) => {
+    const response = await fetch(`/api/lab/delivery/status?room=${encodeURIComponent(roomName)}`, { credentials: 'include' });
+    const data = await response.json();
+    return /^[0-9a-f-]{36}$/i.test(data.device && data.device.lastCommandId || '');
+  }, room, { timeout: 10_000 });
   await weak.page.waitForTimeout(2_000);
   const evidence = await api(commander.page, '/api/lab/delivery/evidence');
   assert.equal(evidence.status, 200);
@@ -1680,7 +1691,7 @@ test('five isolated profiles exercise denial, scoped opt-in, server delay, and r
 });
 ```
 
-The successful path deliberately targets only the live `no_ack` weak device plus excluded commander/member devices. Its exact lab ACK suppresses the fallback before any fake Push endpoint is contacted; provider behavior remains covered by Task 3's injected unit tests.
+The successful path deliberately targets both Sacrifice roles plus excluded commander/member devices. `weak` exercises the no-ACK fallback and `weak2` proves Triple eligibility/targeting; commander/member remain silent. Provider behavior remains covered by Task 3's injected unit tests.
 
 - [ ] **Step 2: Run the harness and verify RED**
 
@@ -1728,7 +1739,7 @@ Create `kingshoter/public/lab/push.html` with:
     <section id="joinPanel">
       <label>QA room <input id="room" autocomplete="off"></label>
       <label>QA password <input id="password" type="password" autocomplete="off"></label>
-      <label>Role <select id="role"><option value="commander">Commander</option><option value="main">Main</option><option value="weak">Sacrifice</option><option value="member">Member</option></select></label>
+      <label>Role <select id="role"><option value="commander">Commander</option><option value="main">Main</option><option value="weak">Sacrifice 1</option><option value="weak2">Sacrifice 2</option><option value="member">Member</option></select></label>
       <label>Variant <select id="variant"><option value="immediate">A · immediate</option><option value="no_ack">B · no-ACK delay</option></select></label>
       <button id="joinLab">Join private lab</button>
     </section>
@@ -1747,7 +1758,7 @@ Create `kingshoter/public/lab/push.html` with:
       <pre id="diagnostics"></pre>
     </section>
   </main>
-  <script src="/lab/push-shared.js"></script><script src="/lab/push.js"></script>
+  <script src="/app.js"></script><script src="/lab/push-shared.js"></script><script src="/lab/push.js"></script>
 </body>
 </html>
 ```
@@ -1765,8 +1776,8 @@ Create `kingshoter/public/lab/push.js` so its first executable decisions are:
   var initialRoom = params.get('room') || '';
   var validRoom = /^qa-kvk-[a-z0-9](?:[a-z0-9-]{0,39}[a-z0-9])?$/.test(initialRoom);
   document.getElementById('room').value = validRoom ? initialRoom : '';
-  var deviceId = localStorage.getItem('kingshoter_push_lab_device');
-  if (!deviceId) { deviceId = 'd-' + crypto.randomUUID(); localStorage.setItem('kingshoter_push_lab_device', deviceId); }
+  if (!validRoom || typeof window.getRoomDeviceId !== 'function') return;
+  var deviceId = window.getRoomDeviceId(initialRoom);
   var sessionReady = false;
   var activeRoom = '';
   var socket = null;
@@ -1798,7 +1809,9 @@ Create `kingshoter/public/lab/push.js` so its first executable decisions are:
 
 `connectLabSocket()` opens `/api/lab/delivery/ws?room=...`, handles only `pushLabCommand`, validates it with `KvkPushLab.validatePayload`, requires `message.targetDeviceId === deviceId`, and deduplicates by command ID. For a valid future command it schedules only a silent lab-page marker for `eventAtMs`, then sends `{t:'pushLabAck',commandId,deviceId,outcome:'scheduled',eventAtMs,handledAtMs:Date.now()}`. This marker is created only after the server command arrives; arm never pre-schedules it. If the shared validator returns `expired` with a safe payload, send the same envelope with `outcome:'expired'`; invalid/misdirected data gets no ACK. Set `activeCommandId`, enable the observation buttons, and show absolute times, but never create a notification from the page, schedule/play Classic audio, or send core `deliveryAck`.
 
-`refreshStatus()` GETs `/status`, updates the current device/active command, and for commander sessions renders only subscribed `main|weak` devices as checked inputs inside `#deviceTargets`; commander/member rows may be shown as ineligible text but never as checked targets. Arm buttons POST `{delayMinutes:5|15|60|180,targetDeviceIds:[...checked values]}`. Only a commander session unhides `#commanderControls`; player sessions display their own neutral registration status and cannot arm.
+`refreshStatus()` GETs `/status`, updates the current device/active command, and for commander sessions renders only subscribed `main|weak|weak2` devices as checked inputs inside `#deviceTargets`; commander/member rows may be shown as ineligible text but never as checked targets. Label `weak` as Sacrifice 1 and `weak2` as Sacrifice 2. Arm buttons POST `{delayMinutes:5|15|60|180,targetDeviceIds:[...checked values]}`. Only a commander session unhides `#commanderControls`; player sessions display their own neutral registration status and cannot arm.
+
+Add source assertions that `/app.js` loads before `push.js`, the hidden page calls `window.getRoomDeviceId(initialRoom)`, and neither `kingshoter_push_lab_device` nor another device-identity `crypto.randomUUID()` appears in Push client code. The server may still generate command/session/operation IDs independently.
 
 Human observation buttons POST `{commandId:activeCommandId,observed:true|false,atMs:Date.now(),visibility:<selected>,interruption:<clamped input>}`. `#exportEvidence` fetches commander-only `/evidence`, creates a local JSON Blob download named `kvk-push-evidence-<qa-room>.json`, immediately revokes the object URL, and never writes it to a public asset or room snapshot. Every handler checks `sessionReady && activeRoom` before network access.
 
@@ -1839,7 +1852,7 @@ git diff --cached --quiet
 git add kingshoter/public/lab/push.html kingshoter/public/lab/push.css kingshoter/public/lab/push.js kingshoter/test/delivery-lab-push.e2e.cjs kingshoter/package.json
 ```
 
-Stop on pre-existing staged work. Otherwise run `gitnexus_detect_changes(scope="staged", repo="kingshot")` and verify there is no Classic browser symbol change and no new execution flow begins from `kvk.html`. Then run:
+Stop on pre-existing staged work. Otherwise run `gitnexus_detect_changes(scope="staged", repo="$GITNEXUS_REPO")` and verify there is no Classic browser symbol change and no new execution flow begins from `kvk.html`. Then run:
 
 ```bash
 git commit -m "test: add hidden backup push lab harness"
@@ -1866,7 +1879,7 @@ gitnexus_impact({
   target: "kingshoter/test/delivery-lab-pwa.test.cjs",
   direction: "upstream",
   includeTests: true,
-  repo: "kingshot"
+  repo: "$GITNEXUS_REPO"
 })
 ```
 
@@ -1999,7 +2012,7 @@ deleted_classes = ["DeliveryLab"]
 
 Before removing the existing Worker branch or `DeliveryLab` class, run upstream `gitnexus_impact` for `worker.fetch` and `DeliveryLab`, report blast radius, and warn on HIGH/CRITICAL exactly as in implementation.
 
-Run `npm test`, `npx wrangler deploy --dry-run`, `gitnexus_detect_changes(scope="all")`, deploy the deletion, and confirm ordinary Classic behavior is unchanged.
+Run `npm test`, `npx wrangler deploy --dry-run`, `gitnexus_detect_changes(scope="staged")`, deploy the deletion, and confirm ordinary Classic behavior is unchanged.
 
 After the deletion deploy succeeds, remove the candidate-only secrets interactively:
 
@@ -2011,7 +2024,7 @@ npx wrangler secret delete DELIVERY_LAB_PUSH_ENABLED
 npx wrangler secret delete DELIVERY_LAB_ENABLED
 ```
 
-Stage only the reviewed deletion, run `gitnexus_detect_changes(scope="staged", repo="kingshot")`, then commit it as `chore: remove failed backup push lab` before deployment. The user has already approved the scoped secret deletion and production deployment in this program; do not ask again.
+Stage only the reviewed deletion, run `gitnexus_detect_changes(scope="staged", repo="$GITNEXUS_REPO")`, then commit it as `chore: remove failed backup push lab` before deployment. The user has already approved the scoped secret deletion and production deployment in this program; do not ask again.
 
 - [ ] **Step 7: Run the documentation test and commit the protocol**
 
@@ -2028,7 +2041,7 @@ git diff --cached --quiet
 git add docs/labs/kvk-backup-push-lab.md kingshoter/test/delivery-lab-pwa.test.cjs
 ```
 
-Stop on pre-existing staged work. Otherwise run `gitnexus_detect_changes(scope="staged", repo="kingshot")`; expect documentation/test-only scope. Then run:
+Stop on pre-existing staged work. Otherwise run `gitnexus_detect_changes(scope="staged", repo="$GITNEXUS_REPO")`; expect documentation/test-only scope. Then run:
 
 ```bash
 git commit -m "docs: add backup push physical test protocol"
@@ -2050,7 +2063,7 @@ git commit -m "docs: add backup push physical test protocol"
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 npm test
 npm run test:push-lab
 npx wrangler deploy --dry-run
@@ -2077,7 +2090,7 @@ Expected: all PASS. Headless results prove only routing, state, expiry, dedupe, 
 Run:
 
 ```text
-gitnexus_detect_changes({scope:"all", repo:"kingshot"})
+gitnexus_detect_changes({scope:"staged", repo:"$GITNEXUS_REPO"})
 ```
 
 Expected: new DeliveryLab/lab-public flows and the single Worker route entry only. Any changed `Room`, `fireDouble`, `onState`, `scheduleAllCues`, `enableSound`, or Classic public-file symbol blocks deployment.

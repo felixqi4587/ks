@@ -1,8 +1,8 @@
-# Optional Triple Rally and Forced Client Update Implementation Plan
+# Optional Triple Rally and Supported Client Update Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a room-synchronized, per-kingdom Triple Rally mode with two simultaneous Sacrifice landings, Main one second later, automatic stale-client updates, and no regression to default Double Rally.
+**Goal:** Add a room-synchronized, per-kingdom Triple Rally mode with two simultaneous Sacrifice landings, Main one second later, automatic updates for clients that loaded the updater bootstrap, legacy projection for every build-0 socket, and no regression to default Double Rally.
 
 **Architecture:** Keep canonical `double_rally` storage and its existing target formula unchanged. Add small pure modules for mode transitions, Triple target construction, and client-build projection; integrate them at the Durable Object boundary, then extend the existing UI and shared personal-cue engine to recognize `triple_rally`. A global gate stays off through updater bootstrap and QA, while old sockets receive a per-socket compatibility projection without changing canonical room state.
 
@@ -22,7 +22,8 @@
 - All automated tests use unique `qa-kvk-*` rooms. Every non-QA room is an operation room; no code may special-case `1406`.
 - `TRIPLE_RALLY_ENABLED` stays `"0"` until the local, multi-browser, and physical-device gates pass. `TRIPLE_RALLY_QA_ENABLED="1"` may expose Triple only to generated `qa-kvk-*` rooms while the global gate is off.
 - Run GitNexus upstream impact before editing every existing function/method. Report HIGH or CRITICAL results to the user before editing.
-- Before every commit, stage only that task and run `gitnexus_detect_changes({repo:"kingshot", scope:"staged"})`; review all affected flows before committing.
+- Resolve `KVK_WORKTREE` and `GITNEXUS_REPO` with the master plan's executable worktree block. Before every commit, stage only that task and run `gitnexus_detect_changes({repo:"$GITNEXUS_REPO", scope:"staged"})` with the printed literal repository name; review all affected flows before committing.
+- A page opened before the updater bootstrap cannot honestly be called force-refreshable. Such a socket remains build 0 and receives legacy projection indefinitely; global promotion requires observed socket-build inventory, not elapsed polling time alone.
 - Preserve all unrelated dirty-worktree content. Stage only files named by the current task.
 
 ## File and Interface Map
@@ -33,7 +34,7 @@
 - `kingshoter/src/rally-targets.js` — canonical Triple target and command construction.
 - `kingshoter/src/client-build.js` — build metadata parsing and per-socket legacy projection.
 - `kingshoter/public/kvk-rally.js` — browser/Node shared rally predicates, personal target lookup, role order, and selection reconciliation.
-- `kingshoter/public/kvk-update.js` — testable forced-update controller.
+- `kingshoter/public/kvk-update.js` — testable updater controller for pages that loaded the bootstrap.
 - `kingshoter/test/rally-mode.test.cjs`
 - `kingshoter/test/rally-targets.test.cjs`
 - `kingshoter/test/client-build.test.cjs`
@@ -173,7 +174,7 @@ test('QA gate never enables an operation room and the global gate enables all ro
 
 - [ ] **Step 2: Run the tests and verify the module is missing**
 
-Run: `cd /Users/ff/Documents/kingshot/kingshoter && node --test test/rally-mode.test.cjs`
+Run: `cd $KVK_WORKTREE/kingshoter && node --test test/rally-mode.test.cjs`
 
 Expected: FAIL with `ENOENT` for `src/rally-mode.js`.
 
@@ -278,7 +279,7 @@ export function validateStagedPairs(input) {
 
 - [ ] **Step 4: Run focused and full unit tests**
 
-Run: `cd /Users/ff/Documents/kingshot/kingshoter && node --test test/rally-mode.test.cjs && npm test`
+Run: `cd $KVK_WORKTREE/kingshoter && node --test test/rally-mode.test.cjs && npm test`
 
 Expected: rally-mode tests PASS and the existing suite reports zero failures.
 
@@ -363,7 +364,7 @@ test('target construction rejects reserved, malformed, and inherited player keys
 
 - [ ] **Step 2: Run the test and verify the import fails**
 
-Run: `cd /Users/ff/Documents/kingshot/kingshoter && node --test test/rally-targets.test.cjs`
+Run: `cd $KVK_WORKTREE/kingshoter && node --test test/rally-targets.test.cjs`
 
 Expected: FAIL because `src/rally-targets.js` does not exist.
 
@@ -430,7 +431,7 @@ export function buildTripleRallyCommand(input) {
 
 - [ ] **Step 4: Run the full target matrix**
 
-Run: `cd /Users/ff/Documents/kingshot/kingshoter && node --test test/rally-targets.test.cjs`
+Run: `cd $KVK_WORKTREE/kingshoter && node --test test/rally-targets.test.cjs`
 
 Expected: PASS for all leads, march extremes, landing equality, and invalid-roster cases.
 
@@ -507,7 +508,7 @@ test('build metadata contains monotonic numeric versions and no secrets', async 
 
 - [ ] **Step 2: Run and verify the missing module failure**
 
-Run: `cd /Users/ff/Documents/kingshot/kingshoter && node --test test/client-build.test.cjs`
+Run: `cd $KVK_WORKTREE/kingshoter && node --test test/client-build.test.cjs`
 
 Expected: FAIL because `src/client-build.js` is missing.
 
@@ -555,7 +556,7 @@ export function projectRoomForClient(room, clientBuild) {
 
 - [ ] **Step 4: Run projection and immutability tests**
 
-Run: `cd /Users/ff/Documents/kingshot/kingshoter && node --test test/client-build.test.cjs`
+Run: `cd $KVK_WORKTREE/kingshoter && node --test test/client-build.test.cjs`
 
 Expected: PASS; canonical `triple_rally` remains unchanged and all three legacy PIDs resolve.
 
@@ -588,13 +589,13 @@ git commit -m "feat: project triple commands for legacy clients"
 Use GitNexus MCP once for each existing symbol before editing:
 
 ```text
-gitnexus_impact({repo:"kingshot", target:"defaultRoom", file_path:"kingshoter/src/room.js", direction:"upstream", includeTests:true})
-gitnexus_impact({repo:"kingshot", target:"normalizeLive", file_path:"kingshoter/src/room.js", direction:"upstream", includeTests:true})
-gitnexus_impact({repo:"kingshot", target:"fetch", file_path:"kingshoter/src/room.js", kind:"Method", direction:"upstream", includeTests:true})
-gitnexus_impact({repo:"kingshot", target:"stateMsg", file_path:"kingshoter/src/room.js", direction:"upstream", includeTests:true})
-gitnexus_impact({repo:"kingshot", target:"broadcast", file_path:"kingshoter/src/room.js", direction:"upstream", includeTests:true})
-gitnexus_impact({repo:"kingshot", target:"webSocketMessage", file_path:"kingshoter/src/room.js", kind:"Method", direction:"upstream", includeTests:true})
-gitnexus_impact({repo:"kingshot", target:"createDeliveryRecord", file_path:"kingshoter/src/delivery.js", direction:"upstream", includeTests:true})
+gitnexus_impact({repo:"$GITNEXUS_REPO", target:"defaultRoom", file_path:"kingshoter/src/room.js", direction:"upstream", includeTests:true})
+gitnexus_impact({repo:"$GITNEXUS_REPO", target:"normalizeLive", file_path:"kingshoter/src/room.js", direction:"upstream", includeTests:true})
+gitnexus_impact({repo:"$GITNEXUS_REPO", target:"fetch", file_path:"kingshoter/src/room.js", kind:"Method", direction:"upstream", includeTests:true})
+gitnexus_impact({repo:"$GITNEXUS_REPO", target:"stateMsg", file_path:"kingshoter/src/room.js", direction:"upstream", includeTests:true})
+gitnexus_impact({repo:"$GITNEXUS_REPO", target:"broadcast", file_path:"kingshoter/src/room.js", direction:"upstream", includeTests:true})
+gitnexus_impact({repo:"$GITNEXUS_REPO", target:"webSocketMessage", file_path:"kingshoter/src/room.js", kind:"Method", direction:"upstream", includeTests:true})
+gitnexus_impact({repo:"$GITNEXUS_REPO", target:"createDeliveryRecord", file_path:"kingshoter/src/delivery.js", direction:"upstream", includeTests:true})
 ```
 
 Expected: a recorded blast-radius note. If any result is HIGH or CRITICAL, send that warning to the user before editing and include the affected flows in the task report.
@@ -763,7 +764,7 @@ test('rollback normalizes future mode without mutating an active Triple command'
 
 - [ ] **Step 3: Run tests and verify missing mode/command behavior**
 
-Run: `cd /Users/ff/Documents/kingshot/kingshoter && node --test test/triple-room.test.cjs`
+Run: `cd $KVK_WORKTREE/kingshoter && node --test test/triple-room.test.cjs`
 
 Expected: FAIL because `Room` has no `rallyModes`, `setRallyMode`, Triple branch, or client-build projection.
 
@@ -843,7 +844,10 @@ stateMsg(clientBuild = MIN_TRIPLE_BUILD, tripleAllowed = false) {
   const snapshot = this.snapshot();
   const withCapabilities = {
     ...snapshot,
-    capabilities: { ...(snapshot.capabilities || {}), tripleRally: tripleAllowed }
+    capabilities: {
+      ...(snapshot.capabilities || {}),
+      tripleRally: tripleAllowed && parseClientBuild(clientBuild) >= MIN_TRIPLE_BUILD
+    }
   };
   const projected = projectRoomForClient(withCapabilities, clientBuild);
   return JSON.stringify({ t: 'state', room: projected });
@@ -863,6 +867,8 @@ broadcast() {
 ```
 
 Call `await this.applyTripleGate(this.readSocketAttachment(ws).roomName)` immediately after parsing a valid WebSocket message. This makes the first new connection or mutation after rollback converge stored modes to Double while leaving an active Triple command frozen until cancel or expiry. `writeSocketAttachment()` must shallow-merge `clientBuild`; all later delivery hello/probe updates must preserve it.
+
+Extend `triple-room.test.cjs` so a build-0 socket in a QA-enabled room receives `capabilities.tripleRally:false` plus the legacy command projection, while a `MIN_TRIPLE_BUILD` socket receives `true` plus canonical Triple. Capability must never advertise a UI the receiving build cannot execute.
 
 - [ ] **Step 6: Add authenticated mode mutation**
 
@@ -1068,7 +1074,7 @@ Keep the existing three-audience normalization cap and 24-device target cap.
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 node --test test/triple-room.test.cjs test/rally-mode.test.cjs test/rally-targets.test.cjs test/client-build.test.cjs test/delivery-model.test.cjs
 npm test
 node --check src/room.js
@@ -1083,7 +1089,7 @@ git add kingshoter/src/room.js kingshoter/src/delivery.js kingshoter/test/triple
 git commit -m "feat: persist and dispatch triple rally commands"
 ```
 
-### Task 5: Uncached Build Endpoint and Forced Update Controller
+### Task 5: Uncached Build Endpoint and Supported-Client Update Controller
 
 **Files:**
 - Modify: `kingshoter/src/worker.js:7-47`
@@ -1097,14 +1103,14 @@ git commit -m "feat: persist and dispatch triple rally commands"
 **Interfaces:**
 - Produces `GET /api/build` JSON from `buildMetadata()` with `Cache-Control: no-store`.
 - Produces `window.KvkUpdate` with `BUILD`, `shouldReload(meta)`, `reloadURL(href, build)`, and `createController(options)`.
-- Extends `RoomSocket` URLs with `clientBuild=<window.KvkUpdate.BUILD>` without changing the core plan's `onMessage` contract, and adds an optional `onClose` notification before the existing reconnect path.
+- Extends `RoomSocket` with an optional immutable `clientBuild` constructor option and appends that value to its URL without changing the core plan's `onMessage` contract. `kvk.js` supplies a nonzero build only when both the updater and Triple rally runtime loaded successfully; it also adds an optional `onClose` notification before the existing reconnect path.
 
 - [ ] **Step 1: Run upstream impact analysis for existing entry points**
 
 ```text
-gitnexus_impact({repo:"kingshot", target:"fetch", file_path:"kingshoter/src/worker.js", kind:"Method", direction:"upstream", includeTests:true})
-gitnexus_impact({repo:"kingshot", target:"constructor", file_path:"kingshoter/public/app.js", kind:"Method", direction:"upstream", includeTests:true})
-gitnexus_impact({repo:"kingshot", target:"connect", file_path:"kingshoter/public/app.js", kind:"Method", direction:"upstream", includeTests:true})
+gitnexus_impact({repo:"$GITNEXUS_REPO", target:"fetch", file_path:"kingshoter/src/worker.js", kind:"Method", direction:"upstream", includeTests:true})
+gitnexus_impact({repo:"$GITNEXUS_REPO", target:"constructor", file_path:"kingshoter/public/app.js", kind:"Method", direction:"upstream", includeTests:true})
+gitnexus_impact({repo:"$GITNEXUS_REPO", target:"connect", file_path:"kingshoter/public/app.js", kind:"Method", direction:"upstream", includeTests:true})
 ```
 
 Expected: blast-radius notes are reported before edits; HIGH/CRITICAL results are explicitly warned to the user.
@@ -1163,7 +1169,7 @@ test('an active personal countdown defers but does not forget the update', async
 
 - [ ] **Step 3: Run and verify the missing controller failure**
 
-Run: `cd /Users/ff/Documents/kingshot/kingshoter && node --test test/kvk-update.test.cjs`
+Run: `cd $KVK_WORKTREE/kingshoter && node --test test/kvk-update.test.cjs`
 
 Expected: FAIL because `public/kvk-update.js` is missing.
 
@@ -1286,11 +1292,13 @@ Add to `public/app.css`:
 .update-card{padding:18px 24px;border:2px solid var(--ink);border-radius:16px;background:var(--cream);font-weight:800}
 ```
 
-Change only the WebSocket URL construction in `RoomSocket.connect()`:
+Extend the constructor without changing existing two-argument callers, then change only the WebSocket URL construction in `RoomSocket.connect()`:
 
 ```js
-const build = window.KvkUpdate ? window.KvkUpdate.BUILD : 0;
-const ws = new WebSocket(`${proto}://${location.host}/api/ws?room=${encodeURIComponent(this.room)}&clientBuild=${build}`);
+// constructor(room, onState, options = {})
+this.clientBuild = Number.isInteger(options && options.clientBuild) ? options.clientBuild : 0;
+
+const ws = new WebSocket(`${proto}://${location.host}/api/ws?room=${encodeURIComponent(this.room)}&clientBuild=${this.clientBuild}`);
 ```
 
 Initialize `this.onClose = null` beside the core `onMessage` callback. Inside the existing WebSocket close handler, invoke `if (this.onClose) this.onClose();` before the unchanged reconnect timer. Do not replace or duplicate the reconnect logic.
@@ -1327,6 +1335,8 @@ var updateController = makeUpdateController();
 updateController.start();
 ```
 
+Task 5 deliberately leaves the existing two-argument `RoomSocket` call unchanged, so the updater-only bootstrap advertises build 0. Task 6 changes that call only after `tripleClientAvailable` exists; no intermediate commit may reference an undefined rally-runtime symbol.
+
 Call `updateController.flush()` after every `onState()` reconciliation and after Cancel removes future cues.
 
 - [ ] **Step 8: Verify endpoint, controller, static syntax, and disabled gate**
@@ -1334,7 +1344,7 @@ Call `updateController.flush()` after every `onState()` reconciliation and after
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 node --test test/kvk-update.test.cjs test/client-build.test.cjs
 node --check src/worker.js
 node --check public/app.js
@@ -1348,7 +1358,7 @@ Expected: all tests pass, syntax checks exit 0, dry run succeeds, and output ret
 
 ```bash
 git add kingshoter/src/worker.js kingshoter/public/kvk-update.js kingshoter/test/kvk-update.test.cjs kingshoter/public/app.js kingshoter/public/kvk.html kingshoter/public/app.css kingshoter/wrangler.toml
-git commit -m "feat: force stale kvk clients to update"
+git commit -m "feat: update supported stale kvk clients"
 ```
 
 ### Task 6: Shared Browser Rally Semantics
@@ -1369,11 +1379,11 @@ git commit -m "feat: force stale kvk clients to update"
 - [ ] **Step 1: Run upstream impact analysis for the shared cue path**
 
 ```text
-gitnexus_impact({repo:"kingshot", target:"myTarget", file_path:"kingshoter/public/kvk.js", direction:"upstream", includeTests:true})
-gitnexus_impact({repo:"kingshot", target:"scheduleAllCues", file_path:"kingshoter/public/kvk.js", direction:"upstream", includeTests:true})
-gitnexus_impact({repo:"kingshot", target:"activeCommand", file_path:"kingshoter/public/kvk.js", direction:"upstream", includeTests:true})
-gitnexus_impact({repo:"kingshot", target:"syncMap", file_path:"kingshoter/public/kvk.js", direction:"upstream", includeTests:true})
-gitnexus_impact({repo:"kingshot", target:"tick", file_path:"kingshoter/public/kvk.js", direction:"upstream", includeTests:true})
+gitnexus_impact({repo:"$GITNEXUS_REPO", target:"myTarget", file_path:"kingshoter/public/kvk.js", direction:"upstream", includeTests:true})
+gitnexus_impact({repo:"$GITNEXUS_REPO", target:"scheduleAllCues", file_path:"kingshoter/public/kvk.js", direction:"upstream", includeTests:true})
+gitnexus_impact({repo:"$GITNEXUS_REPO", target:"activeCommand", file_path:"kingshoter/public/kvk.js", direction:"upstream", includeTests:true})
+gitnexus_impact({repo:"$GITNEXUS_REPO", target:"syncMap", file_path:"kingshoter/public/kvk.js", direction:"upstream", includeTests:true})
+gitnexus_impact({repo:"$GITNEXUS_REPO", target:"tick", file_path:"kingshoter/public/kvk.js", direction:"upstream", includeTests:true})
 ```
 
 Expected: blast radius reported before editing. Treat `scheduleAllCues` as audio-critical even if the graph underestimates dynamic browser callbacks.
@@ -1421,7 +1431,7 @@ test('mode reconciliation never keeps a hidden weak2 in Double', () => {
 
 - [ ] **Step 3: Run and verify the missing module failure**
 
-Run: `cd /Users/ff/Documents/kingshot/kingshoter && node --test test/kvk-rally-client.test.cjs`
+Run: `cd $KVK_WORKTREE/kingshoter && node --test test/kvk-rally-client.test.cjs`
 
 Expected: FAIL because `public/kvk-rally.js` is missing.
 
@@ -1506,6 +1516,16 @@ function isRallyCommand(command) { return rallyApi.isRallyCommand(command); }
 function myTarget(command) { return rallyApi.targetFor(command, myPid); }
 ```
 
+Now change the existing socket construction inside `connect()` so a nonzero build is advertised only when the updater and this full rally adapter are both usable:
+
+```js
+var advertisedKvkBuild = tripleClientAvailable && window.KvkUpdate &&
+  Number.isInteger(window.KvkUpdate.BUILD) ? window.KvkUpdate.BUILD : 0;
+sock = new window.RoomSocket(ROOM, onState, { clientBuild: advertisedKvkBuild });
+```
+
+A missing `kvk-rally.js` with a present updater therefore advertises build 0 and receives legacy projection. Add the upstream GitNexus impact result for `connect` in `public/kvk.js` to Task 6's existing browser impact report before editing it.
+
 Apply this exact predicate table; do not change control flow, cue keys, or arithmetic:
 
 | Function | Existing expression | Replacement |
@@ -1519,7 +1539,7 @@ Apply this exact predicate table; do not change control flow, cue keys, or arith
 
 Replace `myTarget()` with the one-line shared-module wrapper shown above. Preserve the core plan's `if (!personal && shouldBookJoinAudio())` audience guard around the generic JOIN branch, so an unselected commander remains silent while an ordinary registered member hears JOIN. Keep `simCommand()` returning `double_rally`, and keep `fireDouble()` untouched. Confirm the exact remaining intentional occurrences with:
 
-Run: `cd /Users/ff/Documents/kingshot && rg -n 'type === "double_rally"|type !== "double_rally"' kingshoter/public/kvk.js`
+Run: `cd $KVK_WORKTREE && rg -n 'type === "double_rally"|type !== "double_rally"' kingshoter/public/kvk.js`
 
 Expected: only `simCommand()` and `fireDouble()` protocol construction remain direct Double-only code; no predicate branch remains Double-only.
 
@@ -1540,7 +1560,7 @@ assert.equal(new Set(personal.map((cue) => cue.key)).size, personal.length, 'dup
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 node --test test/kvk-rally-client.test.cjs
 node test/mineaudio.cjs http://127.0.0.1:8791
 node test/alert-truth.cjs http://127.0.0.1:8791
@@ -1572,11 +1592,11 @@ git commit -m "feat: route triple rallies through personal cues"
 - [ ] **Step 1: Run and warn on roster/slot blast radius**
 
 ```text
-gitnexus_impact({repo:"kingshot", target:"renderRoster", file_path:"kingshoter/public/kvk.js", direction:"upstream", includeTests:true})
-gitnexus_impact({repo:"kingshot", target:"renderSlots", file_path:"kingshoter/public/kvk.js", direction:"upstream", includeTests:true})
-gitnexus_impact({repo:"kingshot", target:"stageBroadcast", file_path:"kingshoter/public/kvk.js", direction:"upstream", includeTests:true})
-gitnexus_impact({repo:"kingshot", target:"onState", file_path:"kingshoter/public/kvk.js", direction:"upstream", includeTests:true})
-gitnexus_impact({repo:"kingshot", target:"canonicalPick", file_path:"kingshoter/public/kvk.js", direction:"upstream", includeTests:true})
+gitnexus_impact({repo:"$GITNEXUS_REPO", target:"renderRoster", file_path:"kingshoter/public/kvk.js", direction:"upstream", includeTests:true})
+gitnexus_impact({repo:"$GITNEXUS_REPO", target:"renderSlots", file_path:"kingshoter/public/kvk.js", direction:"upstream", includeTests:true})
+gitnexus_impact({repo:"$GITNEXUS_REPO", target:"stageBroadcast", file_path:"kingshoter/public/kvk.js", direction:"upstream", includeTests:true})
+gitnexus_impact({repo:"$GITNEXUS_REPO", target:"onState", file_path:"kingshoter/public/kvk.js", direction:"upstream", includeTests:true})
+gitnexus_impact({repo:"$GITNEXUS_REPO", target:"canonicalPick", file_path:"kingshoter/public/kvk.js", direction:"upstream", includeTests:true})
 ```
 
 Expected: `renderRoster` and `renderSlots` are treated as CRITICAL based on the prior map. Warn the user with direct callers and affected flows before editing, then proceed under the existing authorization.
@@ -1613,7 +1633,7 @@ test('moving to an occupied role swaps captains without loss', () => {
 
 - [ ] **Step 3: Run and verify the new functions are missing**
 
-Run: `cd /Users/ff/Documents/kingshot/kingshoter && node --test test/kvk-rally-client.test.cjs`
+Run: `cd $KVK_WORKTREE/kingshoter && node --test test/kvk-rally-client.test.cjs`
 
 Expected: FAIL with `rally.selectPlayer is not a function`.
 
@@ -1924,7 +1944,7 @@ firetri: '⚔️ Double-tap for Triple Rally', need3: 'Select Sacrifice 1, Sacri
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 node --test test/kvk-rally-client.test.cjs
 npm test
 ```
@@ -1953,9 +1973,9 @@ git commit -m "feat: select triple rally captains by kingdom"
 - [ ] **Step 1: Run impact analysis for Fire/status symbols**
 
 ```text
-gitnexus_impact({repo:"kingshot", target:"fireDouble", file_path:"kingshoter/public/kvk.js", direction:"upstream", includeTests:true})
-gitnexus_impact({repo:"kingshot", target:"refreshSyncPill", file_path:"kingshoter/public/kvk.js", direction:"upstream", includeTests:true})
-gitnexus_impact({repo:"kingshot", target:"tapFire", file_path:"kingshoter/public/kvk.js", direction:"upstream", includeTests:true})
+gitnexus_impact({repo:"$GITNEXUS_REPO", target:"fireDouble", file_path:"kingshoter/public/kvk.js", direction:"upstream", includeTests:true})
+gitnexus_impact({repo:"$GITNEXUS_REPO", target:"refreshSyncPill", file_path:"kingshoter/public/kvk.js", direction:"upstream", includeTests:true})
+gitnexus_impact({repo:"$GITNEXUS_REPO", target:"tapFire", file_path:"kingshoter/public/kvk.js", direction:"upstream", includeTests:true})
 ```
 
 Expected: report the timing/status blast radius. Do not edit the `fireDouble()` body.
@@ -1988,7 +2008,7 @@ test('server remains the Triple timing authority', () => {
 
 - [ ] **Step 3: Run and verify Triple Fire is absent**
 
-Run: `cd /Users/ff/Documents/kingshot/kingshoter && node --test test/triple-client-source.test.cjs`
+Run: `cd $KVK_WORKTREE/kingshoter && node --test test/triple-client-source.test.cjs`
 
 Expected: FAIL because `fireTriple()` and `fireCurrentRally()` do not exist.
 
@@ -2101,7 +2121,7 @@ Add `triple_rally` to the allowed launch types in `command-scope.test.cjs`, whil
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 node --test test/triple-client-source.test.cjs test/command-scope.test.cjs
 for lead in 10 15 30 60; do node test/lead-timing.cjs http://127.0.0.1:8791 "$lead"; done
 ```
@@ -2429,11 +2449,20 @@ test('missing optional Triple and updater scripts preserve default Double Fire a
 });
 ```
 
+In the same spec add a separate active-command compatibility test that blocks **only** `kvk-rally.js` while leaving `kvk-update.js` loaded. First create and Fire a canonical Triple command with normal commander/captain contexts; then open a newly pre-registered target context whose rally script is blocked. Capture that page's `/api/ws` URL and state/cue facts, and assert:
+
+- its socket advertises `clientBuild=0`, never the updater's nonzero build;
+- `room.capabilities.tripleRally` is false and the active command is projected as `double_rally` without mutating the canonical server command;
+- the fallback page still finds its own pair among all three projected targets and schedules exactly one personal cue base;
+- all three target PIDs remain present in the projected pair list, while an ordinary member still gets one JOIN and an unselected commander remains silent.
+
+This test must connect while Triple is already active; a fresh Double-only room or blocking both optional scripts does not cover the partial-cache failure.
+
 - [ ] **Step 3: Run Chromium first and verify RED**
 
-Run: `cd /Users/ff/Documents/kingshot/kingshoter && npx playwright test -c playwright.qa-kvk-triple.config.cjs --project=chromium test/qa-kvk-triple.spec.cjs`
+Run: `cd $KVK_WORKTREE/kingshoter && npx playwright test -c playwright.qa-kvk-triple.config.cjs --project=chromium test/qa-kvk-triple.spec.cjs`
 
-Expected before Tasks 4–8: FAIL on the missing `#tripleMode` or absent `triple_rally`. Expected after Tasks 4–8: PASS.
+Expected before Tasks 4–8: FAIL on the missing `#tripleMode`, absent `triple_rally`, or incorrect nonzero build advertisement when only `kvk-rally.js` is blocked. Expected after Tasks 4–8: PASS.
 
 - [ ] **Step 4: Add focused package commands**
 
@@ -2451,7 +2480,7 @@ Merge these scripts into `package.json`:
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 npx playwright install chromium firefox webkit
 npm run test:triple
 npm run test:qa:triple
@@ -2528,7 +2557,7 @@ After rollback, run the focused local both-gates-off regression to verify K1/K2 
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 npm test
 npm run test:triple
 npm run test:qa:delivery
@@ -2552,7 +2581,7 @@ TRIPLE_RALLY_ENABLED = "0"
 TRIPLE_RALLY_QA_ENABLED = "1"
 ```
 
-Run: `cd /Users/ff/Documents/kingshot/kingshoter && npx wrangler deploy`
+Run: `cd $KVK_WORKTREE/kingshoter && npx wrangler deploy`
 
 Expected: Wrangler reports a successful deployment. Then run:
 
@@ -2584,9 +2613,11 @@ export const MIN_KVK_BUILD = 2026071302;
 export const MIN_TRIPLE_BUILD = 2026071302;
 ```
 
-Update the build-metadata unit expectation to `minKvkBuild: 2026071302`, run `node --test test/client-build.test.cjs test/kvk-update.test.cjs`, and confirm a stale-build controller uses `location.replace()` while an active personal countdown defers replacement until its cue is complete. Keep the gates at global `0`, QA `1`, deploy this minimum-build change, and wait at least one complete 60-second update polling interval. Then run deployed QA again with `EXPECT_TRIPLE_GLOBAL=0`; all fresh contexts must report build `2026071302`. Keep the legacy per-socket projection bridge in place until a later release has independent evidence that no old-build sockets remain.
+Update the build-metadata unit expectation to `minKvkBuild: 2026071302`, run `node --test test/client-build.test.cjs test/kvk-update.test.cjs`, and confirm an updater-capable stale client uses `location.replace()` while an active personal countdown defers replacement until its cue is complete. Keep the gates at global `0`, QA `1`, deploy this minimum-build change, and rerun deployed QA with `EXPECT_TRIPLE_GLOBAL=0`; all fresh contexts must report build `2026071302`.
 
-Only after that separate update deployment and QA pass, change the platform gates exactly:
+Do not infer that pre-bootstrap pages refreshed after one 60-second polling interval. Record a bounded, aggregate socket-build inventory during at least one complete real battle-window soak after the bootstrap deployment: count only build 0, below-minimum, and Triple-capable sockets, with no room names, PIDs, device IDs, or user agents. The global gate may advance only if every observed operation-room socket in that window is Triple-capable and every physical row is PASS. If any build-0/below-minimum socket remains—or inventory is unavailable—leave global Triple `0`. Keep the legacy per-socket projection bridge indefinitely until a later release has independent evidence that old-build sockets are gone.
+
+Only after that separate update deployment, QA pass, and clean battle-window build inventory, change the platform gates exactly:
 
 ```toml
 [vars]
@@ -2597,7 +2628,7 @@ TRIPLE_RALLY_QA_ENABLED = "1"
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 npx wrangler deploy --dry-run
 npx wrangler deploy
 curl -fsS https://kingshoter.com/api/build
@@ -2612,7 +2643,7 @@ Use the focused Durable Object regression added in Task 4; it seeds an active im
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 node --test --test-name-pattern="rollback normalizes future mode" test/triple-room.test.cjs
 ```
 
@@ -2636,7 +2667,7 @@ Expected: the commit contains the actual evidence record and the deployed global
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 npm test
 npm run test:triple
 npm run test:qa:delivery

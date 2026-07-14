@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Complete `docs/superpowers/plans/2026-07-13-kvk-core-player-control.md` and `docs/superpowers/plans/2026-07-13-kvk-reliable-delivery-qa.md` first. This plan consumes their shared QA helper, room-local device identity, QA validator, and immutable timing facts unchanged.
+- Complete Core, Reliable, Triple, and the serial Push-plan shared-file reconciliation first. This plan consumes their shared QA helper, room-local device identity, QA validator, `weak2` role, and immutable timing facts unchanged; it must preserve Push additions to `worker.js`, `wrangler.toml`, and `package.json`.
 - `test/support/qa-kvk.cjs` must already export exactly `assertQaRoomName(room)`, `makeQaRoom(testInfo)`, `qaRoomUrl(baseURL, room, params = {})`, and `installQaWebSocketGuard(context, room, options = {})`. The only supported fault hooks are `shouldDropClientMessage({ url, data })` and `shouldDropServerMessage({ url, data })`. Do not recreate, broaden, or overwrite this helper.
 - `src/delivery.js` must already export `isQaRoomName(room)`. Server lab routing imports that exact function; there is no second server-side room-name policy and no exception for room `1406`.
 - `public/app.js` must already expose `window.getRoomDeviceId(room)`. The hidden page loads that existing script and uses the same room-local ID. Do not create another device key or generator.
@@ -21,7 +21,7 @@
 - Default configuration is `AUDIO_STREAM_LAB_ENABLED = "0"` and `AUDIO_STREAM_LAB_ALLOW_SHORT_DELAYS = "0"`. A disabled API is indistinguishable from a missing route and performs no Durable Object lookup. The short-delay flag is accepted only on `localhost` or `127.0.0.1`.
 - Every API request validates `^qa-kvk-[a-z0-9](?:[a-z0-9-]{0,39}[a-z0-9])?$`, maximum 48 characters, before Durable Object lookup. Every production-connected test creates a fresh `qa-kvk-*` room and a random QA-only password. Local integration runs first.
 - Every POST, DELETE, and WebSocket upgrade requires `Origin === new URL(request.url).origin`. The media GET requires a valid private session cookie, rejects cross-site fetch metadata, sets `Cross-Origin-Resource-Policy: same-origin`, and never enables CORS.
-- Only enrolled `main` and `weak` player devices may receive a stream or command. `member`, `commander`, missing, and unknown roles are silent and rejected. This lab has no commander audio path.
+- Only enrolled `main`, `weak`, and `weak2` player devices may receive a stream or command. `member`, `commander`, missing, and unknown roles are silent and rejected. This lab has no commander audio path.
 - The Durable Object owns delayed execution. Supported production-connected delays are exactly 5, 15, 60, and 180 minutes. A local-only 5-second delay exists for integration tests. Browser code may display times but may not pre-schedule, synthesize, or recover a cue.
 - Each selected-player command preserves one immutable `commandId`, `pid`, `role`, `kingdom`, `issuedAtMs`, `fireAtMs`, `audioExpiresAtMs`, `marchSeconds`, and `leadSeconds`. Retry/reconnect never changes those facts. PID and march validation reuse Core `normalizeRoutingKey()` and `parseMarchSeconds()`; the lab may not invent a stricter numeric-only identity or a wider march range.
 - A command received or rehydrated at or after `audioExpiresAtMs` is silent. A reconnect may receive only future, not-yet-queued cue frames. It never replays a missed number, GO, queued batch, or expired command.
@@ -34,6 +34,7 @@
 - Automated tests establish routing, encoding, timing, dedupe, expiry, and client state-machine behavior only. Playwright WebKit is not physical iOS. No background/lock-screen, audio-focus, battery, heat, or promotion claim is allowed without the physical matrix in Task 7.
 - If any platform needs user-agent transport branching, persistent audio-focus takeover, or a platform-only alternate pipeline, reject the candidate rather than leaving a permanent transport matrix. Capability checks for optional Media Session controls are allowed and must not affect streamed audio.
 - Before modifying any existing function, class, or method, run `gitnexus_impact` upstream and report direct callers, affected processes, and risk. If risk is HIGH or CRITICAL, warn the user before editing.
+- Resolve `KVK_WORKTREE` and `GITNEXUS_REPO` with the master plan's executable worktree block before any GitNexus call. Every detect/impact call in this leaf passes the printed literal worktree repository name; never use a root-checkout index whose path differs.
 - Before every implementation commit, confirm there are no pre-existing staged files, stage only the task's listed paths, refresh a stale index with `npx gitnexus analyze`, run `gitnexus_detect_changes(scope="staged")`, and confirm Classic Fire, state, countdown, and audio flows are absent from the affected scope. Never unstage or absorb user-owned changes to make the check pass.
 - Preserve every unrelated worktree change and every binding/migration added by the core, Reliable, or Backup Push work. Push and Stream research may be reviewed in parallel, but edits to `src/worker.js`, `wrangler.toml`, or `package.json` must be applied sequentially and reconciled, never overwritten.
 - The configuration flag blocks new lookups but is not itself proof that already-open HTTP streams ended. A global stop first authenticates and kills every active QA room recorded for the bounded window, verifies each reader reaches EOF, and only then deploys `AUDIO_STREAM_LAB_ENABLED=0` to block new sessions.
@@ -102,7 +103,7 @@ window.getRoomDeviceId(room); // room-local crypto.randomUUID()
 // Lab command: Reliable timing facts, isolated type and meaning.
 {
   t: 'audioStreamLabCommand', v: 1, lab: true,
-  commandId, pid, role: 'main' | 'weak', kingdom,
+  commandId, pid, role: 'main' | 'weak' | 'weak2', kingdom,
   issuedAtMs, fireAtMs, audioExpiresAtMs,
   marchSeconds, leadSeconds
 }
@@ -141,7 +142,7 @@ window.getRoomDeviceId(room); // room-local crypto.randomUUID()
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 test -f test/support/qa-kvk.cjs
 rg -n "export function isQaRoomName|window\.getRoomDeviceId" src/delivery.js public/app.js
 git status --short
@@ -158,7 +159,7 @@ gitnexus_impact({
   kind: "Method",
   direction: "upstream",
   includeTests: true,
-  repo: "kingshot"
+  repo: "$GITNEXUS_REPO"
 })
 ```
 
@@ -231,7 +232,7 @@ test('ordinary pages contain no stream-lab hook', () => {
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 node --test test/audio-stream-lab-guard.test.cjs
 ```
 
@@ -316,7 +317,7 @@ Do not reorder or edit `/api/ws`, gift, lookup, time, codes, scheduled, or stati
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 node --test test/audio-stream-lab-guard.test.cjs
 npx wrangler deploy --dry-run --outdir /tmp/kingshoter-audio-stream-task1
 ```
@@ -433,7 +434,7 @@ test('asset build is deterministic byte for byte', () => {
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 node --test test/audio-stream-lab-assets.test.cjs
 ```
 
@@ -514,7 +515,7 @@ Preserve the existing `test`, `deploy`, and `dev` scripts and any scripts added 
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 npm run build:audio-stream-assets
 node --test test/audio-stream-lab-assets.test.cjs
 ```
@@ -635,7 +636,7 @@ The helper must also assert:
 - cue starts round to the nearest 24 ms frame with no more than 12 ms alignment error;
 - adjacent 41-frame cues never overlap;
 - `audioExpiresAtMs <= fireAtMs` is rejected;
-- role other than `main`/`weak`, Core-invalid routing keys (including `__proto__`, `constructor`, whitespace, and punctuation), inherited player keys, noninteger times, lead other than 10, and bounds violations are rejected;
+- role other than `main`/`weak`/`weak2`, Core-invalid routing keys (including `__proto__`, `constructor`, whitespace, and punctuation), inherited player keys, noninteger times, lead other than 10, and bounds violations are rejected;
 - opaque Core-valid PIDs such as `n-qa-alpha` are accepted exactly, while march values below 5 or above 180 are rejected;
 - cancellation never mutates the original command object;
 - no connection receives more than `TARGET_BUFFER_MS + PUMP_MS` of queued frames;
@@ -646,7 +647,7 @@ The helper must also assert:
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 node --test test/audio-stream-lab-scheduler.test.cjs
 ```
 
@@ -687,7 +688,7 @@ export const STREAM_POLICY = Object.freeze({
 
 - `t === 'audioStreamLabCommand'`, `v === 1`, and `lab === true`;
 - `commandId` is 1..64 safe `[A-Za-z0-9:_-]` characters and `pid === normalizeRoutingKey(raw.pid)`; inherited/reserved/malformed keys are rejected;
-- role is `main` or `weak`, kingdom is integer 1 or 2, `parseMarchSeconds(raw.marchSeconds)` is non-null (therefore exactly Core's 5..180 range), and lead is exactly 10;
+- role is `main`, `weak`, or `weak2`, kingdom is integer 1 or 2, `parseMarchSeconds(raw.marchSeconds)` is non-null (therefore exactly Core's 5..180 range), and lead is exactly 10;
 - all times are safe integers, `issuedAtMs <= fireAtMs`, and `audioExpiresAtMs === fireAtMs + 150`;
 - normalization does not make an already-expired command live. Return `null` when `nowMs >= audioExpiresAtMs`.
 
@@ -731,7 +732,7 @@ The carrier file is a ten-frame source loop. Slice one to ten frames as necessar
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 node --test test/audio-stream-lab-assets.test.cjs test/audio-stream-lab-scheduler.test.cjs
 ```
 
@@ -817,7 +818,7 @@ Add complete harness tests—not empty test bodies—for member/commander reject
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 node --test test/audio-stream-lab-storage.test.cjs
 ```
 
@@ -830,7 +831,7 @@ In `audio-stream-lab.mjs`, re-run `requireAudioStreamQaRoom(request.headers.get(
 - password input 20..128 characters; generate a 16-byte salt and derive 32 bytes with WebCrypto PBKDF2/SHA-256 at 100,000 iterations;
 - constant-time byte comparison for later enrollment attempts;
 - 32 random bytes for each session token; persist only SHA-256(token), never the token;
-- device IDs 1..64 `[A-Za-z0-9:_-]`; PIDs pass the imported Core `normalizeRoutingKey()` own-key policy; roles are exactly main/weak; march passes imported Core `parseMarchSeconds()` (5..180); language is en/zh;
+- device IDs 1..64 `[A-Za-z0-9:_-]`; PIDs pass the imported Core `normalizeRoutingKey()` own-key policy; roles are exactly main/weak/weak2; march passes imported Core `parseMarchSeconds()` (5..180); language is en/zh;
 - coarse platform values only: OS `ios|android|macos|windows`, browser `safari|chrome|edge`, form factor `phone|tablet|desktop`;
 - first valid password claims an empty QA DO; later sessions must match it; a killed room cannot be reclaimed;
 - session rotation replaces the same device's old token and closes its old stream;
@@ -897,7 +898,7 @@ Abort if that tag already exists or if another pending plan uses it. Do not alte
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 node --test test/audio-stream-lab-guard.test.cjs test/audio-stream-lab-assets.test.cjs test/audio-stream-lab-scheduler.test.cjs test/audio-stream-lab-storage.test.cjs
 npx wrangler deploy --dry-run --outdir /tmp/kingshoter-audio-stream-task4
 rg -n "AUDIO_STREAM_LAB_ENABLED = \"0\"|audiostreamlab-add-20260713|class_name = \"AudioStreamLab\"" wrangler.toml
@@ -935,11 +936,11 @@ Before modifying the now-existing `AudioStreamLab` class or `normalizeLabCommand
 Cover these exact behaviors in `test/audio-stream-lab-command.test.cjs`:
 
 - arm accepts exactly 5/15/60/180 minutes; 5 seconds is rejected on a public hostname even when the flag is set and accepted only on `localhost`/`127.0.0.1` with the flag `1`;
-- target pids must resolve to enrolled main/weak devices; commander/member cannot be invented in the arm body;
+- target PIDs must resolve to the exact enrolled role set for the requested Double (`weak+main`) or Triple (`weak+weak2+main`) mode; commander/member cannot be invented in the arm body;
 - duplicate/overlapping jobs for a device inside the same 11-second cue window are rejected with 409;
 - the earliest pending job owns the one DO alarm; arming later work does not move it later;
 - an alarm firing twice creates no duplicate command or cue;
-- at due time, compute `roleOffsetMs = role === 'main' ? 1000 : 0`, `rawPressMs = roleOffsetMs - marchSeconds*1000`, `firstRawMs = min(rawPressMs)`, and each target's `fireAtMs = dueAtMs + 10_000 + rawPressMs - firstRawMs`; therefore every Sacrifice landing is equal and Main lands exactly one second later, matching Core/Triple semantics while the earliest personal press remains exactly ten seconds after due;
+- at due time, compute `roleOffsetMs = role === 'main' ? 1000 : 0` for both `weak` and `weak2`, `rawPressMs = roleOffsetMs - marchSeconds*1000`, `firstRawMs = min(rawPressMs)`, and each target's `fireAtMs = dueAtMs + 10_000 + rawPressMs - firstRawMs`; therefore both Sacrifice landings are equal and Main lands exactly one second later, matching Core/Triple semantics while the earliest personal press remains exactly ten seconds after due;
 - every target device sharing a pid receives the same commandId/fire time; different pids may have different personal fire times;
 - `audioExpiresAtMs === fireAtMs + 150`, `issuedAtMs === dueAtMs`, kingdom is the validated arm value, and every other field remains byte-equivalent on reconnect;
 - audio bytes are queued even when the metadata WebSocket is absent, proving browser JavaScript is not the cue authority;
@@ -956,7 +957,7 @@ Use a byte-level assertion that two devices for one pid receive the same cue ass
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 node --test test/audio-stream-lab-command.test.cjs
 ```
 
@@ -970,11 +971,14 @@ Expected: FAIL because job, alarm, socket, evidence, and kill handlers do not ex
 {
   delayMs: 300000 | 900000 | 3600000 | 10800000 | 5000,
   kingdom: 1 | 2,
-  targetPids: ['700001', '700002'] // one or two unique enrolled pids
+  rallyMode: 'double' | 'triple',
+  targetPids: ['700001', '700002'] // exactly 2 for double; exactly 3 for triple
 }
 ```
 
-Ignore/reject any client-supplied command ID, issued/fire/expiry time, role, march, language, or device target. Snapshot those fields from current enrollment when arming. Generate `jobId` and, at due time, one command ID with `crypto.randomUUID()` bounded to 64 characters.
+Require unique enrolled PIDs whose roles exactly cover `weak+main` for Double or `weak+weak2+main` for Triple; reject a missing/duplicate role or a count that does not match `rallyMode`. Ignore/reject any client-supplied command ID, issued/fire/expiry time, role, march, language, or device target. Snapshot those fields from current enrollment when arming. Generate `jobId` and, at due time, one command ID with `crypto.randomUUID()` bounded to 64 characters.
+
+Add deterministic command tests for both modes. The Triple case enrolls three selected captain devices, proves both Sacrifices have equal landing time and Main is one second later, and proves enrolled commander/member devices receive no metadata or stream cue.
 
 Persist the job before calling `state.storage.setAlarm(earliestDueAtMs)`. `alarm()` runs inside `blockConcurrencyWhile`, reloads state, sorts due jobs by `[dueAtMs,jobId]`, claims each once, creates immutable target commands, persists before broadcasting/installing, prunes, then sets the next earliest alarm or deletes it. If installation/broadcast throws after persistence, reconnect rehydrates the same facts; it does not mint another ID.
 
@@ -1022,7 +1026,7 @@ or a sanitized `classicBaseline` whose command uses the core shape from Global C
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 node --test test/audio-stream-lab-guard.test.cjs test/audio-stream-lab-assets.test.cjs test/audio-stream-lab-scheduler.test.cjs test/audio-stream-lab-storage.test.cjs test/audio-stream-lab-command.test.cjs
 ```
 
@@ -1078,7 +1082,7 @@ Also source-scan `audio-stream.js` and fail on `AudioContext`, `webkitAudioConte
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 node --test test/audio-stream-lab-client.test.cjs
 ```
 
@@ -1106,7 +1110,7 @@ Expected: FAIL because the hidden client files do not exist.
       <label>Room <input id="room" name="room" readonly></label>
       <label>QA password <input id="password" name="password" type="password" minlength="20" maxlength="128" required></label>
       <label>Player ID or test nickname <input id="pid" name="pid" autocapitalize="off" pattern="[A-Za-z0-9_-]{1,24}" required></label>
-      <label>Role <select id="role" name="role"><option value="main">main</option><option value="weak">weak</option></select></label>
+      <label>Role <select id="role" name="role"><option value="main">main</option><option value="weak">weak / Sacrifice 1</option><option value="weak2">weak2 / Sacrifice 2</option></select></label>
       <label>March seconds <input id="marchSeconds" name="marchSeconds" type="number" min="5" max="180" required></label>
       <label>Language <select id="language" name="language"><option value="en">English</option><option value="zh">中文</option></select></label>
       <label>OS <select id="os" name="os"><option>ios</option><option>android</option><option>macos</option><option>windows</option></select></label>
@@ -1115,7 +1119,7 @@ Expected: FAIL because the hidden client files do not exist.
       <button id="joinLab" type="submit">Join lab</button>
     </form>
     <section aria-label="Stream controls"><button id="startStream" disabled>Start Stream</button><button id="stopStream" disabled>Stop Stream</button></section>
-    <section aria-label="Test controls"><label>Delay <select id="delayMs"><option value="300000">5 minutes</option><option value="900000">15 minutes</option><option value="3600000">60 minutes</option><option value="10800000">180 minutes</option></select></label><label>Kingdom <select id="kingdom"><option value="1">1</option><option value="2">2</option></select></label><label>Target player IDs <input id="targetPids" placeholder="700001,700002"></label><button id="armTest" disabled>Arm synthetic test</button><button id="cancelTest" disabled>Cancel test</button></section>
+    <section aria-label="Test controls"><label>Mode <select id="rallyMode"><option value="double">Double</option><option value="triple">Triple</option></select></label><label>Delay <select id="delayMs"><option value="300000">5 minutes</option><option value="900000">15 minutes</option><option value="3600000">60 minutes</option><option value="10800000">180 minutes</option></select></label><label>Kingdom <select id="kingdom"><option value="1">1</option><option value="2">2</option></select></label><label>Target player IDs <input id="targetPids" placeholder="Double: 2 IDs · Triple: 3 IDs"></label><button id="armTest" disabled>Arm synthetic test</button><button id="cancelTest" disabled>Cancel test</button></section>
     <section aria-label="Evidence controls"><button id="saveObservation" disabled>Save audible observation</button><button id="killRoom" disabled>Kill this QA room</button></section>
     <output id="status" aria-live="polite">Not joined</output>
   </main>
@@ -1136,6 +1140,7 @@ At module evaluation:
 3. Populate coarse platform choices from explicit user selection; do not store/send a full UA.
 4. Join only from its button. POST exact profile/password data to `/session?room=...`, retaining no password after the request resolves.
 5. Keep the returned session facts in memory; authentication itself is the HttpOnly cookie.
+6. Arm reads `#rallyMode`; it sends exactly two unique PIDs for Double or three for Triple and rejects any other count before network access. The server still revalidates canonical enrolled roles.
 
 The Start handler must set `userStarted = true`, `userPaused = false`, call `replaceAudio()`, assign the same-origin stream URL, and call `audio.play()` before any `await`, timer, or fetch. Use `preload = 'none'`. The server response contains identity through the cookie; never put pid/device/token in the media URL.
 
@@ -1173,10 +1178,11 @@ url.searchParams.set('room', room); // qaRoomUrl is intentionally not used: it a
 
 Install a second test-local `context.routeWebSocket(/\/api\/lab\/audio-stream\/socket/)` that rejects any socket whose `room` query is not the exact generated room, then transparently connects the valid socket. Do not extend or overwrite the shared helper to add this lab route.
 
-Generate the QA password with `crypto.randomBytes(24).toString('base64url')`. Enroll two separate BrowserContexts as main/weak with distinct core device IDs, click Start on both, arm the local-only 5-second job, and assert:
+Generate the QA password with `crypto.randomBytes(24).toString('base64url')`. Enroll separate BrowserContexts as main/weak/weak2 plus ineligible commander/member, all with distinct Core device IDs. Click Start on the three captains, arm a local-only five-second Triple job, and assert:
 
-- both `/stream` responses are `audio/mpeg` and remain open;
-- command metadata has one ID and correct personal fire times;
+- all three eligible `/stream` responses are `audio/mpeg` and remain open; commander/member cannot open an eligible stream;
+- command metadata has one ID, three directed targets, equal weak/weak2 landings, Main one second later, and correct personal fire times;
+- commander/member receive no command metadata or cue insertion;
 - byte counters increase without a metadata socket dependency;
 - a forced first stream disconnect reconnects with a new epoch and no past cue record;
 - Stop ends reconnect attempts;
@@ -1242,7 +1248,7 @@ Add the package script without overwriting existing ones:
 Run one self-contained gate; it owns the local server lifecycle and never reuses an existing process:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 node --test test/audio-stream-lab-client.test.cjs
 npm run test:audio-stream-e2e
 ```
@@ -1370,7 +1376,7 @@ Global stop is a two-part bounded procedure; the router flag alone is never desc
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 node --test test/audio-stream-lab-runbook.test.cjs
 ```
 
@@ -1394,7 +1400,7 @@ git commit -m "docs: define battle stream physical QA gates"
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 git status --short
 npm run build:audio-stream-assets
 npm run test:audio-stream-lab
@@ -1423,7 +1429,7 @@ Unexpected and blocking: `Room` Fire/alarm/state, `kvk.js` countdown/audio, ordi
 When remote deployment is already authorized by the implementation task, deploy the committed config with `AUDIO_STREAM_LAB_ENABLED="0"` and `AUDIO_STREAM_LAB_ALLOW_SHORT_DELAYS="0"`. Otherwise stop successfully after the dry run; this plan does not require a new user choice:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 npx wrangler deploy
 curl -i "https://kingshoter.com/api/lab/audio-stream/status?room=qa-kvk-disabled-check"
 ```
@@ -1473,7 +1479,7 @@ Verify the exact deletion tag is unused; if it has been used, stop and use the n
 Whether retaining default-disabled lab code or deleting a rejected candidate:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 npm test
 npx wrangler deploy --dry-run --outdir /tmp/kingshoter-audio-stream-decision
 git diff --check

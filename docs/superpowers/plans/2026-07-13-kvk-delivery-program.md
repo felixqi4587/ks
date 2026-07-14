@@ -16,10 +16,37 @@
 - The selected lead is the captain's personal countdown lead. `10` means that captain's sequence starts at their own `pressUTC - 10`, never at an unrelated 60-second offset.
 - `double_rally` timing remains unchanged. `triple_rally` adds a second Sacrifice, gives both Sacrifices equal landing time, and lands Main one second later.
 - Automated and production-connected QA creates its own `qa-kvk-*` room. Every other room is an operation room. No code, test, deploy command, or runbook special-cases `1406`.
-- No experiment may become a second audio owner beside Classic. Push and stream experiments remain invisible to ordinary KvK users and never display commander warnings.
+- No experiment may become a second ordinary-page or production audio authority beside Classic. Push and stream remain invisible to ordinary KvK users and never display commander warnings; controlled playback on an unlinked QA lab page, including one explicitly labelled Classic-versus-Stream overlap trial, is evidence only and never owns production countdown state.
 - Preserve all unrelated dirty-worktree files. Each task stages only its listed paths.
 - Before editing any existing function, class, or method, run GitNexus upstream impact and report the blast radius. Warn before every HIGH or CRITICAL edit, then proceed under the user's standing approval.
-- Before every commit, run `gitnexus_detect_changes({repo:"kingshot", scope:"staged"})` and compare the affected symbols/flows with the leaf task.
+- Before every commit, stage only the current task, run `gitnexus_detect_changes({repo:"$GITNEXUS_REPO", scope:"staged"})` using the resolved literal repository name below, and compare the affected symbols/flows with the leaf task.
+
+## Active Worktree and GitNexus Resolution
+
+Run this once in every implementation shell before any plan command or GitNexus call:
+
+```bash
+export KVK_WORKTREE="$(git rev-parse --show-toplevel)"
+export GITNEXUS_REPO="$(WORKTREE_ROOT="$KVK_WORKTREE" node - <<'NODE'
+const fs = require('node:fs');
+const path = require('node:path');
+const root = fs.realpathSync(process.env.WORKTREE_ROOT);
+const registry = JSON.parse(fs.readFileSync(path.join(process.env.HOME, '.gitnexus/registry.json'), 'utf8'));
+const matches = registry.filter((entry) => {
+  try { return fs.realpathSync(entry.path) === root; } catch (error) { return false; }
+});
+if (matches.length !== 1) {
+  console.error(`expected one GitNexus index for ${root}, found ${matches.length}`);
+  process.exit(1);
+}
+process.stdout.write(matches[0].name);
+NODE
+)"
+test -n "$GITNEXUS_REPO"
+printf 'KVK_WORKTREE=%s\nGITNEXUS_REPO=%s\n' "$KVK_WORKTREE" "$GITNEXUS_REPO"
+```
+
+If resolution fails, run `cd "$KVK_WORKTREE" && npx gitnexus analyze`, rerun the block, and read `gitnexus://repo/$GITNEXUS_REPO/context` before continuing. In every MCP example below, replace the text `$GITNEXUS_REPO` with the literal value printed by this block; never use an index whose registered path differs from `$KVK_WORKTREE`. All later shell commands use `$KVK_WORKTREE` directly; the executor must not leave the active worktree for the root checkout.
 
 ## Dependency and Promotion Map
 
@@ -28,8 +55,8 @@
 | 1 | `2026-07-13-kvk-core-player-control.md` | None | Visible after QA | Unit + isolated browser QA + exact 10/15/30/60 leads pass |
 | 2 | `2026-07-13-kvk-reliable-delivery-qa.md` | Core device ID, ACK, Room harness | QA-only, no audio | Remains shadow evidence; never replaces Classic in this program |
 | 3 | `2026-07-13-kvk-triple-rally.md` | Core + Reliable attachment helpers | Global off, QA-only on | Global on only after automated and physical matrix pass |
-| 4 | `2026-07-13-kvk-backup-push-lab.md` | QA guard + Reliable facts | Lab off | Keep only if measured delivery is clearly better; otherwise delete |
-| 5 | `2026-07-13-kvk-battle-audio-stream-lab.md` | QA guard + Reliable facts | Lab off | Keep only if measured delivery is clearly better; otherwise delete |
+| 4 | `2026-07-13-kvk-backup-push-lab.md` | Core + Reliable + Triple; shared QA/device identity | Lab off | Keep only if measured delivery is clearly better for both Double and Triple targets; otherwise delete |
+| 5 | `2026-07-13-kvk-battle-audio-stream-lab.md` | Core + Reliable + Triple + reconciled Push shared files | Lab off | Keep only if measured delivery is clearly better for both Double and Triple targets; otherwise delete |
 
 The code order is serial where files overlap. Push and stream research may be reviewed in parallel, but edits to `src/worker.js`, `src/room.js`, `public/kvk.js`, `package.json`, or `wrangler.toml` are never applied concurrently.
 
@@ -46,7 +73,7 @@ The code order is serial where files overlap. Push and stream research may be re
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot
+cd $KVK_WORKTREE
 git status --short
 git rev-parse HEAD
 cd kingshoter
@@ -61,7 +88,7 @@ Expected: save the Git commit, current Worker version ID, exact dirty-file list,
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot
+cd $KVK_WORKTREE
 git ls-files --error-unmatch kingshoter/src/room.js
 ```
 
@@ -74,7 +101,7 @@ git add kingshoter/public/*.html kingshoter/public/*.js kingshoter/public/*.css 
 git add kingshoter/test/*.cjs kingshoter/test/*.mjs
 ```
 
-Run `gitnexus_detect_changes({repo:"kingshot", scope:"staged"})`, verify the staged set contains no `.dev.vars`, `.wrangler`, `node_modules`, PNG screenshot, or unrelated root file, then commit:
+Run `gitnexus_detect_changes({repo:"$GITNEXUS_REPO", scope:"staged"})`, verify the staged set contains no `.dev.vars`, `.wrangler`, `node_modules`, PNG screenshot, or unrelated root file, then commit:
 
 ```bash
 git commit -m "chore: checkpoint current kingshoter runtime"
@@ -113,7 +140,7 @@ Every evidence row stores an ISO-8601 UTC time, exact command, observed count/re
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot
+cd $KVK_WORKTREE
 test -f docs/superpowers/plans/2026-07-13-kvk-core-player-control.md
 test -f docs/superpowers/plans/2026-07-13-kvk-reliable-delivery-qa.md
 test -f docs/superpowers/plans/2026-07-13-kvk-triple-rally.md
@@ -145,7 +172,7 @@ createRoomHarness(Room,{env,players,nowMs,roomName}) -> QA-only harness
 Run after Task 6:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 node --test test/player-domain.test.cjs test/player-protocol.test.cjs test/room-socket.test.cjs
 npm test
 ```
@@ -159,7 +186,7 @@ Implement the vertical roster, explicit replacement UI, commander march edit, st
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 npm test
 node test/mineaudio.cjs http://127.0.0.1:8791
 node test/alert-truth.cjs http://127.0.0.1:8791
@@ -170,12 +197,14 @@ Expected: player edits/removals synchronize across manager contexts; the selecte
 
 - [ ] **Step 3: Execute Core Tasks 11–12 and freeze the shared contracts**
 
-Add pair-length-agnostic device aggregation and Classic scheduled-cue ACK, then run the consolidated multi-browser QA. Do not let later plans invent a second device ID or room harness.
+Add pair-length-agnostic device aggregation and the persisted Classic ACK handshake, then run the consolidated multi-browser QA. Core must immutably bind `{pid, deviceId}` to the actual sending WebSocket, allow only `soundReady` changes, and reject a fresh device ID already owned by another PID before accepting `deliveryAck`; a message that names another socket's identity never turns a slot green. The client keeps an immutable pending ACK and retries across timeout/reconnect until the server returns exact `deliveryAckSaved` after persistence—`ws.send=true` is never confirmation. Freeze Core's merge-safe `attachSocket/readSocketAttachment/writeSocketAttachment` contract and accept-before-serialize order here. Do not let later plans invent a second device ID, socket identity, or room harness.
+
+The approved design's optional continuous `stableSince`/`Online 47m` display is explicitly deferred in this program. Correctness uses short current-readiness leases plus exact per-command `Received`; no UI may infer a continuous duration from reconnects or heartbeat age. A future neutral `Audio ready Xm` display requires its own measured design and must reset on disconnect or lease expiry.
 
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 npm test
 npm run test:kvk-core:all
 ```
@@ -190,20 +219,20 @@ Expected: Chromium, Firefox, and WebKit pass only generated QA rooms. Update the
 
 - [ ] **Step 1: Execute Reliable Tasks 1–4 in order**
 
-Implement the pure delivery model, private merge-safe socket attachments, Classic-first targeted facts, retry/cancel/expiry, and reconnect. Preserve unknown attachment fields so Triple can later add `clientBuild`.
+Implement the pure delivery model, extend Core's private merge-safe socket attachments, add Classic-first targeted facts, retry/cancel/expiry, and reconnect. Reliable consumes the already-bound Core `{pid,deviceId,soundReady}` fields and adds only its versioned challenge fields; it must not replace the Core attachment, weaken Core ACK validation, or create a second identity. Preserve unknown attachment fields so Triple can later add `clientBuild`.
 
 Required interface checkpoint:
 
 ```text
-readSocketAttachment(ws) -> normalized delivery fields plus unknown fields
-writeSocketAttachment(ws, patch) -> shallow merge, normalize, serialize, return merged value
-attachment includes roomName, qa, pid, deviceId, view, shadow, audioArmed, armedUntilMs
+readSocketAttachment(ws) -> Core-bound identity plus normalized Reliable fields and unknown fields
+writeSocketAttachment(ws, patch) -> Core-owned shallow merge, normalize protocol-owned fields, serialize, return merged value
+attachment includes Core roomName, pid, deviceId, soundReady plus Reliable qa, view, shadow, audioArmed, armedUntilMs
 ```
 
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 node --test test/delivery-model.test.cjs test/room-delivery.test.cjs
 npm test
 ```
@@ -217,7 +246,7 @@ Wire the no-audio shadow only behind both the QA-room predicate and `deliverySha
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 npm run test:delivery
 npm run test:qa:delivery
 ```
@@ -237,7 +266,7 @@ Build pure per-kingdom mode state, Triple timing, build projection, and Durable 
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 node --test test/rally-mode.test.cjs test/rally-targets.test.cjs test/client-build.test.cjs test/triple-room.test.cjs
 npm test
 ```
@@ -251,7 +280,7 @@ Deploy the stale-client updater controller in code, add shared rally semantics, 
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 npm run test:triple
 npm run test:qa:delivery
 npm run test:qa:triple
@@ -283,7 +312,7 @@ Complete `2026-07-13-kvk-backup-push-lab.md` task by task. Its routes must rejec
 Run the exact Push leaf commands, then:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 npm test
 npm run test:push-lab
 npx wrangler deploy --dry-run
@@ -298,7 +327,7 @@ Complete Stream Tasks 1–6, the Task 7 runbook/contract, and the automated/defa
 Run the exact Stream leaf commands, then:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 npm test
 npm run test:audio-stream-lab
 npm run test:audio-stream-e2e
@@ -331,7 +360,7 @@ DELETE_SOURCE_AND_BINDINGS
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 npm test
 npm run test:delivery
 npm run test:triple
@@ -347,14 +376,32 @@ node --check public/kvk.js
 npx wrangler deploy --dry-run
 ```
 
-Expected: every applicable command exits 0. If a lab was deleted by its stop rule, record `DELETED_BY_GATE` and run its source-absence test instead of pretending it passed.
+Expected: every applicable command exits 0. If a lab was deleted by its stop rule, record `DELETED_BY_GATE` and run the executable source-absence gate below instead of pretending it passed.
+
+For a deleted Push lab, run:
+
+```bash
+cd "$KVK_WORKTREE/kingshoter"
+test ! -e src/lab && test ! -e public/lab/push.html && test ! -e public/lab/push.js && test ! -e public/lab/push-sw.js
+! rg -n 'DELIVERY_LAB|DeliveryLab|/api/lab/delivery|test:push-lab' src public wrangler.toml package.json
+```
+
+For a deleted Stream lab, run:
+
+```bash
+cd "$KVK_WORKTREE/kingshoter"
+test ! -e src/labs/audio-stream && test ! -e public/lab/audio-stream.html && test ! -e public/lab/audio-stream.js && test ! -e public/lab/audio-stream-assets
+! rg -n 'AUDIO_STREAM_LAB|AudioStreamLab|/api/lab/audio-stream|test:audio-stream' src public wrangler.toml package.json
+```
+
+Expected: each selected absence gate exits 0. If a shared parent directory remains for another retained lab, test the named candidate files rather than deleting that parent.
 
 - [ ] **Step 2: Scan for forbidden room and feature leakage**
 
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot
+cd $KVK_WORKTREE
 rg -n "room=1406|room%3D1406|===\\s*[\"']1406[\"']|!==\\s*[\"']1406[\"']" kingshoter/src kingshoter/public kingshoter/test
 rg -n 'pushManager|serviceWorker\.register|battle stream|Backup alert' kingshoter/public/kvk.html kingshoter/public/kvk.js
 ```
@@ -366,12 +413,14 @@ Expected: both commands return no matches. Documentation may mention the prohibi
 Record the current Worker version from `npx wrangler deployments status`, then run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 npx wrangler deploy
 curl -fsS -D - https://kingshoter.com/api/build
 ```
 
-Expected: deployment succeeds; `/api/build` is uncached, global Triple is false, QA Triple is true, and all candidate lab gates are false.
+Expected: deployment succeeds; `/api/build` is uncached, global Triple is false, and QA Triple is true. `/api/build` is authoritative only for build and Triple metadata; it must not be treated as proof of Push or Stream configuration.
+
+With freshly generated QA room names, make unauthenticated GET requests to `/api/lab/delivery/status` and `/api/lab/audio-stream/status` while their flags are off; the route must fail closed before session authentication. Expected on the deployed Worker: each returns the leaf plan's indistinguishable 404 response. Separately rerun the leaf default-off Worker-boundary unit tests and require their namespace spies to report zero Durable Object lookups. Never expose flag or secret values through `/api/build`.
 
 - [ ] **Step 4: Run production-connected QA with generated rooms only**
 
@@ -410,7 +459,7 @@ Core player control and the updater are part of the disabled-first bootstrap. If
 
 - [ ] **Step 4: Promote Triple globally only when every Triple gate is PASS**
 
-Follow Triple Task 10 exactly as two deployments: first set `MIN_KVK_BUILD` to the current Triple-capable build while global Triple remains `0`, deploy, wait one full 60-second update polling interval, and rerun deployed QA; only then change `TRIPLE_RALLY_ENABLED` to `"1"`, keep the QA gate on, dry-run, deploy, and verify `/api/build`. Keep legacy socket projection until independent evidence says old builds are gone.
+Follow Triple Task 10's bootstrap and inventory gate. First deploy the updater bootstrap with global Triple `0`; only clients that actually loaded that bootstrap may auto-reload. Then deploy the Triple-capable runtime/minimum while global Triple remains `0`, rerun deployed QA, and observe socket build inventory for at least one complete battle-window soak. A single 60-second polling interval is never evidence that pre-bootstrap pages refreshed. Enable `TRIPLE_RALLY_ENABLED="1"` only when every connected operation-room socket in the recorded window advertises a Triple-capable build and the physical matrix passes; otherwise leave global Triple off. Keep build-0 legacy projection indefinitely until independent evidence says old sockets are gone.
 
 Expected: all operation rooms gain the same optional per-kingdom Triple switch at once; Double remains the default. If any physical row is Pending or failed, skip this step and leave global Triple off without asking the user for another approval.
 
@@ -430,7 +479,7 @@ Run the focused Triple rollback unit, Reliable Classic rollback proof, and each 
 Using the baseline version ID captured in Task 1, export that observed value and record but do not run the rollback unless the deployed core is actually unhealthy:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 export BASELINE_VERSION_ID
 npx wrangler rollback "$BASELINE_VERSION_ID" --message "Rollback KvK coordinated delivery" --yes
 ```
@@ -442,14 +491,14 @@ Set the exported value from the exact Cloudflare version recorded before deploym
 Run:
 
 ```bash
-cd /Users/ff/Documents/kingshot/kingshoter
+cd $KVK_WORKTREE/kingshoter
 npm test
 npm run test:qa:delivery
 npm run test:qa:triple
 npx wrangler deployments status
 ```
 
-Stage only the completed rollout record and any final gate changes, call `gitnexus_detect_changes({repo:"kingshot", scope:"staged"})`, and commit with:
+Stage only the completed rollout record and any final gate changes, call `gitnexus_detect_changes({repo:"$GITNEXUS_REPO", scope:"staged"})`, and commit with:
 
 ```bash
 git add docs/operations/kvk-program-rollout.md
