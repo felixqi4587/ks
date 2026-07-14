@@ -1,9 +1,10 @@
 const { chromium } = require('playwright');
+const { basename } = require('node:path');
 const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard } = require('./support/qa-kvk.cjs');
 
 (async () => {
-  const host = process.argv[2] || 'http://127.0.0.1:8799';
-  const room = makeQaRoom('alert-truth');
+  const host = process.argv[2] || 'http://127.0.0.1:8791';
+  const room = makeQaRoom({ title: basename(__filename, '.cjs') });
   const url = qaRoomUrl(host, room, { notour: 1 });
   const browser = await chromium.launch({ headless: true, channel: 'chrome', args: ['--autoplay-policy=no-user-gesture-required'] });
   let pass = 0;

@@ -1,9 +1,10 @@
 const assert = require('node:assert/strict');
+const { basename } = require('node:path');
 const { chromium } = require('playwright');
 const { makeQaRoom, qaRoomUrl, installQaWebSocketGuard } = require('./support/qa-kvk.cjs');
 
 const base = process.env.BASE || 'http://127.0.0.1:8791';
-const room = makeQaRoom('remove-own-device');
+const room = makeQaRoom({ title: basename(__filename, '.cjs') });
 const url = qaRoomUrl(base, room, { notour: 1 });
 const meKey = `kingshoter_r_${room}_me`;
 const deviceKey = `kvk:${room}:delivery-device:v1`;

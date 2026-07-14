@@ -4,6 +4,8 @@
   "type": "module",
   "scripts": {
     "test": "node --test test/*.test.cjs",
+    "test:kvk-core": "node test/kvk-core-multibrowser.e2e.cjs --project=chromium",
+    "test:kvk-core:all": "node test/kvk-core-multibrowser.e2e.cjs --project=all",
     "deploy": "wrangler deploy",
     "dev": "wrangler dev"
   },

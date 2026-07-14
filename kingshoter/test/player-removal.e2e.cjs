@@ -1,9 +1,10 @@
 const assert = require('node:assert/strict');
+const { basename } = require('node:path');
 const { chromium } = require('playwright');
 const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard } = require('./support/qa-kvk.cjs');
 
 const base = process.env.BASE || 'http://127.0.0.1:8791';
-const room = makeQaRoom('player-removal');
+const room = makeQaRoom({ title: basename(__filename, '.cjs') });
 const roomUrl = qaRoomUrl(base, room, { notour: 1 });
 
 (async () => {

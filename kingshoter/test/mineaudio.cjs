@@ -1,9 +1,10 @@
 // Captains book their personal launch cue; everyone else books one shared JOIN cue. Radar dots move on the linear press→land clock.
 const { chromium } = require("playwright");
+const { basename } = require('node:path');
 const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard } = require('./support/qa-kvk.cjs');
 (async () => {
-  const HOST = process.argv[2] || "http://localhost:8788";
-  const RM = makeQaRoom('mineaudio'), base = qaRoomUrl(HOST, RM, { notour: 1 });
+  const HOST = process.argv[2] || "http://127.0.0.1:8791";
+  const RM = makeQaRoom({ title: basename(__filename, '.cjs') }), base = qaRoomUrl(HOST, RM, { notour: 1 });
   const b = await chromium.launch({ headless: true, channel: "chrome", args: ["--autoplay-policy=no-user-gesture-required"] });
   let pass = 0, fail = 0; const ok = (c, l) => { (c ? pass++ : fail++); console.log((c ? "✓" : "✗ FAIL") + " " + l); };
   const errs = [];
@@ -34,7 +35,7 @@ const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard } = req
   await p3.waitForTimeout(11000);   // past the press moment (lead 10s) — gather is running now
   const d0 = await dist(); await p3.waitForTimeout(8000); const d1 = await dist();
   ok(d1 < d0 - 0.2, "radar dot moves inward DURING the gather phase (" + d0.toFixed(1) + " → " + d1.toFixed(1) + ")");
-  const selectedRoom = makeQaRoom('mineaudio-selected-commander');
+  const selectedRoom = makeQaRoom({ title: `${basename(__filename, '.cjs')}-selected-commander` });
   const selectedBase = qaRoomUrl(HOST, selectedRoom, { notour: 1 });
   const selectedCmd = await mk("900000011", "60", selectedRoom, selectedBase);
   const selectedPeer = await mk("900000012", "70", selectedRoom, selectedBase);
