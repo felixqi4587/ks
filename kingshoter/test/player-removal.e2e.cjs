@@ -281,7 +281,7 @@ const roomUrl = qaRoomUrl(base, room, { notour: 1 });
       const state = window.__roomStates[window.__roomStates.length - 1];
       return state && !state.players['001'] && state.players.kimchi;
     }, null, { timeout: 5000 });
-    assert.equal(await manager.locator('link[href="app.css?v=29"]').count(), 1);
+    assert.equal(await manager.locator('link[href="app.css?v=30"]').count(), 1);
     assert.equal(await manager.locator('script[src="app.js?v=11"]').count(), 1);
     assert.equal(await manager.locator('script[src="kvk.js?v=39"]').count(), 1);
     assert.deepEqual(errors, []);
