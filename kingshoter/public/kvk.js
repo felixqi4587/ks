@@ -18,6 +18,7 @@
   var marchTouched = false, pendingUnlock = false, pendingTok = "", pendingRemovePid = "", pendingRemoveName = "";
   var initialStateSeen = false, ownPlayerSeen = false, registrationPending = false, pendingMarchMutation = null;
   var pendingRegistrationProfile = null, draftActive = false, draftVersion = 0;
+  var rosterQuery = "", pendingReplacementPid = "", pendingReplacementOrigin = null, pendingStageRollback = null;
   var myProfile = null, deviceId = window.getRoomDeviceId(ROOM);
   try { myProfile = JSON.parse(localStorage.getItem(LS("me")) || "null"); } catch (e) {}
   if (myProfile && myProfile.pid) {
@@ -30,6 +31,7 @@
   var identityMode = myProfile && myProfile.identityMode === "nickname" ? "nickname" : "playerId";
   var lookupSequence = 0, lookupAbort = null, lookupTimer = null, nicknameDraftRoutingKey = "";
   var pickedByK = { 1: [], 2: [] };
+  var serverStagedByK = { 1: [], 2: [] };
   // defense (refill-timing) state — ported from saltyfish defense.html, fed by room.config.enemyWhales
   var viewMode = "attack", enemyWhales = [], dFocus = 0, adminEnemies = [], lastWhalesKey = "", pendingPubWhales = null, pendingPubTok = null;
   var adminDirty = false, picksTouched = false;   // adminDirty: whale editor has unsaved edits (don't clobber from broadcasts); picksTouched: commander touched picks this session (don't rehydrate over their intent)
@@ -83,6 +85,7 @@
       d_ph_gather: "① 敌方集结中（加速）…", d_ph_send: "② 发兵！就是现在", d_ph_land: "③ 敌落地", d_ph_refill: "✅ 补满·弹回", d_ph_low: "③ 护盾告急→快补兵", d_ph_inc: "② 敌方来袭→盯落地",
       d_fx_send: "发兵！", d_fx_land: "敌落地", d_fx_refill: "补满！", d_fx_depart: "他发车！", d_ph_depart: "② 他发车了 → 盯落地", d_gather_cd: "集结 {x}", d_land_cd: "落地 {x}", d_whale: "敌鲸", d_enemy: "敌",
       slot_weak: "🛡️ 消耗", slot_weak_sub: "先落地 · 挡刀吃守军", slot_main: "👑 主力", slot_main_sub: "+1秒跟进收头", slot_empty: "待选", slot_swap_tip: "已互换主力/消耗",
+      roster_search: "按昵称或 Player ID 搜索", replace_choose: "选择要替换的位置", replace_weak: "替换消耗 · {n}", replace_main: "替换主力 · {n}", replace_cancel: "取消", already_kingdom: "该玩家已在王国 {k}", stage_other_kingdom: "该玩家刚被另一王国选中，已恢复你的选择",
       plat_ios: "🍎 iPhone：通常可在后台提醒；开战前请锁屏实测", plat_android: "🤖 安卓：保持本页亮屏最稳；系统可能暂停后台", plat_desktop: "💻 电脑：保持本标签页开启，并先做一次测试",
       atk_note: "🟡 集结 5:00 → 🟢 行军 → 到点落地", order_cancelled: "✖ 指令已取消", defense_demo: "演练动画 · 非实时战况"
     },
@@ -123,6 +126,7 @@
       d_ph_gather: "① Enemy gathering (rush)…", d_ph_send: "② SEND! right now", d_ph_land: "③ Enemy hits", d_ph_refill: "✅ Reinforced · held", d_ph_low: "③ Garrison low → reinforce!", d_ph_inc: "② Incoming → watch the landing",
       d_fx_send: "SEND!", d_fx_land: "Hits", d_fx_refill: "Reinforced!", d_fx_depart: "They march!", d_ph_depart: "② They marched → watch the landing", d_gather_cd: "gather {x}", d_land_cd: "land {x}", d_whale: "incoming rally", d_enemy: "Enemy ",
       slot_weak: "🛡️ SACRIFICE", slot_weak_sub: "lands first · eats the garrison", slot_main: "👑 MAIN", slot_main_sub: "lands +1s right behind", slot_empty: "—", slot_swap_tip: "Main/sacrifice swapped",
+      roster_search: "Search nickname or Player ID", replace_choose: "Choose the captain to replace", replace_weak: "Replace Sacrifice · {n}", replace_main: "Replace Main · {n}", replace_cancel: "Cancel", already_kingdom: "Already selected for Kingdom {k}", stage_other_kingdom: "Another kingdom just selected this player; your prior picks were restored",
       plat_ios: "🍎 iPhone: background alerts usually work; lock-screen test before battle", plat_android: "🤖 Android: keeping this page visible is safest; the OS may pause it", plat_desktop: "💻 Desktop: keep this tab open and run one test first",
       atk_note: "🟡 gather 5:00 → 🟢 march → lands", order_cancelled: "✖ Order cancelled", defense_demo: "Timing rehearsal · not live battle state"
     }
@@ -751,76 +755,176 @@
   }
 
   /* ---------- commander ---------- */
-  function renderKingdomPick() { var b = $("kingdomPick"); if (!b) return; b.innerHTML = [1, 2].map(function (n) { return '<button class="chipbtn ' + (fireKingdom === n ? "kon" : "") + '" data-k="' + n + '">🌍 ' + tk("kw" + n) + '</button>'; }).join(""); b.querySelectorAll("button").forEach(function (x) { x.onclick = function () { fireKingdom = +x.getAttribute("data-k"); renderKingdomPick(); if (room) renderRoster(); stageBroadcast(); setCancelLabel(); }; }); }
+  function renderKingdomPick() { var b = $("kingdomPick"); if (!b) return; b.innerHTML = [1, 2].map(function (n) { return '<button class="chipbtn ' + (fireKingdom === n ? "kon" : "") + '" data-k="' + n + '">🌍 ' + tk("kw" + n) + '</button>'; }).join(""); b.querySelectorAll("button").forEach(function (x) { x.onclick = function () { fireKingdom = +x.getAttribute("data-k"); closeReplacement(false); renderKingdomPick(); if (room) renderRoster(); setCancelLabel(); }; }); }
   function renderLead() { var b = $("lead"); if (!b) return; b.innerHTML = [10, 15, 30, 60].map(function (v) { return '<button class="chipbtn ' + (v === lead ? "on" : "") + '" data-v="' + v + '">' + (L() ? "in " + v + "s" : v + "秒后") + '</button>'; }).join(""); b.querySelectorAll("button").forEach(function (x) { x.onclick = function () { lead = +x.getAttribute("data-v"); renderLead(); }; }); }
+
+  function canonicalPick(pid, role, players) {
+    var player = players && players[pid];
+    if (!player) return null;
+    return { pid: pid, role: role === "main" ? "main" : "weak", name: player.name || pid, march: player.march, marchRevision: Number.isInteger(player.marchRevision) ? player.marchRevision : 0 };
+  }
+  function reconcilePickList(list, players) {
+    var seenPid = Object.create(null), seenRole = Object.create(null), next = [];
+    (Array.isArray(list) ? list : []).some(function (pick) {
+      if (next.length >= 2) return true;
+      var pid = pick && String(pick.pid || ""), role = pick && pick.role;
+      if (!players || !Object.prototype.hasOwnProperty.call(players, pid) || (role !== "weak" && role !== "main") || seenPid[pid] || seenRole[role]) return false;
+      seenPid[pid] = true; seenRole[role] = true; next.push({ pid: pid, role: role }); return false;
+    });
+    return next;
+  }
+  function reconcilePicks(players) { [1, 2].forEach(function (kingdom) { pickedByK[kingdom] = reconcilePickList(pickedByK[kingdom], players); }); }
+  function clonePicks(list) { return (list || []).map(function (pick) { return { pid: pick.pid, role: pick.role }; }); }
+  function pickSignature(list) { return clonePicks(list).sort(function (a, b) { return a.role.localeCompare(b.role); }).map(function (pick) { return pick.role + ":" + pick.pid; }).join("|"); }
+  function otherKingdomForPid(pid, kingdom) {
+    var other = kingdom === 1 ? 2 : 1;
+    return pickedByK[other].concat(serverStagedByK[other] || []).some(function (pick) { return pick.pid === pid; }) ? other : 0;
+  }
+  function duplicateNameCounts(players) {
+    var counts = Object.create(null);
+    Object.keys(players || {}).forEach(function (pid) { var name = (players[pid] && players[pid].name) || pid; counts[name] = (counts[name] || 0) + 1; });
+    return counts;
+  }
+  function playerDisplayParts(pid, players, counts) {
+    var player = players && players[pid], name = (player && player.name) || pid;
+    var duplicate = (counts || duplicateNameCounts(players))[name] > 1;
+    return { name: name, suffix: duplicate ? "#" + String(pid).slice(-4) : "" };
+  }
+  function playerDisplayText(pid, players) { var part = playerDisplayParts(pid, players); return part.name + (part.suffix ? " " + part.suffix : ""); }
+  function restoreRosterFocus(pid) {
+    setTimeout(function () {
+      var target = pid && document.querySelector('#roster .rp[data-pid="' + window.esc(pid) + '"]');
+      if (!target && $("rosterSearchWrap") && !$("rosterSearchWrap").classList.contains("hide")) target = $("rosterSearch");
+      if (!target) target = $("t_cmd");
+      if (target) { if (!target.hasAttribute("tabindex") && target.id === "t_cmd") target.setAttribute("tabindex", "-1"); target.focus(); }
+    }, 0);
+  }
+  function closeReplacement(restoreFocus) {
+    var origin = pendingReplacementOrigin || pendingReplacementPid;
+    pendingReplacementPid = ""; pendingReplacementOrigin = null;
+    if ($("replaceOvl")) $("replaceOvl").classList.remove("show");
+    if (restoreFocus) restoreRosterFocus(origin);
+  }
+  function openReplacement(pid) {
+    if (!room || !room.players || !room.players[pid]) return;
+    pendingReplacementPid = pid; pendingReplacementOrigin = pid;
+    var weak = pickedByK[fireKingdom].filter(function (pick) { return pick.role === "weak"; })[0];
+    var main = pickedByK[fireKingdom].filter(function (pick) { return pick.role === "main"; })[0];
+    $("replaceTitle").textContent = tk("replace_choose");
+    $("replaceWeak").hidden = !weak; $("replaceMain").hidden = !main;
+    if (weak) $("replaceWeak").textContent = tkf("replace_weak", { n: playerDisplayText(weak.pid, room.players) });
+    if (main) $("replaceMain").textContent = tkf("replace_main", { n: playerDisplayText(main.pid, room.players) });
+    $("replaceCancel").textContent = tk("replace_cancel");
+    $("replaceOvl").classList.add("show");
+    setTimeout(function () { var first = !$("replaceWeak").hidden ? $("replaceWeak") : $("replaceMain"); if (first) first.focus(); }, 0);
+  }
+  function rollbackStageSelection(message) {
+    if (!pendingStageRollback) return false;
+    var rollback = pendingStageRollback; pendingStageRollback = null;
+    pickedByK[rollback.kingdom] = clonePicks(rollback.previous);
+    closeReplacement(false); if (room) renderRoster();
+    if (message) window.toast(message);
+    return true;
+  }
+  function commitPicks(next) {
+    var previous = clonePicks(pickedByK[fireKingdom]);
+    pickedByK[fireKingdom] = reconcilePickList(next, room && room.players);
+    picksTouched = true; renderRoster(); stageBroadcast(previous);
+  }
+  function applyReplacement(pid, role) {
+    var candidate = pid || pendingReplacementPid, other = otherKingdomForPid(candidate, fireKingdom), current = pickedByK[fireKingdom];
+    if (!candidate || !room || !room.players[candidate] || other || !current.some(function (pick) { return pick.role === role; })) { closeReplacement(true); return; }
+    var next = current.filter(function (pick) { return pick.role !== role && pick.pid !== candidate; }).concat([{ pid: candidate, role: role }]);
+    closeReplacement(false); commitPicks(next); restoreRosterFocus(candidate);
+  }
+  function selectOrReplacePlayer(pid) {
+    var other = otherKingdomForPid(pid, fireKingdom), current = pickedByK[fireKingdom], existing = current.filter(function (pick) { return pick.pid === pid; })[0];
+    if (other) { window.toast(tkf("already_kingdom", { k: other })); return; }
+    if (existing) { commitPicks(current.filter(function (pick) { return pick.pid !== pid; })); return; }
+    if (current.length >= 2) { openReplacement(pid); return; }
+    var role = current.some(function (pick) { return pick.role === "weak"; }) ? "main" : "weak";
+    commitPicks(current.concat([{ pid: pid, role: role }]));
+  }
   function renderRoster() {
     var box = $("roster"); if (!box || !room) return;
     var players = Object.keys(room.players || {}).map(function (pid) { return Object.assign({ pid: pid }, room.players[pid]); });
-    var cur = pickedByK[fireKingdom], otherK = fireKingdom === 1 ? 2 : 1, other = pickedByK[otherK];
+    var cur = pickedByK[fireKingdom], otherK = fireKingdom === 1 ? 2 : 1, other = pickedByK[otherK].concat(serverStagedByK[otherK] || []);
     $("pickCnt").textContent = cur.length + "/2";
     box.innerHTML = "";
+    var searchWrap = $("rosterSearchWrap"), search = $("rosterSearch"), showSearch = players.length > 6;
+    if (searchWrap) searchWrap.classList.toggle("hide", !showSearch);
+    if (search) { search.placeholder = tk("roster_search"); search.setAttribute("aria-label", tk("roster_search")); if (!showSearch) { rosterQuery = ""; search.value = ""; } }
     if (!players.length) {
+      if ($("duplicateHint")) { $("duplicateHint").classList.add("hide"); $("duplicateHint").textContent = ""; }
       box.innerHTML = '<span class="hint">' + tk("mapempty") + '</span>';
       refreshSyncPill(); renderSlots();
       var emptyFire = $("fireDouble"); if (emptyFire) emptyFire.disabled = true;
       return;
     }
+    var counts = duplicateNameCounts(room.players), duplicateExists = Object.keys(counts).some(function (name) { return counts[name] > 1; });
+    if ($("duplicateHint")) { $("duplicateHint").classList.toggle("hide", !duplicateExists); $("duplicateHint").textContent = duplicateExists ? tk("duplicate_suffix") : ""; }
     var rank = function (p) { return (cur.some(function (x) { return x.pid === p.pid; }) ? 0 : 2) + (isReady(p) ? 0 : 1); };
-    players.sort(function (a, b) { return rank(a) - rank(b); });   // picked → present → stale: the horizontal strip leads with what matters
+    players.sort(function (a, b) { return rank(a) - rank(b) || String(a.name || a.pid).localeCompare(String(b.name || b.pid)); });
     players.forEach(function (p) {
       var sel = cur.filter(function (x) { return x.pid === p.pid; })[0], inO = other.filter(function (x) { return x.pid === p.pid; })[0];
-      var wrap = document.createElement("div"); wrap.className = "rpi" + (sel ? " sel" : "") + (inO ? " otherk" : ""); wrap.dataset.pid = p.pid;
-      var el = document.createElement("div"); el.className = "rp" + (sel ? " sel" : "") + (inO ? " otherk" : ""); el.dataset.pid = p.pid;
-      var badge = sel ? '<span class="rb ' + sel.role + '">' + tk(sel.role === "main" ? "main" : "weak") + '</span>' : inO ? '<span class="rb otherk">🌍' + otherK + '</span>' : '<span class="rb ghost">' + tk("weak") + '</span>';   // ghost keeps the chip width constant → no roster reflow on pick/unpick
-      el.innerHTML = (isReady(p) ? '🟢 ' : '🔴 ') + window.esc((p.name || p.pid).slice(0, 12)) + ' <small style="opacity:.65;font-family:var(--mono);font-weight:700">' + window.mmss(p.march || 0) + '</small> ' + badge;
-      var del = document.createElement("button"), playerName = p.name || p.pid;
-      del.type = "button"; del.className = "rpdel"; del.dataset.pid = p.pid; del.textContent = "×"; del.setAttribute("aria-label", tkf("remove_aria", { n: playerName })); del.title = tkf("remove_aria", { n: playerName });
+      var parts = playerDisplayParts(p.pid, room.players, counts), playerName = parts.name;
+      var wrap = document.createElement("div"); wrap.className = "roster-row rpi" + (sel ? " sel" : "") + (inO ? " otherk" : ""); wrap.dataset.pid = p.pid; wrap.setAttribute("role", "listitem");
+      var el = document.createElement("button"); el.type = "button"; el.className = "rp" + (sel ? " sel" : "") + (inO ? " otherk" : ""); el.dataset.pid = p.pid; el.setAttribute("aria-pressed", sel ? "true" : "false");
+      if (inO) { el.setAttribute("aria-disabled", "true"); el.title = tkf("already_kingdom", { k: otherK }); }
+      var presence = document.createElement("span"); presence.className = "roster-presence" + (isReady(p) ? "" : " stale"); presence.textContent = isReady(p) ? "●" : "○"; presence.setAttribute("aria-hidden", "true"); el.appendChild(presence);
+      var nameSpan = document.createElement("span"); nameSpan.className = "roster-name"; nameSpan.textContent = parts.name; el.appendChild(nameSpan);
+      if (parts.suffix) { var suffix = document.createElement("span"); suffix.className = "roster-name-suffix"; suffix.textContent = parts.suffix; el.appendChild(suffix); }
+      el.setAttribute("aria-label", playerDisplayText(p.pid, room.players) + (inO ? " · " + tkf("already_kingdom", { k: otherK }) : ""));
+      var roleButton = document.createElement("button"); roleButton.type = "button"; roleButton.className = "roster-role " + (sel ? sel.role : inO ? "otherk" : "ghost"); roleButton.dataset.pid = p.pid;
+      roleButton.textContent = sel ? tk(sel.role === "main" ? "main" : "weak") : inO ? "🌍" + otherK : "—";
+      roleButton.setAttribute("aria-disabled", sel ? "false" : "true"); roleButton.setAttribute("aria-label", sel ? tk(sel.role === "main" ? "main" : "weak") : inO ? tkf("already_kingdom", { k: otherK }) : tk("slot_empty"));
+      roleButton.onclick = function () { if (!sel) return; var next = cur.map(function (pick) { return { pid: pick.pid, role: pick.pid === sel.pid ? (sel.role === "main" ? "weak" : "main") : (pick.role === "main" ? "weak" : "main") }; }); commitPicks(next); };
+      var timeButton = document.createElement("button"); timeButton.type = "button"; timeButton.className = "roster-time"; timeButton.dataset.pid = p.pid; timeButton.textContent = window.mmss(p.march || 0); timeButton.setAttribute("aria-disabled", "true"); timeButton.setAttribute("aria-label", tk("marchlab") + " " + window.mmss(p.march || 0));
+      timeButton.onclick = function () {};
+      var del = document.createElement("button");
+      del.type = "button"; del.className = "roster-actions rpdel"; del.dataset.pid = p.pid; del.textContent = "⋯"; del.setAttribute("aria-label", tkf("remove_aria", { n: playerName })); del.title = tkf("remove_aria", { n: playerName });
       del.onclick = function (ev) {
-        ev.stopPropagation();
         if (sel || inO) { window.toast(tk("remove_in_use")); return; }
         if (pendingRemovePid || !window.confirm(tkf("remove_confirm", { n: playerName }))) return;
         if (!sock || !sock.send({ t: "removePlayer", password: roomPw, pid: p.pid })) { window.toast(tk("notconn")); return; }
         pendingRemovePid = p.pid; pendingRemoveName = playerName; del.disabled = true; window.toast(tkf("removing", { n: playerName }));
       };
-      el.onclick = function (ev) {
-        picksTouched = true;   // the commander is picking by hand — never rehydrate over their intent
-        if (inO) { window.toast(L() ? "Already in Kingdom " + otherK : "已在王国 " + otherK); return; }
-        if (sel && ev.target.classList.contains("rb")) { sel.role = sel.role === "main" ? "weak" : "main"; cur.forEach(function (x) { if (x.pid !== sel.pid) x.role = sel.role === "main" ? "weak" : "main"; }); renderRoster(); stageBroadcast(); return; }
-        if (sel) pickedByK[fireKingdom] = cur.filter(function (x) { return x.pid !== p.pid; });
-        else { if (cur.length >= 2) cur.shift(); cur.push({ pid: p.pid, name: p.name || p.pid, march: p.march || 60, role: cur.some(function (x) { return x.role === "weak"; }) ? "main" : "weak" }); }   // fill whichever role is MISSING — a replace/3rd-tap must never create two mains (that used to fire the same pid as both)
-        renderRoster(); stageBroadcast();
-      };
-      wrap.appendChild(el); wrap.appendChild(del); box.appendChild(wrap);
+      el.onclick = function () { selectOrReplacePlayer(p.pid); };
+      var haystack = ((p.name || "") + " " + p.pid).toLowerCase(); wrap.hidden = !!(rosterQuery && haystack.indexOf(rosterQuery) < 0);
+      wrap.appendChild(el); wrap.appendChild(roleButton); wrap.appendChild(timeButton); wrap.appendChild(del); box.appendChild(wrap);
     });
     refreshSyncPill(); renderSlots();
-    var fd = $("fireDouble"); if (fd) fd.disabled = cur.length < 2;   // offer the fire gesture only when it can succeed (no firing into an under-picked kingdom)
+    var ready = cur.length === 2 && cur.some(function (pick) { return pick.role === "weak"; }) && cur.some(function (pick) { return pick.role === "main"; });
+    var fd = $("fireDouble"); if (fd) fd.disabled = !ready;
   }
   // explicit role slots: who's SACRIFICE (lands first, eats the garrison) vs MAIN (+1s behind) is never a guess.
   // Tap a filled slot's × to unpick; ⇄ swaps roles in one tap (the roster-badge tap still works too).
-  function renderSlots() {
+  function renderSlots(kingdom) {
     var box = $("pickSlots"); if (!box) return;
-    var cur = pickedByK[fireKingdom];
-    var weak = cur.filter(function (x) { return x.role === "weak"; })[0], main = cur.filter(function (x) { return x.role === "main"; })[0];
+    var selectedKingdom = kingdom || fireKingdom, cur = pickedByK[selectedKingdom], players = (room && room.players) || {}, counts = duplicateNameCounts(players);
+    var weakPick = cur.filter(function (x) { return x.role === "weak"; })[0], mainPick = cur.filter(function (x) { return x.role === "main"; })[0];
+    var weak = weakPick && canonicalPick(weakPick.pid, "weak", players), main = mainPick && canonicalPick(mainPick.pid, "main", players);
     function cell(role, c) {
-      return '<div class="slot ' + role + (c ? " filled" : "") + '">'
+      var parts = c ? playerDisplayParts(c.pid, players, counts) : null;
+      return '<div class="slot ' + role + (c ? " filled" : "") + '"' + (c ? ' data-pid="' + window.esc(c.pid) + '"' : "") + '>'
         + '<div class="sl">' + tk(role === "weak" ? "slot_weak" : "slot_main") + '</div>'
-        + (c ? '<div class="sv">' + window.esc((c.name || c.pid).slice(0, 10)) + ' <small>' + window.mmss(c.march || 0) + '</small><b class="sx" data-pid="' + window.esc(c.pid) + '">×</b></div>'
+        + (c ? '<div class="sv"><span class="slot-name">' + window.esc(parts.name) + '</span>' + (parts.suffix ? '<span class="roster-name-suffix">' + window.esc(parts.suffix) + '</span>' : '') + ' <small>' + window.mmss(c.march || 0) + '</small><button type="button" class="sx" data-pid="' + window.esc(c.pid) + '" aria-label="' + window.esc(tkf("remove_aria", { n: parts.name })) + '">×</button></div>'
              : '<div class="sv empty">' + tk("slot_empty") + '</div>')
         + '<div class="ss">' + tk(role === "weak" ? "slot_weak_sub" : "slot_main_sub") + '</div></div>';
     }
-    box.innerHTML = cell("weak", weak) + '<button class="swapbtn" id="swapRoles" title="⇄"' + (cur.length === 2 ? "" : " disabled") + '>⇄</button>' + cell("main", main);
+    box.innerHTML = cell("weak", weak) + '<button class="swapbtn" id="swapRoles" title="⇄" aria-label="' + window.esc(tk("slot_swap_tip")) + '"' + (cur.length === 2 ? "" : " disabled") + '>⇄</button>' + cell("main", main);
     box.querySelectorAll(".sx").forEach(function (x) {
-      x.onclick = function () { picksTouched = true; var pid = x.getAttribute("data-pid"); pickedByK[fireKingdom] = pickedByK[fireKingdom].filter(function (p) { return p.pid !== pid; }); renderRoster(); stageBroadcast(); };
+      x.onclick = function () { var pid = x.getAttribute("data-pid"); commitPicks(pickedByK[fireKingdom].filter(function (p) { return p.pid !== pid; })); };
     });
-    var sw = $("swapRoles"); if (sw) sw.onclick = function () { picksTouched = true; pickedByK[fireKingdom].forEach(function (x) { x.role = x.role === "main" ? "weak" : "main"; }); renderRoster(); stageBroadcast(); window.toast(tk("slot_swap_tip")); };
+    var sw = $("swapRoles"); if (sw) sw.onclick = function () { commitPicks(pickedByK[fireKingdom].map(function (pick) { return { pid: pick.pid, role: pick.role === "main" ? "weak" : "main" }; })); window.toast(tk("slot_swap_tip")); };
   }
   // hard sync gate that does NOT waste the commander's confirm tap: if unsynced, resync then auto-fire on success
   function gateSync(fn) { if (syncedOK) return fn(); window.toast(tk("notsynced")); window.syncClock().then(function (r) { updateSync(r); if (syncedOK) fn(); else window.toast(tk("notconn")); }); }
   function fireDouble() {
     var cur = pickedByK[fireKingdom]; if (cur.length < 2) { window.toast(tk("need2")); return; }
-    var weak = cur.filter(function (x) { return x.role === "weak"; })[0] || cur[0], main = cur.filter(function (x) { return x.role === "main"; })[0] || cur[1];
+    var weakPick = cur.filter(function (x) { return x.role === "weak"; })[0], mainPick = cur.filter(function (x) { return x.role === "main"; })[0];
+    var weak = weakPick && canonicalPick(weakPick.pid, "weak", room && room.players), main = mainPick && canonicalPick(mainPick.pid, "main", room && room.players);
     if (!weak || !main || weak.pid === main.pid) { window.toast(tk("need2")); return; }   // belt+braces: never fire the same player as both roles
-    [weak, main].forEach(function (c) { var rp = room && room.players && room.players[c.pid]; if (rp && rp.march) c.march = rp.march; });
     if (!weak.march || !main.march) { window.toast(tk("nomarch")); return; }
     gateSync(function () {
       var absent = [weak, main].some(function (c) { return !isReady(room && room.players && room.players[c.pid]); });
@@ -845,7 +949,14 @@
     renderTruthTexts();
     setInterval(function () { if (truthLang !== (L() ? "en" : "zh")) renderTruthTexts(); }, 500);
   }
-  function stageBroadcast() { if (!roomPw || !sock) return; var cur = pickedByK[fireKingdom]; sock.send({ t: "stage", password: roomPw, staged: { kingdom: fireKingdom, pairs: cur.map(function (x) { return { pid: x.pid, role: x.role }; }) } }); }
+  function stageBroadcast(previous) {
+    if (!roomPw || !sock) return false;
+    var cur = clonePicks(pickedByK[fireKingdom]);
+    pendingStageRollback = { kingdom: fireKingdom, previous: clonePicks(previous || cur), expected: clonePicks(cur) };
+    var ok = sock.send({ t: "stage", password: roomPw, staged: { kingdom: fireKingdom, pairs: cur } });
+    if (!ok) rollbackStageSelection(tk("notconn"));
+    return ok;
+  }
   function tapFire(btn, labelEl, labelKey, fn) {   // double-TAP to confirm — no long-press, so iOS never pops the text-selection/copy callout
     var armed = 0;
     btn.onclick = function () {
@@ -1060,7 +1171,26 @@
     sock.onMessage = handleSocketMessage;
     sock.onOpen = function () { initialStateSeen = false; registrationPending = false; setNet(true); window.syncClock().then(updateSync); };
     sock.onClose = function () { initialStateSeen = false; registrationPending = false; if (pendingMarchMutation && !pendingMarchMutation.ackSeen) pendingMarchMutation = null; setNet(false); };
-    sock.onError = function (m) { if (handlePlayerProtocolError(m)) return; if (m.error === "bad_password") { pendingRemovePid = ""; pendingRemoveName = ""; try { localStorage.removeItem(LS("pw")); } catch (e) {} if (pendingUnlock) { pendingUnlock = false; roomPw = ""; var msg = $("pwMsg"); if (msg) { msg.textContent = tk("wrongpw"); msg.className = "pwmsg err"; } } else { window.toast(tk("wrongpw")); lockCmd(); } } else if (m.error === "player_in_use") { pendingRemovePid = ""; pendingRemoveName = ""; window.toast(tk("remove_in_use")); if (room) renderRoster(); } else if (m.error === "player_missing") window.toast(tk("player_missing")); else if (m.error === "rally_live") window.toast(tk("rally_live")); else if (m.error === "conflict") { if (pendingUnlock) { if (m.room) room = m.room; unlockedOK(); } /* pw was validated before the lock check — the conflict only means someone else wrote config meanwhile; open the console on their fresher state, write nothing */ else if (pendingPubWhales && window.confirm(tk("confirm_over"))) sendWhales(pendingPubWhales, m.room ? m.room.updatedAt : (room ? room.updatedAt : undefined)); else { pendingPubWhales = null; pendingPubTok = null; var pm = $("pubMsg"); if (pm) pm.innerHTML = '<span style="color:var(--coral)">' + tk("pub_fail") + '</span>'; } } };
+    sock.onError = function (m) {
+      if (m.error === "player_staged_other_kingdom") { rollbackStageSelection(tk("stage_other_kingdom")); return; }
+      if (pendingStageRollback && m.error === "player_missing") { rollbackStageSelection(tk("player_missing")); return; }
+      if (m.error === "bad_password" && pendingStageRollback) rollbackStageSelection();
+      if (handlePlayerProtocolError(m)) return;
+      if (m.error === "bad_password") {
+        pendingRemovePid = ""; pendingRemoveName = "";
+        try { localStorage.removeItem(LS("pw")); } catch (e) {}
+        if (pendingUnlock) { pendingUnlock = false; roomPw = ""; var msg = $("pwMsg"); if (msg) { msg.textContent = tk("wrongpw"); msg.className = "pwmsg err"; } }
+        else { window.toast(tk("wrongpw")); lockCmd(); }
+      } else if (m.error === "player_in_use") {
+        pendingRemovePid = ""; pendingRemoveName = ""; window.toast(tk("remove_in_use")); if (room) renderRoster();
+      } else if (m.error === "player_missing") window.toast(tk("player_missing"));
+      else if (m.error === "rally_live") window.toast(tk("rally_live"));
+      else if (m.error === "conflict") {
+        if (pendingUnlock) { if (m.room) room = m.room; unlockedOK(); }
+        else if (pendingPubWhales && window.confirm(tk("confirm_over"))) sendWhales(pendingPubWhales, m.room ? m.room.updatedAt : (room ? room.updatedAt : undefined));
+        else { pendingPubWhales = null; pendingPubTok = null; var pm = $("pubMsg"); if (pm) pm.innerHTML = '<span style="color:var(--coral)">' + tk("pub_fail") + '</span>'; }
+      }
+    };
   }
   // one glanceable signal instead of four separate badges: worst state wins (offline > syncing > "{n} online")
   var connFlag = false, presenceN = 1;
@@ -1079,7 +1209,24 @@
     var trackedPid = myProfile && myProfile.pid;
     var ownRemoved = !!(trackedPid && ownPlayerSeen && !Object.prototype.hasOwnProperty.call(nextPlayers, trackedPid));
     var ownRemovedName = ownRemoved ? (myProfile.name || trackedPid) : "", acknowledgedOwnRemoval = false;
-    [1, 2].forEach(function (kd) { pickedByK[kd] = pickedByK[kd].filter(function (p) { return !!nextPlayers[p.pid]; }); });
+    [1, 2].forEach(function (kd) {
+      var canonicalStaged = r.live && r.live.staged && r.live.staged[kd];
+      serverStagedByK[kd] = canonicalStaged && Array.isArray(canonicalStaged.pairs) ? canonicalStaged.pairs.map(function (pick) { return { pid: pick.pid, role: pick.role }; }) : [];
+    });
+    if (roomPw && !picksTouched) {
+      [1, 2].forEach(function (kd) {
+        var staged = r.live && r.live.staged && r.live.staged[kd];
+        if (staged && Array.isArray(staged.pairs) && staged.pairs.length && !pickedByK[kd].length) {
+          pickedByK[kd] = staged.pairs.map(function (pick) { return { pid: pick.pid, role: pick.role }; });
+        }
+      });
+    }
+    reconcilePicks(nextPlayers);
+    if (pendingReplacementPid && (!nextPlayers[pendingReplacementPid] || pickedByK[fireKingdom].length < 2 || otherKingdomForPid(pendingReplacementPid, fireKingdom))) closeReplacement(true);
+    if (pendingStageRollback) {
+      var pendingStaged = r.live && r.live.staged && r.live.staged[pendingStageRollback.kingdom];
+      if (pickSignature((pendingStaged && pendingStaged.pairs) || []) === pickSignature(pendingStageRollback.expected)) pendingStageRollback = null;
+    }
     if (pendingRemovePid && !(r.players && r.players[pendingRemovePid])) {
       var removedPid = pendingRemovePid, removedName = pendingRemoveName || pendingRemovePid;
       acknowledgedOwnRemoval = ownRemoved && removedPid === trackedPid;
@@ -1126,17 +1273,6 @@
     }
     // publish ack = the server echoing OUR by-token (never "the count looks right" — a stale broadcast could fake that)
     if (pendingPubTok && r.updatedBy === pendingPubTok) { pendingPubTok = null; pendingPubWhales = null; var pm = $("pubMsg"); if (pm) pm.innerHTML = '<span style="color:var(--green-deep)">' + tk("pub_ok") + '</span>'; window.toast(tk("pub_ok")); }
-    // commander console rehydrate: after a reload the picks are gone client-side but staged persists server-side —
-    // reseed from staged so the console matches what the captains still see ("stand by")
-    if (roomPw && !picksTouched) {
-      [1, 2].forEach(function (kd) {
-        var st = r.live && r.live.staged && r.live.staged[kd];
-        if (st && st.pairs && st.pairs.length && !pickedByK[kd].length) {
-          pickedByK[kd] = st.pairs.map(function (p) { var pl = r.players[p.pid] || {}; return { pid: p.pid, name: pl.name || p.pid, march: pl.march || 60, role: p.role }; });
-          renderRoster();
-        }
-      });
-    }
     // staged pre-warning must be perceivable even from the Defense tab / a pocketed phone
     var sm = stagedForMe(), sk = sm ? (sm.kingdom + ":" + sm.role) : "";
     if (sk && sk !== lastStagedKey) { if (viewMode === "defense") setView("attack"); fireAlert(); try { navigator.vibrate && navigator.vibrate([80, 40, 80]); } catch (e) {} }
@@ -1197,6 +1333,12 @@
   function wireRoom() {
     if (myProfile) showProfileDraft(myProfile);
     wireIdentityControls();
+    $("rosterSearch").addEventListener("input", function () { rosterQuery = this.value.toLowerCase().trim(); if (room) renderRoster(); });
+    $("replaceWeak").onclick = function () { applyReplacement(pendingReplacementPid, "weak"); };
+    $("replaceMain").onclick = function () { applyReplacement(pendingReplacementPid, "main"); };
+    $("replaceCancel").onclick = function () { closeReplacement(true); };
+    $("replaceOvl").addEventListener("click", function (event) { if (event.target === $("replaceOvl")) closeReplacement(true); });
+    document.addEventListener("keydown", function (event) { if (event.key === "Escape" && $("replaceOvl").classList.contains("show")) { event.preventDefault(); closeReplacement(true); } });
     $("saveBtn").onclick = function () {
       var identityValue = $("pid").value, resolvedName = $("nameOut").dataset.name || "";
       cancelIdentityLookup();

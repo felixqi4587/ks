@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#f8f8f0">
 <title>kingshoter · KvK</title>
 <link rel="icon" href="/favicon.svg">
-<link rel="stylesheet" href="app.css?v=25">
+<link rel="stylesheet" href="app.css?v=26">
 <style>
   .pond{position:relative;background:radial-gradient(circle at 50% 42%,#e8fbf8,#cdf2ec 55%,#b6ebe2);border:2px solid #bfeee7;border-radius:var(--r-lg);overflow:hidden;margin-bottom:12px;box-shadow:inset 0 2px 10px rgba(15,161,147,.12)}
   .pond svg{display:block;width:100%;height:auto}
@@ -123,7 +123,9 @@
       <div class="lab" id="t_kdhint" style="margin-top:0"></div>
       <div class="chiprow" id="kingdomPick"></div>
       <div class="slots" id="pickSlots"></div>
-      <div class="roster" id="roster"></div>
+      <div class="roster-search hide" id="rosterSearchWrap"><input id="rosterSearch" type="search" autocomplete="off" aria-label="Search players"></div>
+      <div class="hint hide" id="duplicateHint" role="note"></div>
+      <div class="roster" id="roster" role="list"></div>
       <div class="lab" id="t_leadhint"></div>
       <div class="chiprow" id="lead"></div>
       <!-- fire trio rides a sticky dock: 0px of scrolling to fire, always under the thumb -->
@@ -164,8 +166,15 @@
   <div class="row" style="gap:8px"><button class="btn full" id="pwCancel" id_t="t_pwcancel">取消</button><button class="btn amber full" id="pwGo" id_t="t_pwgo">进指挥模式</button></div>
 </div></div>
 
+<!-- explicit third-player replacement; a full selection never shifts silently -->
+<div class="ovl" id="replaceOvl" role="dialog" aria-modal="true" aria-labelledby="replaceTitle"><div class="ob">
+  <h3 id="replaceTitle">Choose a captain to replace</h3>
+  <div class="replace-actions"><button class="btn full" id="replaceWeak"></button><button class="btn full" id="replaceMain"></button></div>
+  <button class="btn full" id="replaceCancel" style="margin-top:8px"></button>
+</div></div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
 <script src="app.js?v=9"></script>
-<script src="kvk.js?v=35"></script>
+<script src="kvk.js?v=36"></script>
 </body>
 </html>

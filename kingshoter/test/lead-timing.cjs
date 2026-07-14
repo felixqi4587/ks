@@ -1,9 +1,10 @@
 const { chromium } = require('playwright');
+const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard } = require('./support/qa-kvk.cjs');
 
 (async () => {
-  const host = process.argv[2] || 'http://127.0.0.1:8800';
-  const room = `personal${Date.now()}`;
-  const url = `${host}/kvk.html?room=${room}&notour=1`;
+  const host = process.argv[2] || 'http://127.0.0.1:8791';
+  const room = makeQaRoom(`lead-${process.argv[3] || 10}`);
+  const url = qaRoomUrl(host, room, { notour: 1 });
   const browser = await chromium.launch({
     headless: true,
     channel: 'chrome',
@@ -19,6 +20,7 @@ const { chromium } = require('playwright');
 
   const openPage = async (label) => {
     const context = await browser.newContext({ viewport: { width: 390, height: 1200 }, locale: 'en-US' });
+    await installQaWebSocketGuard(context, room);
     const page = await context.newPage();
     page.on('pageerror', (error) => errors.push(`${label}: ${error.message}`));
     await page.goto(url);
@@ -123,6 +125,7 @@ const { chromium } = require('playwright');
   ]);
   await weakPage.waitForTimeout(500);
 
+  assertQaRoomName(room);
   const snapshot = await commander.evaluate(async (roomName) => {
     const response = await fetch(`/api/ws?room=${encodeURIComponent(roomName)}`);
     return response.json();

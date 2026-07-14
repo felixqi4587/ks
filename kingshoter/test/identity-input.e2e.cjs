@@ -158,8 +158,8 @@ async function readProfile(page) {
     await Promise.all([racePage.goto(url), retryPage.goto(url), abortPage.goto(url)]);
     await Promise.all([enableSound(racePage), enableSound(retryPage), enableSound(abortPage)]);
 
-    assert.equal(await racePage.locator('link[href="app.css?v=25"]').count(), 1, 'the identity CSS cache version is exact');
-    assert.equal(await racePage.locator('script[src="kvk.js?v=35"]').count(), 1, 'the identity script cache version is exact');
+    assert.equal(await racePage.locator('link[href="app.css?v=26"]').count(), 1, 'the identity CSS cache version is exact');
+    assert.equal(await racePage.locator('script[src="kvk.js?v=36"]').count(), 1, 'the identity script cache version is exact');
     assert.equal(await racePage.locator('#identityMode').getAttribute('role'), 'radiogroup');
     assert.match(await racePage.locator('#identityMode').getAttribute('aria-label'), /Identity/i);
     assert.equal(await racePage.locator('#identityPlayerId').getAttribute('role'), 'radio');

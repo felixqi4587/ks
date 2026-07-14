@@ -1,0 +1,177 @@
+const assert = require('node:assert/strict');
+const { chromium } = require('playwright');
+const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard } = require('./support/qa-kvk.cjs');
+
+const base = process.env.BASE || 'http://127.0.0.1:8791';
+const room = makeQaRoom('roster-control');
+const url = qaRoomUrl(base, room, { notour: 1 });
+const duplicateOne = 'n_aaaaaaaaaaaaaaaaaa1111';
+const duplicateTwo = 'n_bbbbbbbbbbbbbbbbbb2222';
+const players = [
+  { pid: duplicateOne, name: 'Tester', march: 35, identityMode: 'nickname' },
+  { pid: duplicateTwo, name: 'Tester', march: 36, identityMode: 'nickname' },
+  { pid: '900000001', name: 'Alpha', march: 37, identityMode: 'playerId' },
+  { pid: '900000002', name: 'Bravo', march: 38, identityMode: 'playerId' },
+  { pid: '900000003', name: 'Charlie', march: 39, identityMode: 'playerId' },
+  { pid: '900000004', name: 'Delta', march: 40, identityMode: 'playerId' },
+  { pid: '900000005', name: 'Echo', march: 41, identityMode: 'playerId' }
+];
+
+async function sendMessages(page, messages) {
+  assertQaRoomName(room);
+  await page.evaluate(({ roomName, payloads }) => new Promise((resolve, reject) => {
+    const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+    const socket = new WebSocket(`${protocol}://${location.host}/api/ws?room=${encodeURIComponent(roomName)}`);
+    const timer = setTimeout(() => reject(new Error('QA WebSocket timeout')), 5000);
+    socket.onopen = () => {
+      payloads.forEach(payload => socket.send(JSON.stringify(payload)));
+      setTimeout(() => { clearTimeout(timer); socket.close(); resolve(); }, 400);
+    };
+    socket.onerror = () => { clearTimeout(timer); reject(new Error('QA WebSocket failed')); };
+  }), { roomName: room, payloads: messages });
+}
+
+async function assertLayout(page, width) {
+  await page.setViewportSize({ width, height: 900 });
+  const result = await page.evaluate(() => {
+    const roster = document.querySelector('#roster');
+    const controls = Array.from(document.querySelectorAll('#roster .rp, #roster .roster-role, #roster .roster-time, #roster .roster-actions'));
+    return {
+      documentFits: document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+      rosterFits: roster.scrollWidth <= roster.clientWidth,
+      height: roster.getBoundingClientRect().height,
+      scrollsVertically: roster.scrollHeight > roster.clientHeight,
+      minTarget: Math.min(...controls.map(control => control.getBoundingClientRect().height))
+    };
+  });
+  assert.equal(result.documentFits, true, `${width}px page has no horizontal overflow`);
+  assert.equal(result.rosterFits, true, `${width}px roster has no horizontal overflow`);
+  assert.ok(result.height <= 202, `${width}px roster remains bounded`);
+  assert.equal(result.scrollsVertically, true, `${width}px roster scrolls vertically`);
+  assert.ok(result.minTarget >= 44, `${width}px controls keep 44px targets`);
+}
+
+(async () => {
+  console.log(`QA room: ${room}`);
+  const browser = await chromium.launch({ headless: true, channel: 'chrome' });
+  const context = await browser.newContext({ viewport: { width: 375, height: 900 }, locale: 'en-US' });
+  const errors = [];
+  let hideK2Stage = false;
+  try {
+    await installQaWebSocketGuard(context, room, {
+      shouldDropServerMessage({ data }) {
+        if (!hideK2Stage) return false;
+        try {
+          const message = JSON.parse(String(data));
+          const pairs = message.t === 'state' && message.room && message.room.live && message.room.live.staged && message.room.live.staged['2'] && message.room.live.staged['2'].pairs;
+          return Array.isArray(pairs) && pairs.some(pair => pair.pid === '900000005');
+        } catch (_) { return false; }
+      }
+    });
+    await context.addInitScript(() => {
+      const NativeWebSocket = window.WebSocket;
+      window.WebSocket = class extends NativeWebSocket {
+        send(data) {
+          let message = null;
+          try { message = JSON.parse(String(data)); } catch (_) {}
+          if (window.__qaFailNextStage && message && message.t === 'stage') {
+            window.__qaFailNextStage = false;
+            throw new Error('QA forced stage send failure');
+          }
+          return super.send(data);
+        }
+      };
+    });
+    const page = await context.newPage();
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto(url);
+    await page.locator('#soundGate').click();
+    await sendMessages(page, players.map(player => Object.assign({ t: 'registerPlayer' }, player)));
+    await page.locator('#cmdUnlock').click();
+    await page.locator('#pwInput').fill('roster-password');
+    await page.locator('#pwGo').click();
+    await page.locator('#console').waitFor({ state: 'visible' });
+
+    assert.equal(await page.locator('link[href="app.css?v=26"]').count(), 1);
+    assert.equal(await page.locator('script[src="kvk.js?v=36"]').count(), 1);
+    await page.locator('#roster .roster-row').first().waitFor();
+    assert.equal(await page.locator('#roster .roster-row').count(), 7);
+    assert.equal(await page.locator('#rosterSearchWrap').isVisible(), true);
+    await assertLayout(page, 375);
+    await assertLayout(page, 390);
+
+    const suffixOne = page.locator(`#roster .roster-row[data-pid="${duplicateOne}"] .roster-name-suffix`);
+    const suffixTwo = page.locator(`#roster .roster-row[data-pid="${duplicateTwo}"] .roster-name-suffix`);
+    assert.match(await suffixOne.textContent(), /1111/);
+    assert.match(await suffixTwo.textContent(), /2222/);
+    assert.equal(await page.locator('#roster .roster-row[data-pid="900000001"] .roster-name-suffix').count(), 0);
+
+    const primary = pid => page.locator(`#roster .rp[data-pid="${pid}"]`);
+    await primary('900000001').click();
+    await primary('900000002').click();
+    assert.equal(await page.locator('#roster .rp[aria-pressed="true"]').count(), 2);
+    await page.locator('#roster .roster-role[data-pid="900000001"]').click();
+    await page.locator('#roster .roster-time[data-pid="900000001"]').click({ force: true });
+    page.once('dialog', dialog => dialog.dismiss());
+    await page.locator('#roster .roster-actions[data-pid="900000001"]').click();
+    assert.equal(await page.locator('#roster .rp[aria-pressed="true"]').count(), 2, 'sibling controls never toggle selection');
+    await page.evaluate(() => { window.__qaFailNextStage = true; });
+    await primary('900000002').click();
+    await page.waitForFunction(() => document.querySelectorAll('#roster .rp[aria-pressed="true"]').length === 2);
+    assert.equal(await primary('900000002').getAttribute('aria-pressed'), 'true', 'send(false) restores the prior picks');
+
+    await primary('900000003').click();
+    await page.locator('#replaceOvl').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('#roster .rp[aria-pressed="true"]').count(), 2, 'third tap does not silently shift a pick');
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => document.activeElement && document.activeElement.matches('.rp[data-pid="900000003"]'));
+    await primary('900000003').click();
+    await page.locator('#replaceOvl').waitFor({ state: 'visible' });
+    await page.locator('#replaceCancel').click();
+    await page.waitForFunction(() => document.activeElement && document.activeElement.matches('.rp[data-pid="900000003"]'));
+    assert.equal(await page.locator('#roster .rp[aria-pressed="true"]').count(), 2);
+    await primary('900000003').click();
+    await page.locator('#replaceWeak').click();
+    assert.equal(await primary('900000003').getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.locator('#pickSlots .slot.weak').getAttribute('data-pid'), '900000003');
+    await sendMessages(page, [{ t: 'updateOwnMarch', mutationId: 'roster-remote-1', pid: '900000003', march: 49, baseRevision: 0 }]);
+    await page.locator('#roster .roster-time[data-pid="900000003"]').filter({ hasText: '0:49' }).waitFor();
+    await page.locator('#pickSlots .slot.weak small').filter({ hasText: '0:49' }).waitFor();
+
+    await page.locator('#rosterSearch').fill('Tester');
+    assert.equal(await page.locator('#roster .roster-row:visible').count(), 2);
+    await page.locator('#rosterSearch').fill('900000002');
+    assert.equal(await page.locator('#roster .roster-row:visible').count(), 1);
+    await page.locator('#rosterSearch').fill('no-results');
+    assert.equal(await page.locator('#roster .roster-row:visible').count(), 0);
+    assert.equal(await page.locator('#pickSlots .slot.filled').count(), 2, 'zero-result search preserves slots');
+    assert.equal(await page.locator('#fireDouble').isDisabled(), false, 'zero-result search preserves Fire readiness');
+    await page.locator('#rosterSearch').fill('');
+
+    hideK2Stage = true;
+    await sendMessages(page, [{
+      t: 'stage', password: 'roster-password',
+      staged: { kingdom: 2, pairs: [{ pid: '900000005', role: 'weak' }] }
+    }]);
+    await primary('900000005').click();
+    await page.locator('#replaceWeak').click();
+    await page.waitForFunction(() => {
+      const rejected = document.querySelector('#roster .rp[data-pid="900000005"]');
+      const weak = document.querySelector('#pickSlots .slot.weak');
+      return rejected && rejected.getAttribute('aria-pressed') === 'false' && weak && weak.dataset.pid === '900000003';
+    });
+    hideK2Stage = false;
+
+    await primary('900000004').click();
+    await page.locator('#replaceOvl').waitFor({ state: 'visible' });
+    await sendMessages(page, [{ t: 'removePlayer', password: 'roster-password', pid: '900000004' }]);
+    await page.locator('#roster .roster-row[data-pid="900000004"]').waitFor({ state: 'detached' });
+    assert.equal(await page.locator('#replaceOvl').isVisible(), false, 'remote removal closes a stale replacement');
+    assert.equal(await page.locator('#rosterSearchWrap').isVisible(), false, 'search hides at six players');
+    assert.equal(await page.locator('#rosterSearch').inputValue(), '', 'hidden search is cleared');
+    assert.deepEqual(errors, []);
+    console.log(`✓ canonical vertical roster controls (${room})`);
+  } finally {
+    await browser.close();
+  }
+})().catch(error => { console.error(error.stack || error); process.exit(1); });

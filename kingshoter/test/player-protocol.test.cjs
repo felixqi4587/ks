@@ -120,6 +120,32 @@ test('wrong-password commander update authenticates before existence-sensitive e
   assert.deepEqual(h.calls, []);
 });
 
+test('stage atomically rejects a player already staged in the other kingdom', async () => {
+  const { Room } = await loadRoom();
+  const h = createRoomHarness(Room);
+  await claimRoom(h);
+  h.reset();
+  await h.room.webSocketMessage(h.ws, JSON.stringify({
+    t: 'stage', password: 'commander-secret',
+    staged: { kingdom: 1, pairs: [{ pid: '001', role: 'weak' }, { pid: 'kimchi', role: 'main' }] }
+  }));
+  assert.deepEqual(h.calls, ['persist', 'broadcast']);
+  h.reset();
+
+  await h.room.webSocketMessage(h.ws, JSON.stringify({
+    t: 'stage', password: 'commander-secret',
+    staged: { kingdom: 2, pairs: [{ pid: '001', role: 'weak' }] }
+  }));
+
+  assert.deepEqual(h.sent, [{ t: 'error', error: 'player_staged_other_kingdom', pid: '001', kingdom: 1 }]);
+  assert.deepEqual(h.calls, []);
+  assert.deepEqual(h.room.room.live.staged[1].pairs, [
+    { pid: '001', role: 'weak' },
+    { pid: 'kimchi', role: 'main' }
+  ]);
+  assert.equal(h.room.room.live.staged[2], null);
+});
+
 test('Fire freezes canonical march values and exact Main landing offset from stale sender snapshots', async () => {
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room);

@@ -241,6 +241,10 @@ export class Room {
       const kd = clampInt(s.kingdom, 1, 2);
       const pairs = (Array.isArray(s.pairs) ? s.pairs : []).slice(0, 2).map(p => ({ pid: clampStr(p && p.pid, 24), role: (p && p.role) === "main" ? "main" : "weak" }));
       if (pairs.some(p => !p.pid || !Object.prototype.hasOwnProperty.call(this.room.players, p.pid))) return ws.send(JSON.stringify({ t: "error", error: "player_missing" }));
+      const otherKingdom = kd === 1 ? 2 : 1;
+      const otherPairs = ((this.room.live.staged[otherKingdom] && this.room.live.staged[otherKingdom].pairs) || []);
+      const conflict = pairs.find(pair => otherPairs.some(other => other && other.pid === pair.pid));
+      if (conflict) return ws.send(JSON.stringify({ t: "error", error: "player_staged_other_kingdom", pid: conflict.pid, kingdom: otherKingdom }));
       const prevPids = new Set(((this.room.live.staged[kd] && this.room.live.staged[kd].pairs) || []).map(p => p.pid));
       this.room.live.staged[kd] = pairs.length ? { kingdom: kd, pairs } : null;
       pairs.forEach(p => { if (!prevPids.has(p.pid) && this.room.players[p.pid]) this.room.players[p.pid].ready = false; });   // only reset ready for NEWLY staged captains — a role swap must not wipe an already-confirmed captain

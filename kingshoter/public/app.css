@@ -259,18 +259,25 @@ details summary:before{content:"▸ ";color:var(--mint)} details[open] summary:b
 .seg button.on{background:var(--mint);color:#fff}
 .seg.cmdseg button.on{background:var(--cmd);color:#fff}
 .vsel{border:1.5px solid var(--line);border-radius:10px;padding:9px 10px;font:700 12.5px/1 var(--font);color:var(--brown);background:var(--paper)}
-.roster{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
-.rp{border:2px solid var(--line);background:var(--paper);color:var(--brown2);border-radius:16px;padding:9px 13px;font:800 13px/1 var(--font);cursor:pointer;display:flex;align-items:center;gap:7px;transition:.14s}
-.rpi{display:flex;align-items:stretch;flex:0 0 auto}.rpi .rp{border-radius:16px 0 0 16px}
+.roster-search{margin:7px 0 5px}.roster-search input{width:100%;min-width:0;min-height:44px}
+.roster{display:grid;grid-template-columns:minmax(0,1fr);gap:6px;max-height:200px;overflow-y:auto;overflow-x:hidden;padding:2px;margin:6px 0 10px;-webkit-overflow-scrolling:touch}
+.roster-row{display:grid;grid-template-columns:minmax(0,1fr) 76px 62px 44px;align-items:stretch;min-width:0}
+.roster-row[hidden]{display:none}
+.rp,.roster-role,.roster-time,.roster-actions{min-width:0;min-height:44px;border:2px solid var(--line);border-left:0;background:var(--paper);color:var(--brown2);font:800 12px/1.15 var(--font);cursor:pointer}
+.rp{border-left:2px solid var(--line);border-radius:13px 0 0 13px;padding:7px 9px;display:flex;align-items:center;gap:6px;text-align:left;overflow:hidden}
 .rp:active{transform:translateY(1px)}
 .rp.sel{border-color:var(--mint);background:var(--mint-bg);color:var(--mint-deep)}
-.rp .rb{font-size:9.5px;font-weight:900;padding:2px 7px;border-radius:10px}
-.rp .rb.main{background:#fff3cf;color:#b8860b} .rp .rb.weak{background:var(--coral-bg);color:var(--coral)}
 .rp.otherk{opacity:.72;border-style:dashed;border-color:#e0a92c;background:#fffaf0}
-.rp .rb.otherk{background:#ffe6b0;color:#b8860b}
-.rpdel{width:44px;min-height:44px;border:2px solid var(--line);border-left:0;border-radius:0 16px 16px 0;background:var(--paper);color:var(--coral);font:900 21px/1 var(--font);cursor:pointer;display:grid;place-items:center}
-.rpi.sel .rpdel{border-color:var(--mint);background:var(--mint-bg)}.rpi.otherk .rpdel{opacity:.72;border-style:dashed;border-left-style:solid}
-.rpdel:hover{background:var(--coral-bg)}.rpdel:focus-visible{background:var(--coral-bg);outline:2px solid var(--coral);outline-offset:1px}.rpdel:disabled{opacity:.38;cursor:wait}
+.roster-presence{flex:0 0 auto;color:var(--mint-deep)}.roster-presence.stale{color:var(--brown3)}
+.roster-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.roster-name-suffix{flex:0 0 auto;font:800 10px/1 var(--mono);color:var(--brown3)}
+.roster-role{padding:4px 5px}.roster-role.main{background:#fff3cf;color:#9b7100}.roster-role.weak{background:var(--coral-bg);color:var(--coral)}.roster-role.otherk{background:#ffe6b0;color:#9b7100}
+.roster-time{font-family:var(--mono);background:var(--cream)}.roster-time[aria-disabled="true"]{cursor:default}
+.roster-actions{border-radius:0 13px 13px 0;color:var(--coral);font-size:20px;display:grid;place-items:center}
+.roster-row.sel .rp,.roster-row.sel .roster-role,.roster-row.sel .roster-time,.roster-row.sel .roster-actions{border-color:var(--mint)}
+.roster-row.otherk{opacity:.78}.roster-row.otherk .rp{border-color:#e0a92c}
+.rpdel:hover,.roster-actions:hover{background:var(--coral-bg)}.rpdel:disabled{opacity:.38;cursor:wait}
+.rp:focus-visible,.roster-role:focus-visible,.roster-time:focus-visible,.roster-actions:focus-visible,.slot .sx:focus-visible,.swapbtn:focus-visible{outline:3px solid rgba(15,161,147,.32);outline-offset:-3px;position:relative;z-index:2}
+.replace-actions{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}.replace-actions button{min-height:44px;text-align:left}
 .chiprow{display:flex;gap:7px;flex-wrap:wrap;margin:6px 0}
 .chipbtn{flex:1;min-width:62px;border:1.5px solid var(--line);background:var(--paper);color:var(--brown2);border-radius:12px;padding:9px;font:800 12.5px/1 var(--mono);cursor:pointer}
 .chipbtn.on{border-color:var(--mint);background:var(--mint-bg);color:var(--mint-deep)}
@@ -432,25 +439,26 @@ details.cdefense summary{min-height:44px;display:flex;align-items:center;padding
 .dlane .dfp{position:absolute;top:69px;transform:translateX(-50%);background:var(--green);color:#fff;font-weight:900;font-size:10.5px;padding:2px 10px;border-radius:20px;opacity:0;transition:opacity .12s;z-index:7;box-shadow:0 3px 10px rgba(111,186,44,.55);white-space:nowrap}
 /* key-moment emphasis (scale inner .d so the centering transform is preserved) */
 /* commander captain slots: explicit SACRIFICE / MAIN cells + one-tap ⇄ swap (no more guessing which is which) */
-.slots{display:flex;gap:8px;align-items:stretch;margin:6px 0 4px}
+.slots{display:grid;grid-template-columns:minmax(0,1fr) 44px minmax(0,1fr);gap:8px;align-items:stretch;margin:6px 0 4px}
 .slot{flex:1;min-width:0;border:2px dashed var(--line-hi);border-radius:14px;padding:8px 10px;background:var(--cream);text-align:center}
 .slot.filled{border-style:solid}
 .slot.weak.filled{border-color:var(--coral);background:linear-gradient(180deg,#fdeeee,var(--paper))}
 .slot.main.filled{border-color:#e0a92c;background:linear-gradient(180deg,#fff6dd,var(--paper))}
 .slot .sl{font:900 11.5px/1 var(--font);color:var(--brown2);margin-bottom:5px}
 .slot.weak.filled .sl{color:var(--coral)} .slot.main.filled .sl{color:#b8860b}
-.slot .sv{font:800 13px/1.2 var(--font);color:var(--brown);display:flex;align-items:center;justify-content:center;gap:5px;min-height:18px}
+.slot .sv{font:800 13px/1.2 var(--font);color:var(--brown);display:flex;align-items:center;justify-content:center;gap:5px;min-height:44px;min-width:0}
+.slot .sv .slot-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.slot .sv .roster-name-suffix{white-space:nowrap}
 .slot .sv small{font:700 11px/1 var(--mono);color:var(--brown2)}
 .slot .sv.empty{color:var(--brown3);font-weight:700}
-.slot .sx{cursor:pointer;color:var(--coral);font-weight:900;padding:0 4px;font-size:15px}
+.slot .sx{flex:0 0 44px;width:44px;min-height:44px;border:0;border-radius:10px;background:transparent;cursor:pointer;color:var(--coral);font-weight:900;font-size:18px}
 .slot .ss{font:700 9px/1.3 var(--font);color:var(--brown3);margin-top:4px}
-.swapbtn{flex:0 0 auto;align-self:center;width:40px;height:40px;border:2px solid var(--line);background:var(--paper);color:var(--mint-deep);border-radius:12px;font:900 18px/1 var(--font);cursor:pointer;-webkit-user-select:none;user-select:none;touch-action:manipulation}
+.swapbtn{align-self:center;width:44px;height:44px;border:2px solid var(--line);background:var(--paper);color:var(--mint-deep);border-radius:12px;font:900 18px/1 var(--font);cursor:pointer;-webkit-user-select:none;user-select:none;touch-action:manipulation}
 .swapbtn:active{transform:rotate(180deg)} .swapbtn:disabled{opacity:.4;cursor:default}
 /* live-timeline legend: gather 5:00 → march → land */
 .lanenote{font:700 10.5px/1.4 var(--font);color:var(--brown3);text-align:center;margin:2px 0 4px}
 .lanenote.join{color:var(--mint-deep);font-size:11.5px;background:#eafaf7;border:1.5px dashed #a7e6dd;border-radius:10px;padding:5px 8px}   /* the one actionable verb for a mid-gather cold-open */
 /* ghost badge reserves the role-badge footprint on unpicked chips → picking/unpicking never reflows the roster */
-.rp .rb.ghost{visibility:hidden}
+.roster-role.ghost{color:var(--brown3);background:var(--paper)}
 @keyframes dbeat{0%,100%{transform:scale(1)}50%{transform:scale(1.7)}}
 .dlane.fx-send .dod.send .d{animation:dbeat .5s ease-in-out infinite;box-shadow:0 0 0 7px rgba(111,186,44,.32)}
 .dlane.fx-send .dfp{opacity:1}
@@ -476,9 +484,9 @@ body.cmdmode .astat.on{display:none}
 body.cmdmode .toast{bottom:130px}   /* keep toasts clear of the fire dock */
 .viewtabs a{padding:9px 4px}
 .viewtabs{margin-bottom:10px}
-/* roster = one horizontal swipe strip (sorted picked→present→stale in JS) */
-.console .roster{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:2px 2px 6px;margin:6px 0 10px}
-.console .roster .rpi,.console .roster .rp{flex:0 0 auto}
+/* roster = bounded vertical list; no long horizontal swipe to find a captain */
+.console .roster{display:grid;overflow-y:auto;overflow-x:hidden;padding:2px;margin:6px 0 10px}
+.console .roster .rpi,.console .roster .rp{min-width:0}
 /* fire dock: sticky at the bottom of the console — zero scrolling to fire */
 .firedock{position:sticky;bottom:calc(env(safe-area-inset-bottom) + 8px);z-index:20;padding-top:10px;background:linear-gradient(180deg,transparent,#f3f5ff 28%)}
 .firedock.nofix{position:static}   /* yield while the keyboard is up (input focused) */
