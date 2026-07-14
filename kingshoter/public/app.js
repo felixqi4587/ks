@@ -125,15 +125,32 @@ window.startClock = () => {
   tick(); setInterval(tick, 500);
 };
 
+window.getRoomDeviceId = (room) => {
+  const key = `kvk:${String(room)}:delivery-device:v1`;
+  let value = '';
+  try { value = localStorage.getItem(key) || ''; } catch (e) {}
+  if (!/^[0-9a-f-]{36}$/i.test(value)) {
+    value = crypto.randomUUID();
+    try { localStorage.setItem(key, value); } catch (e) {}
+  }
+  return value;
+};
+
 /* ---- RoomSocket: WebSocket client with auto-reconnect ---- */
 window.RoomSocket = class {
-  constructor(room, onState) { this.room = room; this.onState = onState; this.onError = null; this.onOpen = null; this.onClose = null; this.dead = false; this.connect(); }
+  constructor(room, onState) { this.room = room; this.onState = onState; this.onError = null; this.onMessage = null; this.onOpen = null; this.onClose = null; this.dead = false; this.connect(); }
   connect() {
     const proto = location.protocol === "https:" ? "wss" : "ws";
     const ws = new WebSocket(`${proto}://${location.host}/api/ws?room=${encodeURIComponent(this.room)}`);
     this.ws = ws;
     ws.onopen = () => { if (this.onOpen) this.onOpen(); };
-    ws.onmessage = (e) => { let m; try { m = JSON.parse(e.data); } catch (_) { return; } if (m.t === "state") this.onState(m.room); else if (m.t === "error" && this.onError) this.onError(m); };
+    ws.onmessage = (event) => {
+      let message;
+      try { message = JSON.parse(event.data); } catch (_) { return; }
+      if (message.t === "state") this.onState(message.room);
+      else if (message.t === "error") { if (this.onError) this.onError(message); }
+      else if (this.onMessage) this.onMessage(message);
+    };
     ws.onclose = () => { if (this.onClose) this.onClose(); if (!this.dead) setTimeout(() => this.connect(), 1000 + Math.random() * 2000); };   // jitter avoids a synchronized reconnect storm on DO eviction / deploy
   }
   send(o) { try { if (this.ws && this.ws.readyState === 1) { this.ws.send(JSON.stringify(o)); return true; } } catch (e) {} return false; }
