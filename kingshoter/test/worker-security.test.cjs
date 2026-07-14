@@ -2,12 +2,14 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 
 const root = path.join(__dirname, '..');
 
 async function importSource(relativePath) {
-  const source = fs.readFileSync(path.join(root, relativePath), 'utf8');
-  return import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}#${Date.now()}-${Math.random()}`);
+  const url = pathToFileURL(path.join(root, relativePath));
+  url.searchParams.set('testRun', `${Date.now()}-${Math.random()}`);
+  return import(url.href);
 }
 
 function giftEnv(master) {

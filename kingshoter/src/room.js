@@ -3,6 +3,17 @@
    fans out the full state snapshot to every connected WebSocket on any change.
    Edits/commands require the room password (sha256) or the MASTER override. */
 
+import {
+  activeCommandPids,
+  applyPlayerMarchUpdate,
+  freezeDoubleRally,
+  normalizeMutationId,
+  normalizePlayerRecords,
+  normalizeRoutingKey,
+  registerPlayer,
+  removePlayerAtomic
+} from "./room-player.js";
+
 function defaultRoom() {
   return {
     pwHash: null,
@@ -48,6 +59,7 @@ export class Room {
     this.room = null;
     state.blockConcurrencyWhile(async () => {
       this.room = (await state.storage.get("room")) || defaultRoom();
+      this.room.players = normalizePlayerRecords(this.room.players);
       this.normalizeLive();
     });
   }
@@ -114,25 +126,24 @@ export class Room {
     return !!this.room.pwHash && (await sha256(pw)) === this.room.pwHash;
   }
   now() { return new Date().toISOString(); }
+  nowMs() { return Date.now(); }
 
   async webSocketMessage(ws, raw) {
     let m; try { m = JSON.parse(raw); } catch (e) { return; }
 
-    if (m.t === "setMarch") {
-      const pid = clampStr(m.pid, 24);
-      if (!pid) return;
-      const prev = this.room.players[pid];
-      this.room.players[pid] = {
-        name: clampStr(m.name, 24),
-        march: clampInt(m.march, 5, 900),   // realistic march seconds; ≥5 so a bad/zero value can't break the 1s-stagger math
-        alliance: clampStr(m.alliance, 24),
-        ready: prev ? !!prev.ready : !!m.ready,   // editing march shouldn't silently flip a captain's ready state
-        lastSeen: this.now()
-      };
+    if (m.t === "setMarch" || m.t === "registerPlayer") {
+      const pid = normalizeRoutingKey(m.pid);
+      if (pid && Object.prototype.hasOwnProperty.call(this.room.players, pid)) return;
+      const result = registerPlayer(this.room.players, m, this.now());
+      if (!result.ok) return ws.send(JSON.stringify(Object.assign({ t: "error" }, result)));
       // cap roster so a long-running room can't grow unbounded over a season — evict oldest lastSeen, but NEVER an active/staged captain
       const total = Object.keys(this.room.players).length;
       if (total > 150) {
-        const protect = this.referencedPids();
+        const protect = activeCommandPids(this.room.live, Math.floor(this.nowMs() / 1000));
+        for (const k of [1, 2]) {
+          const staged = this.room.live.staged[k];
+          if (staged && Array.isArray(staged.pairs)) staged.pairs.forEach(pair => protect.add(pair && pair.pid));
+        }
         Object.keys(this.room.players).filter(k => !protect.has(k))
           .sort((a, b) => (this.room.players[a].lastSeen || "") < (this.room.players[b].lastSeen || "") ? -1 : 1)
           .slice(0, total - 150).forEach(k => { delete this.room.players[k]; });
@@ -140,13 +151,36 @@ export class Room {
       await this.persist(); this.broadcast(); return;
     }
 
+    if (m.t === "updateOwnMarch") {
+      const result = applyPlayerMarchUpdate(this.room.players, m, { touchLastSeen: true, nowISO: this.now() });
+      if (!result.ok) return ws.send(JSON.stringify(Object.assign({ t: "error" }, result)));
+      await this.persist();
+      ws.send(JSON.stringify({
+        t: "playerMarchSaved", mutationId: result.mutationId, pid: result.pid, march: result.march, revision: result.revision
+      }));
+      this.broadcast(); return;
+    }
+
+    if (m.t === "setPlayerMarch") {
+      const mutationId = normalizeMutationId(m.mutationId);
+      if (!(await this.authOK(m.password))) return ws.send(JSON.stringify({ t: "error", error: "bad_password", mutationId }));
+      const result = applyPlayerMarchUpdate(this.room.players, m);
+      if (!result.ok) return ws.send(JSON.stringify(Object.assign({ t: "error" }, result)));
+      await this.persist();
+      ws.send(JSON.stringify({
+        t: "playerMarchSaved", mutationId: result.mutationId, pid: result.pid, march: result.march, revision: result.revision
+      }));
+      this.broadcast(); return;
+    }
+
     if (m.t === "removePlayer") {
       // Authenticate before checking whether the pid exists, so the roster cannot be probed through errors.
       if (!(await this.authOK(m.password))) return ws.send(JSON.stringify({ t: "error", error: "bad_password" }));
-      const pid = clampStr(m.pid, 24);
-      if (!pid || !Object.prototype.hasOwnProperty.call(this.room.players, pid)) return;   // idempotent cleanup: another commander may have removed it already
-      if (this.referencedPids().has(pid)) return ws.send(JSON.stringify({ t: "error", error: "player_in_use" }));
-      delete this.room.players[pid];
+      const result = removePlayerAtomic(this.room, m.pid, Math.floor(this.nowMs() / 1000));
+      if (!result.ok) {
+        if (result.error === "player_missing") return;   // idempotent cleanup: another commander may have removed it already
+        return ws.send(JSON.stringify({ t: "error", error: result.error, pid: result.pid }));
+      }
       await this.persist(); this.broadcast(); return;
     }
 
@@ -173,17 +207,18 @@ export class Room {
       const type = ["double_rally", "refill", "cancel", "ping"].includes(c.type) ? c.type : "refill";
       const kd = clampInt(c.kingdom != null ? c.kingdom : (c.payload && c.payload.kingdom), 1, 2);
       // a refill must NOT silently clobber an in-flight double_rally players are already counting down to
-      if (type === "refill") { const ex = this.room.live.commands[kd]; if (ex && ex.type === "double_rally" && ex.expiresUTC && Math.floor(Date.now() / 1000) <= ex.expiresUTC) return ws.send(JSON.stringify({ t: "error", error: "rally_live" })); }
+      if (type === "refill") { const ex = this.room.live.commands[kd]; if (ex && ex.type === "double_rally" && Number(ex.expiresUTC) > Math.floor(this.nowMs() / 1000)) return ws.send(JSON.stringify({ t: "error", error: "rally_live" })); }
       if (type === "cancel") {
         this.room.live.commands[kd] = null;
       } else {
         let payload = (c.payload && typeof c.payload === "object") ? c.payload : {};
         if (type === "double_rally") {
-          const pairs = (Array.isArray(payload.pairs) ? payload.pairs : []).map(p => Object.assign({}, p || {}, { pid: clampStr(p && p.pid, 24) }));
-          if (pairs.length !== 2 || pairs[0].pid === pairs[1].pid || pairs.some(p => !p.pid || !Object.prototype.hasOwnProperty.call(this.room.players, p.pid))) {
-            return ws.send(JSON.stringify({ t: "error", error: "player_missing" }));
-          }
-          payload = Object.assign({}, payload, { pairs });
+          const frozen = freezeDoubleRally(this.room.players, payload.pairs, payload.firstPress != null ? payload.firstPress : c.anchorUTC);
+          if (!frozen.ok) return ws.send(JSON.stringify({ t: "error", error: frozen.error }));
+          payload = Object.assign({}, payload, {
+            pairs: frozen.pairs,
+            firstPress: Math.min(...frozen.pairs.map(pair => pair.pressUTC))
+          });
         }
         const anchorUTC = clampInt(c.anchorUTC, 0, 4102444800);  // unix seconds
         // when this command stops being actionable → snapshot()/alarm() drops it so nobody gets a stale GO.
