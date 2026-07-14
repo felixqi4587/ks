@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 const { loadRoom, createRoomHarness } = require('./room-harness.cjs');
 
 const DEVICE_ID = '00000000-0000-4000-8000-000000000001';
@@ -79,6 +81,35 @@ function canonicalDoubleRally(id = 'command-reliable-dispatch') {
   };
 }
 
+async function loadWorker() {
+  const url = pathToFileURL(path.join(__dirname, '..', 'src', 'worker.js'));
+  url.searchParams.set('testRun', `${Date.now()}-${Math.random()}`);
+  return import(url.href);
+}
+
+async function constructDurableRoom(Room, durableName) {
+  const privateWrites = [];
+  let initialized;
+  const state = {
+    id: { name: durableName },
+    storage: {
+      async get() { return null; },
+      async put(key, value) { privateWrites.push([key, structuredClone(value)]); },
+      async setAlarm() {},
+      async deleteAlarm() {}
+    },
+    getWebSockets() { return []; },
+    blockConcurrencyWhile(callback) {
+      initialized = callback();
+      return initialized;
+    }
+  };
+  const room = new Room(state, { MASTER: 'separate-master-override' });
+  await initialized;
+  room.nowMs = () => DISPATCH_NOW_MS;
+  return { room, privateWrites };
+}
+
 function reliableSocket(harness, {
   pid,
   deviceId,
@@ -115,6 +146,72 @@ function reliableSocket(harness, {
     shadowCommands() { return this.messages().filter(message => message.t === 'deliveryShadowCommand'); }
   };
 }
+
+test('worker Durable Object names become trusted business room names at the real Room constructor boundary', async () => {
+  const { default: worker, Room } = await loadWorker();
+  let capturedName = '';
+  const request = new Request('https://qa-kvk.invalid/api/ws?room=qa-kvk-worker-boundary');
+  const response = await worker.fetch(request, {
+    ROOM: {
+      idFromName(name) {
+        capturedName = name;
+        return { name };
+      },
+      get(id) {
+        return {
+          async fetch() {
+            assert.equal(id.name, capturedName);
+            return new Response(null, { status: 204 });
+          }
+        };
+      }
+    }
+  });
+  assert.equal(response.status, 204);
+
+  const { room, privateWrites } = await constructDurableRoom(Room, capturedName);
+  const dispatched = await room.dispatchDeliveryForCommand(
+    canonicalDoubleRally('worker-boundary-dispatch'), DISPATCH_NOW_MS
+  );
+
+  assert.deepEqual({
+    capturedName,
+    roomName: room.roomName,
+    dispatched,
+    privateWriteKeys: privateWrites.map(([key]) => key)
+  }, {
+    capturedName: 'r:qa-kvk-worker-boundary',
+    roomName: 'qa-kvk-worker-boundary',
+    dispatched: true,
+    privateWriteKeys: ['delivery:v1']
+  });
+});
+
+test('Room normalization preserves legacy names, strips one owned prefix, and keeps non-QA rooms gated', async () => {
+  const { Room } = await loadRoom();
+  const cases = [
+    { durableName: 'qa-kvk-legacy', roomName: 'qa-kvk-legacy', dispatched: true },
+    { durableName: 'operation-room', roomName: 'operation-room', dispatched: false },
+    { durableName: 'r:operation-room', roomName: 'operation-room', dispatched: false },
+    { durableName: 'r:r:qa-kvk-double', roomName: 'r:qa-kvk-double', dispatched: false }
+  ];
+
+  for (const item of cases) {
+    const { room, privateWrites } = await constructDurableRoom(Room, item.durableName);
+    const dispatched = await room.dispatchDeliveryForCommand(
+      canonicalDoubleRally(`normalization-${item.durableName}`), DISPATCH_NOW_MS
+    );
+    assert.deepEqual({
+      roomName: room.roomName,
+      dispatched,
+      privateWriteKeys: privateWrites.map(([key]) => key)
+    }, {
+      roomName: item.roomName,
+      dispatched: item.dispatched,
+      privateWriteKeys: item.dispatched ? ['delivery:v1'] : []
+    }, item.durableName);
+  }
+});
 
 test('constructor loads Reliable delivery state separately from the Core room', async () => {
   const { Room } = await loadRoom();

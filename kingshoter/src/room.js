@@ -89,7 +89,8 @@ export class Room {
     this.state = state;
     this.env = env;
     this.room = null;
-    this.roomName = String(state && state.id && state.id.name || "").slice(0, 48);
+    const durableRoomName = String(state && state.id && state.id.name || "");
+    this.roomName = (durableRoomName.startsWith("r:") ? durableRoomName.slice(2) : durableRoomName).slice(0, 48);
     this.delivery = defaultDeliveryState(this.roomName);
     this.devices = [];
     this.deliveryAcks = [];
