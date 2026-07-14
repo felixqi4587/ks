@@ -27,6 +27,8 @@
     });
     myPid = myProfile.pid;
   }
+  var identityMode = myProfile && myProfile.identityMode === "nickname" ? "nickname" : "playerId";
+  var lookupSequence = 0, lookupAbort = null, lookupTimer = null, nicknameDraftRoutingKey = "";
   var pickedByK = { 1: [], 2: [] };
   // defense (refill-timing) state — ported from saltyfish defense.html, fed by room.config.enemyWhales
   var viewMode = "attack", enemyWhales = [], dFocus = 0, adminEnemies = [], lastWhalesKey = "", pendingPubWhales = null, pendingPubTok = null;
@@ -61,7 +63,8 @@
       copylink: "📋 点我复制房间链接", copied: "✓ 已复制 · 发给队友吧", idle_wait: "✅ 都填好了 · 等指挥发令；切回游戏前先用下方按钮实测本机后台提醒",
       idle_note: "○ 每人离王城的行军时间 · 开打后变成实时进度条", legend_live: "● 主力 ○ 消耗 · 越近王城越快落地",
       join_note: "🐋 集结中 · 现在去游戏里点「加入」车头的集结", pulled_atk: "⚔️ 有开车指令 · 已切到进攻页（可再切回防守）",
-      namefail: "✕ 查不到昵称 · 不影响使用，会以 ID 显示", pidph: "游戏内左上角头像里的数字 ID", marchfirst: "先拖一下滑块（或点±）确认你的行军时间",
+      namefail: "✕ 查不到昵称 · 不影响使用，会以 ID 显示", pidph: "游戏内左上角头像里的数字 ID", nicknameph: "输入昵称（仅用于测试）", marchfirst: "先拖一下滑块（或点±）确认你的行军时间",
+      identity_type: "身份类型", identity_player_id: "Player ID", identity_nickname: "昵称", identity_recommended: "推荐", identity_testing: "测试用", invalid_nickname: "请输入有效昵称", duplicate_suffix: "同名玩家会显示区分标记",
       defsethint: "分:秒 = 敌鲸到王城的行军时间 · 全队防守页的补兵倒计时都按它算",
       sc_title: "📣 声音测试", sc_sub: "大家听到了吗？", you_short: "你", main_s: "主力", sac_s: "消耗",
       joincue: "开车时点「加入」车头的集结", marchhow: "怎么填：游戏里对王城开一次集结，看那个「行军时间」填进来。",
@@ -100,7 +103,8 @@
       copylink: "📋 Tap to copy the room link", copied: "✓ Copied — share it with your team", idle_wait: "✅ All set · wait for the order; test this device's background alert below before switching to the game.",
       idle_note: "○ each dot = march time to the castle · turns into a live progress bar at fire", legend_live: "● main ○ sacrifice · closer = landing sooner",
       join_note: "🐋 Rally live — go tap JOIN on the whale's rally in-game now", pulled_atk: "⚔️ Launch order live — switched to Attack (you can tab back)",
-      namefail: "✕ Name not found · that's fine — your ID will be shown", pidph: "the numeric ID under your in-game avatar", marchfirst: "First drag the slider (or tap ±) to confirm your march time",
+      namefail: "✕ Name not found · that's fine — your ID will be shown", pidph: "the numeric ID under your in-game avatar", nicknameph: "enter a nickname for testing", marchfirst: "First drag the slider (or tap ±) to confirm your march time",
+      identity_type: "Identity type", identity_player_id: "Player ID", identity_nickname: "Nickname", identity_recommended: "Recommended", identity_testing: "For testing", invalid_nickname: "Enter a valid nickname", duplicate_suffix: "Matching nicknames show a distinguishing marker",
       defsethint: "m:s = the enemy's march time to the castle · everyone's refill countdown is computed from it",
       sc_title: "📣 Sound check", sc_sub: "Everyone hear this?", you_short: "You", main_s: "MAIN", sac_s: "SAC",
       joincue: "Tap JOIN on a whale's rally at GO", marchhow: "How: in-game open a rally on the King's Castle, read its march timer, enter it here.",
@@ -851,6 +855,111 @@
     };
   }
 
+  /* ---------- player identity ---------- */
+  function normalizeNickname(value) {
+    return Array.from(String(value || "")
+      .replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, "")
+      .trim().replace(/\s+/g, " ")).slice(0, 24).join("");
+  }
+  function createNicknameRoutingKey() {
+    var bytes = crypto.getRandomValues(new Uint8Array(11));
+    return "n_" + Array.from(bytes, function (byte) { return byte.toString(16).padStart(2, "0"); }).join("");
+  }
+  function cancelIdentityLookup() {
+    lookupSequence += 1;
+    if (lookupTimer) clearTimeout(lookupTimer);
+    lookupTimer = null;
+    var controller = lookupAbort; lookupAbort = null;
+    if (controller) controller.abort();
+    var output = $("nameOut");
+    if (output) { output.textContent = ""; output.dataset.name = ""; }
+    return lookupSequence;
+  }
+  function syncIdentityControls(locked) {
+    var playerId = $("identityPlayerId"), nickname = $("identityNickname"), input = $("pid");
+    if (!playerId || !nickname || !input) return;
+    var nicknameSelected = identityMode === "nickname";
+    var group = $("identityMode"); if (group) group.setAttribute("aria-label", tk("identity_type"));
+    playerId.textContent = tk("identity_player_id") + " · " + tk("identity_recommended");
+    nickname.textContent = tk("identity_nickname") + " · " + tk("identity_testing");
+    playerId.setAttribute("aria-checked", nicknameSelected ? "false" : "true");
+    nickname.setAttribute("aria-checked", nicknameSelected ? "true" : "false");
+    playerId.setAttribute("tabindex", nicknameSelected ? "-1" : "0");
+    nickname.setAttribute("tabindex", nicknameSelected ? "0" : "-1");
+    playerId.disabled = !!locked; nickname.disabled = !!locked;
+    input.readOnly = !!locked;
+    input.setAttribute("inputmode", nicknameSelected ? "text" : "numeric");
+    input.placeholder = tk(nicknameSelected ? "nicknameph" : "pidph");
+    var label = $("identityLabel"); if (label) label.textContent = tk(nicknameSelected ? "identity_nickname" : "identity_player_id");
+  }
+  function setIdentityMode(mode) {
+    if (myProfile && myProfile.pid) return;
+    var nextMode = mode === "nickname" ? "nickname" : "playerId";
+    if (identityMode === nextMode) { syncIdentityControls(false); return; }
+    identityMode = nextMode; nicknameDraftRoutingKey = ""; markDraft(); cancelIdentityLookup();
+    $("pid").value = "";
+    syncIdentityControls(false);
+  }
+  function showExistingIdentity(profile) {
+    cancelIdentityLookup(); nicknameDraftRoutingKey = "";
+    identityMode = profile && profile.identityMode === "nickname" ? "nickname" : "playerId";
+    $("pid").value = identityMode === "nickname" ? (profile.name || "") : profile.pid;
+    if (profile.name) { $("nameOut").textContent = "✓ " + profile.name; $("nameOut").dataset.name = profile.name; }
+    syncIdentityControls(true);
+  }
+  function resetIdentityDraft() {
+    cancelIdentityLookup(); nicknameDraftRoutingKey = ""; identityMode = "playerId";
+    $("pid").value = "";
+    syncIdentityControls(false);
+  }
+  function schedulePlayerLookup(input) {
+    var fid = input.value.replace(/\D/g, "").slice(0, 16);
+    input.value = fid;
+    var sequence = cancelIdentityLookup();
+    if (!fid || identityMode !== "playerId") return;
+    $("nameOut").textContent = "…";
+    lookupTimer = setTimeout(function () {
+      if (identityMode !== "playerId" || sequence !== lookupSequence || $("pid").value.replace(/\D/g, "") !== fid) return;
+      lookupTimer = null;
+      var controller = new AbortController(); lookupAbort = controller;
+      fetch("/api/lookup?fid=" + encodeURIComponent(fid), { signal: controller.signal })
+        .then(function (response) { return response.json(); })
+        .then(function (result) {
+          if (identityMode !== "playerId" || sequence !== lookupSequence || $("pid").value.replace(/\D/g, "") !== fid) return;
+          $("nameOut").textContent = result.ok ? "✓ " + result.nickname : tk("namefail");
+          $("nameOut").dataset.name = result.ok ? result.nickname : "";
+        })
+        .catch(function (error) {
+          if (identityMode !== "playerId" || sequence !== lookupSequence || $("pid").value.replace(/\D/g, "") !== fid || (error && error.name === "AbortError")) return;
+          $("nameOut").textContent = tk("namefail"); $("nameOut").dataset.name = "";
+        })
+        .finally(function () {
+          if (identityMode === "playerId" && sequence === lookupSequence && $("pid").value.replace(/\D/g, "") === fid && lookupAbort === controller) lookupAbort = null;
+        });
+    }, 500);
+  }
+  function wireIdentityControls() {
+    var options = [$("identityPlayerId"), $("identityNickname")];
+    options.forEach(function (option) {
+      option.onclick = function () { setIdentityMode(option.dataset.mode); };
+      option.addEventListener("keydown", function (event) {
+        var mode = null;
+        if (event.key === "Home") mode = "playerId";
+        else if (event.key === "End") mode = "nickname";
+        else if (["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp"].indexOf(event.key) >= 0) mode = option.dataset.mode === "nickname" ? "playerId" : "nickname";
+        if (!mode) return;
+        event.preventDefault(); setIdentityMode(mode);
+        $(mode === "nickname" ? "identityNickname" : "identityPlayerId").focus();
+      });
+    });
+    $("pid").addEventListener("input", function () {
+      markDraft();
+      if (identityMode === "nickname") cancelIdentityLookup();
+      else schedulePlayerLookup(this);
+    });
+    syncIdentityControls(!!(myProfile && myProfile.pid));
+  }
+
   /* ---------- alerts UI ---------- */
   function saveProfile(profile) {
     myProfile = profile;
@@ -880,7 +989,7 @@
       t: "registerPlayer", pid: pendingRegistrationProfile.pid, name: pendingRegistrationProfile.name,
       march: pendingRegistrationProfile.march, identityMode: pendingRegistrationProfile.identityMode || "playerId", alliance: ""
     });
-    if (!registrationPending) { pendingRegistrationProfile = null; draftActive = true; window.toast(tk("notconn")); }
+    if (!registrationPending) { draftActive = true; window.toast(tk("notconn")); }
     return registrationPending;
   }
   function acceptPendingRegistration(player) {
@@ -894,11 +1003,12 @@
       marchRevision: Number.isInteger(player.marchRevision) ? player.marchRevision : 0,
       identityMode: player.identityMode || pending.identityMode || "playerId"
     });
+    nicknameDraftRoutingKey = ""; cancelIdentityLookup();
     pendingRegistrationProfile = null; registrationPending = false; ownPlayerSeen = true;
     if (settleUI) {
       draftActive = false; showInCard(myProfile); window.toast(tk("updated") + " · " + window.mmss(myProfile.march));
       if (viewMode === "defense") renderDefense();
-    } else draftActive = true;
+    } else { draftActive = true; showExistingIdentity(myProfile); }
   }
   function settlePendingMarchMutation() {
     if (!pendingMarchMutation || !pendingMarchMutation.ackSeen || !pendingMarchMutation.stateSeen) return;
@@ -917,6 +1027,7 @@
   function clearOwnProfile() {
     registrationPending = false; pendingRegistrationProfile = null; pendingMarchMutation = null;
     saveProfile(null); draftActive = true;
+    resetIdentityDraft();
     $("fillCard").classList.remove("hide"); $("youChip").classList.add("hide");
   }
   function markDraft() { draftActive = true; draftVersion += 1; }
@@ -934,9 +1045,12 @@
     } else if (pendingRegistrationProfile || registrationPending) {
       pendingRegistrationProfile = null; registrationPending = false; draftActive = true;
     } else return false;
+    if (error === "invalid_pid") nicknameDraftRoutingKey = "";
+    cancelIdentityLookup();
+    if (myProfile && myProfile.pid) showExistingIdentity(myProfile); else syncIdentityControls(false);
     $("fillCard").classList.remove("hide"); $("youChip").classList.add("hide");
     if (error === "invalid_march") window.toast(tk("marchfirst"));
-    else if (error === "invalid_pid") window.toast("Player ID");
+    else if (error === "invalid_pid") window.toast(identityMode === "nickname" ? tk("invalid_nickname") : "Player ID");
     else if (error === "player_missing") window.toast(tk("player_missing"));
     return true;
   }
@@ -1034,8 +1148,8 @@
 
   /* ---------- fill ---------- */
   function setMarchUI(s) { s = Math.max(5, Math.min(180, Math.round(s || 90))); $("marchRange").value = s; $("marchBig").textContent = marchTouched ? window.mmss(s) : "—:—"; var sb = $("saveBtn"); if (sb) sb.classList.toggle("dim", !marchTouched); }   // dim, NOT disabled: a native-disabled button swallows the tap and the stuck user gets zero feedback
-  function showProfileDraft(me) { marchTouched = true; $("fillCard").classList.remove("hide"); $("youChip").classList.add("hide"); $("pid").value = me.pid; setMarchUI(me.march); if (me.name) { $("nameOut").textContent = "✓ " + me.name; $("nameOut").dataset.name = me.name; } }
-  function showInCard(me) { draftActive = false; marchTouched = true; $("fillCard").classList.add("hide"); $("youChip").classList.remove("hide"); $("youName").textContent = tk("you") + " · " + me.name; $("youMarch").textContent = window.mmss(me.march); $("pid").value = me.pid; setMarchUI(me.march); if (me.name) { $("nameOut").textContent = "✓ " + me.name; $("nameOut").dataset.name = me.name; } }
+  function showProfileDraft(me) { marchTouched = true; $("fillCard").classList.remove("hide"); $("youChip").classList.add("hide"); showExistingIdentity(me); setMarchUI(me.march); }
+  function showInCard(me) { draftActive = false; marchTouched = true; $("fillCard").classList.add("hide"); $("youChip").classList.remove("hide"); $("youName").textContent = tk("you") + " · " + me.name; $("youMarch").textContent = window.mmss(me.march); showExistingIdentity(me); setMarchUI(me.march); }
   function isFilled() { return !!myPid; }
 
   /* ---------- commander unlock ---------- */
@@ -1057,7 +1171,7 @@
     set("t_join", "join"); set("t_ornew", "ornew"); set("t_joinhint", "joinhint"); set("t_room", "room"); set("joinBtn", "enter");
     set("t_fill", "fill"); set("t_fillsub", "fillsub"); set("t_march", "marchlab"); set("saveBtn", "save"); set("editBtn", "edit");
     set("t_cmd", "cmd"); set("t_kdhint", "kdhint"); set("t_leadhint", "leadhint"); set("t_defsethint", "defsethint"); set("idleWait", "idle_wait");
-    var pi = $("pid"); if (pi) pi.placeholder = tk("pidph");
+    syncIdentityControls(!!(myProfile && myProfile.pid));
     set("t_pwtitle", "pwtitle"); set("pwCancel", "pwcancel"); set("pwGo", "pwgo"); set("cmdUnlock", "cmdlink");
     set("bgTest", "bgtest2"); set("t_settings", "settings");
     set("t_tab_atk", "tab_atk"); set("t_tab_def", "tab_def"); set("t_dpanel", "dpanel"); set("t_dpanelhint", "dpanelhint"); set("t_addenemy", "addenemy"); set("t_pubwhales", "pubwhales");
@@ -1082,12 +1196,24 @@
   /* ---------- wiring ---------- */
   function wireRoom() {
     if (myProfile) showProfileDraft(myProfile);
-    var nt = null;
-    $("pid").addEventListener("input", function () { markDraft(); clearTimeout(nt); var fid = this.value.replace(/\D/g, ""); if (!fid) { $("nameOut").textContent = ""; return; } $("nameOut").textContent = "…"; nt = setTimeout(function () { fetch("/api/lookup?fid=" + fid).then(function (r) { return r.json(); }).then(function (j) { $("nameOut").textContent = j.ok ? "✓ " + j.nickname : tk("namefail"); $("nameOut").dataset.name = j.ok ? j.nickname : ""; }).catch(function () { $("nameOut").textContent = tk("namefail"); }); }, 500); });   // a bare ✕ read as "rejected, stuck" — say it's harmless
+    wireIdentityControls();
     $("saveBtn").onclick = function () {
-      var pid = $("pid").value.replace(/\D/g, ""); if ((!myProfile || !myProfile.pid) && !pid) { window.toast("Player ID"); return; }
+      var identityValue = $("pid").value, resolvedName = $("nameOut").dataset.name || "";
+      cancelIdentityLookup();
+      var existingIdentity = !!(myProfile && myProfile.pid), mode = existingIdentity ? (myProfile.identityMode || "playerId") : identityMode;
+      var pid = existingIdentity ? myProfile.pid : "", name = existingIdentity ? myProfile.name : "";
+      if (!existingIdentity && mode === "nickname") {
+        name = normalizeNickname(identityValue);
+        if (!name) { window.toast(tk("invalid_nickname")); return; }
+        $("pid").value = name;
+        pid = nicknameDraftRoutingKey || (nicknameDraftRoutingKey = createNicknameRoutingKey());
+      } else if (!existingIdentity) {
+        pid = identityValue.replace(/\D/g, "").slice(0, 16); $("pid").value = pid;
+        if (!pid) { window.toast("Player ID"); return; }
+        name = resolvedName || pid;
+      }
       if (!marchTouched) { window.toast(tk("marchfirst")); if (window.gsap) gsap.fromTo($("marchBig"), { scale: 1.18, color: "#e05a5a" }, { scale: 1, clearProps: "all", duration: .5 }); return; }   // the slider LOOKS set (thumb mid-track) but isn't — explain the invisible rule instead of a dead tap
-      var name = $("nameOut").dataset.name || $("pid").value, march = +$("marchRange").value, ok;
+      var march = +$("marchRange").value, ok;
       draftActive = true;
       if (myProfile && myProfile.pid && ownPlayerSeen) {
         if (pendingMarchMutation) return;
@@ -1105,12 +1231,12 @@
       }
       if (registrationPending && myProfile && !ownPlayerSeen) return;
       if (pendingRegistrationProfile) return;
-      pendingRegistrationProfile = { pid: pid, name: name, march: march, marchRevision: 0, identityMode: "playerId", draftVersion: draftVersion };
+      pendingRegistrationProfile = { pid: pid, name: name, march: march, marchRevision: 0, identityMode: mode, draftVersion: draftVersion };
       ok = registerPendingProfile();
       if (!ok) return;
       if (room && room.players && room.players[pid]) acceptPendingRegistration(room.players[pid]);
     };
-    $("editBtn").onclick = function () { markDraft(); $("youChip").classList.add("hide"); $("fillCard").classList.remove("hide"); };
+    $("editBtn").onclick = function () { markDraft(); if (myProfile) showExistingIdentity(myProfile); $("youChip").classList.add("hide"); $("fillCard").classList.remove("hide"); };
     $("marchRange").addEventListener("input", function () { markDraft(); marchTouched = true; setMarchUI(+this.value); });
     $("marchMinus").onclick = function () { markDraft(); marchTouched = true; setMarchUI(+$("marchRange").value - 1); };
     $("marchPlus").onclick = function () { markDraft(); marchTouched = true; setMarchUI(+$("marchRange").value + 1); };
