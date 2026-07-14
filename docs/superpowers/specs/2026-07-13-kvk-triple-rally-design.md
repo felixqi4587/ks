@@ -1,7 +1,7 @@
 # Optional Triple Rally for the KvK Command Console
 
 **Date:** 2026-07-13
-**Status:** Approved during brainstorming; awaiting review of this written specification
+**Status:** Approved by the user for implementation
 **Scope:** `kingshoter.com/kvk` per-kingdom rally mode, three-captain staging and Fire, personal timing, forced client updates, and QA promotion
 
 ## Relationship to existing designs

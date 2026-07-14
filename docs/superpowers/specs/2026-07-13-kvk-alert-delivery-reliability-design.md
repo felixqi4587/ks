@@ -1,7 +1,7 @@
 # KvK Alert Delivery Reliability, Device Identity, and Background Experiments
 
 **Date:** 2026-07-13
-**Status:** Approved during brainstorming; awaiting review of this written specification
+**Status:** Approved by the user for implementation
 **Scope:** `kingshoter.com/kvk` identity entry, rally-audio audience, delivery truth, cross-platform backup experiments, background-audio experiments, and validation
 
 ## Relationship to existing designs
