@@ -14,7 +14,7 @@
 | Fact | Observed value |
 |---|---|
 | Plan commit | `3ec9cde` |
-| Runtime source checkpoint | Pending |
+| Runtime source checkpoint | `3771306` |
 | Cloudflare Worker version | `b669b88f-f8f9-480f-88a8-469bb95fb50f` |
 | Deployment observed at | `2026-07-13T14:51:19.426Z` |
 | Baseline unit test | `npm test`: 18 passed, 0 failed |
