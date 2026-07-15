@@ -1967,37 +1967,58 @@
   }
   function renderRoster() {
     var box = $("roster"); if (!box || !room) return;
-    var players = Object.keys(room.players || {}).map(function (pid) { return Object.assign({ pid: pid }, room.players[pid]); });
+    var playerRecords = room.players || {};
+    var players = Object.keys(playerRecords).map(function (pid) { return Object.assign({}, playerRecords[pid], { pid: pid }); });
     var mode = rallyMode(fireKingdom), required = requiredCaptains(fireKingdom);
     var cur = pickedByK[fireKingdom], otherK = fireKingdom === 1 ? 2 : 1, other = pickedByK[otherK].concat(serverStagedByK[otherK] || []);
     $("pickCnt").textContent = cur.length + "/" + required;
-    box.innerHTML = "";
     var searchWrap = $("rosterSearchWrap"), search = $("rosterSearch"), showSearch = players.length > 6;
     if (searchWrap) searchWrap.classList.toggle("hide", !showSearch);
     if (search) { search.placeholder = tk("roster_search"); search.setAttribute("aria-label", tk("roster_search")); if (!showSearch) { rosterQuery = ""; search.value = ""; } }
     if (!players.length) {
       if (rosterActionsPid) closeRosterActionsMenu(false);
       if ($("duplicateHint")) { $("duplicateHint").classList.add("hide"); $("duplicateHint").textContent = ""; }
-      box.innerHTML = '<span class="hint">' + tk("mapempty") + '</span>';
+      while (box.firstChild) box.removeChild(box.firstChild);
+      var hint = document.createElement("span"); hint.className = "hint"; hint.textContent = tk("mapempty"); box.appendChild(hint);
       refreshSyncPill(); renderSlots(); renderCommanderMarchEditor();
       updateFireControl();
       return;
     }
-    var counts = duplicateNameCounts(room.players), duplicateExists = Object.keys(counts).some(function (name) { return counts[name] > 1; });
+    var counts = duplicateNameCounts(playerRecords), duplicateExists = Object.keys(counts).some(function (name) { return counts[name] > 1; });
     if ($("duplicateHint")) { $("duplicateHint").classList.toggle("hide", !duplicateExists); $("duplicateHint").textContent = duplicateExists ? tk("duplicate_suffix") : ""; }
     var rank = function (p) { return (cur.some(function (x) { return x.pid === p.pid; }) ? 0 : 2) + (isReady(p) ? 0 : 1); };
     players.sort(function (a, b) { return rank(a) - rank(b) || String(a.name || a.pid).localeCompare(String(b.name || b.pid)); });
-    players.forEach(function (p) {
+    var present = Object.create(null), rows = Object.create(null);
+    players.forEach(function (p) { present[p.pid] = true; });
+    Array.prototype.slice.call(box.children).forEach(function (child) {
+      if (child.classList.contains("hint")) { child.remove(); return; }
+      if (!child.classList.contains("roster-row")) return;
+      var pid = child.dataset.pid;
+      if (!present[pid]) child.remove(); else rows[pid] = child;
+    });
+    players.forEach(function (p, index) {
       var sel = cur.filter(function (x) { return x.pid === p.pid; })[0], inO = other.filter(function (x) { return x.pid === p.pid; })[0];
-      var parts = playerDisplayParts(p.pid, room.players, counts), playerName = parts.name;
-      var wrap = document.createElement("div"); wrap.className = "roster-row rpi" + (sel ? " sel" : "") + (inO ? " otherk" : ""); wrap.dataset.pid = p.pid; wrap.setAttribute("role", "listitem");
-      var el = document.createElement("button"); el.type = "button"; el.className = "rp" + (sel ? " sel" : "") + (inO ? " otherk" : ""); el.dataset.pid = p.pid; el.setAttribute("aria-pressed", sel ? "true" : "false");
+      var parts = playerDisplayParts(p.pid, playerRecords, counts), wrap = rows[p.pid];
+      if (!wrap) {
+        wrap = document.createElement("div"); wrap.dataset.pid = p.pid; wrap.setAttribute("role", "listitem");
+        var nameButton = document.createElement("button"); nameButton.type = "button"; nameButton.className = "rp"; nameButton.dataset.pid = p.pid;
+        var rowPresence = document.createElement("span"); rowPresence.className = "roster-presence"; rowPresence.setAttribute("aria-hidden", "true"); nameButton.appendChild(rowPresence);
+        var rowName = document.createElement("span"); rowName.className = "roster-name"; nameButton.appendChild(rowName);
+        var rowSuffix = document.createElement("span"); rowSuffix.className = "roster-name-suffix"; nameButton.appendChild(rowSuffix);
+        var rowRole = document.createElement("button"); rowRole.type = "button"; rowRole.className = "roster-role"; rowRole.dataset.pid = p.pid;
+        var rowTime = document.createElement("button"); rowTime.type = "button"; rowTime.className = "roster-time"; rowTime.dataset.pid = p.pid;
+        var rowActions = document.createElement("button"); rowActions.type = "button"; rowActions.className = "roster-actions"; rowActions.dataset.pid = p.pid;
+        wrap.appendChild(nameButton); wrap.appendChild(rowRole); wrap.appendChild(rowTime); wrap.appendChild(rowActions); box.appendChild(wrap); rows[p.pid] = wrap;
+      }
+      wrap.className = "roster-row rpi" + (sel ? " sel" : "") + (inO ? " otherk" : ""); wrap.dataset.pid = p.pid; wrap.setAttribute("role", "listitem");
+      var el = wrap.querySelector(".rp"); el.className = "rp" + (sel ? " sel" : "") + (inO ? " otherk" : ""); el.dataset.pid = p.pid; el.setAttribute("aria-pressed", sel ? "true" : "false");
       if (inO) { el.setAttribute("aria-disabled", "true"); el.title = tkf("already_kingdom", { k: otherK }); }
-      var presence = document.createElement("span"); presence.className = "roster-presence" + (isReady(p) ? "" : " stale"); presence.textContent = isReady(p) ? "●" : "○"; presence.setAttribute("aria-hidden", "true"); el.appendChild(presence);
-      var nameSpan = document.createElement("span"); nameSpan.className = "roster-name"; nameSpan.textContent = parts.name; el.appendChild(nameSpan);
-      if (parts.suffix) { var suffix = document.createElement("span"); suffix.className = "roster-name-suffix"; suffix.textContent = parts.suffix; el.appendChild(suffix); }
+      else { el.removeAttribute("aria-disabled"); el.removeAttribute("title"); }
+      var presence = el.querySelector(".roster-presence"); presence.className = "roster-presence" + (isReady(p) ? "" : " stale"); presence.textContent = isReady(p) ? "●" : "○"; presence.setAttribute("aria-hidden", "true");
+      var nameSpan = el.querySelector(".roster-name"); nameSpan.textContent = parts.name;
+      var suffix = el.querySelector(".roster-name-suffix"); suffix.textContent = parts.suffix || ""; suffix.hidden = !parts.suffix;
       el.setAttribute("aria-label", playerDisplayText(p.pid, room.players) + (inO ? " · " + tkf("already_kingdom", { k: otherK }) : ""));
-      var roleButton = document.createElement("button"); roleButton.type = "button"; roleButton.className = "roster-role " + (sel ? sel.role : inO ? "otherk" : "ghost"); roleButton.dataset.pid = p.pid;
+      var roleButton = wrap.querySelector(".roster-role"); roleButton.className = "roster-role " + (sel ? sel.role : inO ? "otherk" : "ghost"); roleButton.dataset.pid = p.pid;
       roleButton.textContent = sel ? rallyRoleLabel(sel.role, mode === "triple") : inO ? "🌍" + otherK : "—";
       roleButton.setAttribute("aria-disabled", sel ? "false" : "true"); roleButton.setAttribute("aria-label", sel ? rallyRoleLabel(sel.role, mode === "triple") : inO ? tkf("already_kingdom", { k: otherK }) : tk("slot_empty"));
       roleButton.onclick = function () {
@@ -2009,15 +2030,14 @@
         var next = cur.map(function (pick) { return { pid: pick.pid, role: pick.pid === sel.pid ? (sel.role === "main" ? "weak" : "main") : (pick.role === "main" ? "weak" : "main") }; });
         commitPicks(next);
       };
-      var timeButton = document.createElement("button"); timeButton.type = "button"; timeButton.className = "roster-time"; timeButton.dataset.pid = p.pid; timeButton.textContent = window.mmss(p.march || 0); timeButton.setAttribute("aria-disabled", roomPw ? "false" : "true"); timeButton.setAttribute("aria-expanded", editingPlayerPid === p.pid ? "true" : "false"); timeButton.setAttribute("aria-controls", "commanderMarchEditor"); timeButton.setAttribute("aria-label", tkf("edit_march", { n: playerDisplayText(p.pid, room.players) }) + " · " + window.mmss(p.march || 0));
+      var timeButton = wrap.querySelector(".roster-time"); timeButton.className = "roster-time"; timeButton.dataset.pid = p.pid; timeButton.textContent = window.mmss(p.march || 0); timeButton.setAttribute("aria-disabled", roomPw ? "false" : "true"); timeButton.setAttribute("aria-expanded", editingPlayerPid === p.pid ? "true" : "false"); timeButton.setAttribute("aria-controls", "commanderMarchEditor"); timeButton.setAttribute("aria-label", tkf("edit_march", { n: playerDisplayText(p.pid, room.players) }) + " · " + window.mmss(p.march || 0));
       timeButton.onclick = function () { openCommanderMarchEditor(p.pid, timeButton); };
-      var del = document.createElement("button");
-      del.type = "button"; del.className = "roster-actions"; del.dataset.pid = p.pid; del.textContent = "⋯";
+      var del = wrap.querySelector(".roster-actions"); del.className = "roster-actions"; del.dataset.pid = p.pid; del.textContent = "⋯";
       del.setAttribute("aria-label", tkf("player_actions", { n: playerDisplayText(p.pid, room.players) })); del.setAttribute("aria-haspopup", "menu"); del.setAttribute("aria-controls", "rosterActionsMenu"); del.setAttribute("aria-expanded", rosterActionsPid === p.pid ? "true" : "false");
       del.onclick = function (event) { event.preventDefault(); event.stopPropagation(); openRosterActionsMenu(p.pid); };
       el.onclick = function () { selectOrReplacePlayer(p.pid); };
       var haystack = ((p.name || "") + " " + p.pid).toLowerCase(); wrap.hidden = !!(rosterQuery && haystack.indexOf(rosterQuery) < 0);
-      wrap.appendChild(el); wrap.appendChild(roleButton); wrap.appendChild(timeButton); wrap.appendChild(del); box.appendChild(wrap);
+      var current = box.children[index]; if (current !== wrap) box.insertBefore(wrap, current || null);
     });
     refreshSyncPill(); renderSlots(); renderCommanderMarchEditor(); if (rosterActionsPid) renderRosterActionsMenu();
     updateFireControl();

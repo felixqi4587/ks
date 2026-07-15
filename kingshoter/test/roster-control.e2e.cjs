@@ -71,6 +71,23 @@ async function assertLayout(page, width) {
     await context.addInitScript(() => {
       const NativeWebSocket = window.WebSocket;
       window.WebSocket = class extends NativeWebSocket {
+        constructor(...args) {
+          super(...args);
+          window.__qaRosterSocketCount = (window.__qaRosterSocketCount || 0) + 1;
+          if (window.__qaRosterSocketCount === 1) {
+            this.addEventListener('message', event => {
+              try {
+                const message = JSON.parse(String(event.data));
+                if (message.t === 'state') {
+                  window.__qaRosterStateSequence = (window.__qaRosterStateSequence || 0) + 1;
+                  const staged = message.room && message.room.live && message.room.live.staged;
+                  const pairs = staged && staged['1'] && staged['1'].pairs;
+                  window.__qaRosterCanonicalK1 = Array.isArray(pairs) ? pairs.map(pair => pair.pid) : [];
+                }
+              } catch (_) {}
+            });
+          }
+        }
         send(data) {
           let message = null;
           try { message = JSON.parse(String(data)); } catch (_) {}
@@ -105,10 +122,50 @@ async function assertLayout(page, width) {
     const suffixTwo = page.locator(`#roster .roster-row[data-pid="${duplicateTwo}"] .roster-name-suffix`);
     assert.match(await suffixOne.textContent(), /1111/);
     assert.match(await suffixTwo.textContent(), /2222/);
-    assert.equal(await page.locator('#roster .roster-row[data-pid="900000001"] .roster-name-suffix').count(), 0);
+    const uniqueSuffix = page.locator('#roster .roster-row[data-pid="900000001"] .roster-name-suffix');
+    assert.equal(await uniqueSuffix.count(), 1);
+    assert.equal(await uniqueSuffix.isHidden(), true);
+    assert.equal(await uniqueSuffix.textContent(), '');
     assert.equal(await page.locator('#roster .roster-time[data-pid="900000001"]').getAttribute('aria-label'), "Edit $&'s march time · 0:37");
 
     const primary = pid => page.locator(`#roster .rp[data-pid="${pid}"]`);
+    const expectStage = async (pid, staged, afterSequence) => {
+      await page.waitForFunction(({ targetPid, expected, sequence }) => {
+        const button = document.querySelector(`#roster .rp[data-pid="${targetPid}"]`);
+        const inSlot = Array.from(document.querySelectorAll('#pickSlots .slot[data-pid]')).some(slot => slot.dataset.pid === targetPid);
+        const canonical = Array.isArray(window.__qaRosterCanonicalK1) && window.__qaRosterCanonicalK1.includes(targetPid);
+        return (window.__qaRosterStateSequence || 0) > sequence && canonical === expected && button &&
+          (button.getAttribute('aria-pressed') === 'true') === expected && inSlot === expected;
+      }, { targetPid: pid, expected: staged, sequence: afterSequence });
+      assert.equal(await primary(pid).getAttribute('aria-pressed'), staged ? 'true' : 'false');
+    };
+
+    const interruptedTarget = primary('900000004');
+    await interruptedTarget.scrollIntoViewIfNeeded();
+    const original = await interruptedTarget.elementHandle();
+    const box = await interruptedTarget.boundingBox();
+    assert.ok(original);
+    assert.ok(box);
+    await original.evaluate(node => {
+      window.__qaInterruptedRosterClickTrusted = null;
+      node.addEventListener('click', event => { window.__qaInterruptedRosterClickTrusted = event.isTrusted; }, { once: true });
+    });
+    const stateSequence = await page.evaluate(() => window.__qaRosterStateSequence || 0);
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await sendMessages(page, []);
+    await page.waitForFunction(sequence => (window.__qaRosterStateSequence || 0) > sequence, stateSequence);
+    assert.equal(await original.evaluate(node => node.isConnected), true, 'room broadcasts preserve the pressed roster button');
+    const stageSequence = await page.evaluate(() => window.__qaRosterStateSequence || 0);
+    await page.mouse.up();
+    assert.equal(await page.evaluate(() => window.__qaInterruptedRosterClickTrusted), true, 'mouseup produces a trusted click');
+    assert.equal(await primary('900000004').getAttribute('aria-pressed'), 'true');
+    await expectStage('900000004', true, stageSequence);
+    assert.equal(await primary('900000004').getAttribute('aria-pressed'), 'true', 'selection survives the canonical stage snapshot');
+    const unstageSequence = await page.evaluate(() => window.__qaRosterStateSequence || 0);
+    await primary('900000004').click();
+    await expectStage('900000004', false, unstageSequence);
+
     await primary('900000001').click();
     await primary('900000002').click();
     assert.equal(await page.locator('#roster .rp[aria-pressed="true"]').count(), 2);
