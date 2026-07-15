@@ -77,7 +77,9 @@ test('only an exact same-generation rally module enables canonical Triple', () =
     isRallyCommand: rally.isRallyCommand,
     targetFor: rally.targetFor,
     rolesForMode: rally.rolesForMode,
-    reconcilePicks: rally.reconcilePicks
+    reconcilePicks: rally.reconcilePicks,
+    selectPlayer: rally.selectPlayer,
+    movePlayerToRole: rally.movePlayerToRole
   });
   assert.equal(loadRallyAdapter(complete(2026071303), { BUILD: 2026071303 }).tripleClientAvailable, true);
   assert.equal(loadRallyAdapter(complete(2026071302), { BUILD: 2026071303 }).tripleClientAvailable, false);
@@ -93,7 +95,9 @@ test('myTarget rejects hostile module return shapes and uses the safe canonical 
     isRallyCommand: rally.isRallyCommand,
     targetFor() { return { anchor: '12', mine: true, role: 'weak2' }; },
     rolesForMode: rally.rolesForMode,
-    reconcilePicks: rally.reconcilePicks
+    reconcilePicks: rally.reconcilePicks,
+    selectPlayer: rally.selectPlayer,
+    movePlayerToRole: rally.movePlayerToRole
   };
   const context = loadRallyAdapter(hostile, { BUILD: 2026071303 });
   context.myPid = 'captain';

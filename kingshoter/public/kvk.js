@@ -18,8 +18,9 @@
   var marchTouched = false, pendingUnlock = false, pendingTok = "", rosterActionsPid = "", removalState = null;
   var initialStateSeen = false, ownPlayerSeen = false, registrationPending = false, pendingMarchMutation = null;
   var pendingRegistrationProfile = null, draftActive = false, draftVersion = 0;
-  var rosterQuery = "", pendingReplacementPid = "", pendingReplacementOrigin = null, pendingReplacementIncumbents = null;
+  var rosterQuery = "", pendingReplacementPid = "", pendingReplacementOrigin = null, pendingReplacementIncumbents = null, pendingReplacementAction = "";
   var pendingStageMutation = null, queuedStageByK = { 1: null, 2: null }, stageFocusByK = { 1: "", 2: "" };
+  var pendingRallyMode = null;
   var editingPlayerPid = "", commanderMarchDraft = "", commanderMarchDirty = false, commanderMarchLatest = null;
   var commanderMarchStatus = "", commanderMarchStatusTone = "", commanderMarchOriginPid = "";
   var pendingCommanderMarchMutation = null, commanderMarchStale = false, commanderMarchRefreshAfterSnapshot = -1, roomSnapshotSequence = 0;
@@ -42,7 +43,7 @@
   var serverStagedByK = { 1: [], 2: [] };
   // defense (refill-timing) state — ported from saltyfish defense.html, fed by room.config.enemyWhales
   var viewMode = "attack", enemyWhales = [], dFocus = 0, adminEnemies = [], lastWhalesKey = "", pendingPubWhales = null, pendingPubTok = null;
-  var adminDirty = false, picksTouched = false;   // adminDirty: whale editor has unsaved edits (don't clobber from broadcasts); picksTouched: commander touched picks this session (don't rehydrate over their intent)
+  var adminDirty = false;   // whale editor has unsaved edits (don't clobber from broadcasts)
   var DGATHER = 300, DDELTA = 1, DGVIS = 0.25;   // enemy rally gather 5:00; our refill lands ~1s after; gather occupies 1/4 of the visual strip
   var dAnim = null, dRaf = null, dPlaying = false, dLastTs = null, dTNow = 0;
   var truthLang = "";
@@ -336,7 +337,7 @@
       fired: "已发送 ✓", notconn: "未连接 · 稍候自动重连", notsynced: "还在对时，等一两秒再发", nomarch: "有车头没填行军时间，先让他填",
       cancelq: "再按一次取消当前指令", cancelled: "已取消", staged_line: "🛡️ 你是{k}{r}车头 · 待命，等指挥发令",
       as_on: "🔊 后台提醒已开 · 可切回游戏", as_warn: "⚠️ 声音被系统暂停 · 点一下恢复", bgtest: "🔒 测后台", bgtest_on: "锁屏切到游戏——马上来一整套 10 秒倒数示范 🔔", 
-      ready_btn: "✅ 我已就位", ready_done: "✓ 已就位", notready: "有车头还没点「就位」，仍可发", readyon: "✓ 已告诉指挥你就位", readyline: "就位 {n}/{m}", rally_live: "该王国还有进行中的集结，先取消再发 refill", cap_absent: "有车头掉线了，仍可发", syncp: "{n}/{m} 已对时·在线", syncp_pick: "先点 2 个车头", land_cap: "落地",
+      ready_btn: "✅ 我已就位", ready_done: "✓ 已就位", notready: "有车头还没点「就位」，仍可发", readyon: "✓ 已告诉指挥你就位", readyline: "就位 {n}/{m}", rally_live: "该王国还有进行中的集结，先取消再发 refill", cap_absent: "有车头掉线了，仍可发", syncp: "{n}/{m} 已对时·在线", syncp_pick: "先点 {n} 个车头", land_cap: "落地",
       delivery_sent: "已发送", delivery_received: "已收到 ✓", delivery_received_count: "已收到 {n}/{m}", delivery_missing: "未确认", delivery_expired: "已过期",
       settings: "⚙️ 提醒设置", bgtest2: "🔔 实测锁屏 / 切游戏提醒", cmdlink: "🔓 我是指挥 → 解锁", marchlab: "到王城行军时间", marchtip2: "游戏里开一次集结，看那个秒数填进来",
       cancel_k: "✖ 取消 {k} 的集结", legend: "● 你 ○ 队友 · 每环 30 秒，越外越远", unlocking: "验证密码中…", checklist_done: "都填好了，等指挥发车就行",
@@ -349,7 +350,8 @@
       d_ph_gather: "① 敌方集结中（加速）…", d_ph_send: "② 发兵！就是现在", d_ph_land: "③ 敌落地", d_ph_refill: "✅ 补满·弹回", d_ph_low: "③ 护盾告急→快补兵", d_ph_inc: "② 敌方来袭→盯落地",
       d_fx_send: "发兵！", d_fx_land: "敌落地", d_fx_refill: "补满！", d_fx_depart: "他发车！", d_ph_depart: "② 他发车了 → 盯落地", d_gather_cd: "集结 {x}", d_land_cd: "落地 {x}", d_whale: "敌鲸", d_enemy: "敌",
       slot_weak: "🛡️ 消耗", slot_weak_sub: "先落地 · 挡刀吃守军", slot_main: "👑 主力", slot_main_sub: "+1秒跟进收头", slot_empty: "待选", slot_swap_tip: "已互换主力/消耗",
-      roster_search: "按昵称或 Player ID 搜索", replace_choose: "选择要替换的位置", replace_weak: "替换消耗 · {n}", replace_main: "替换主力 · {n}", replace_cancel: "取消", already_kingdom: "该玩家已在王国 {k}", stage_other_kingdom: "该玩家刚被另一王国选中，已恢复你的选择",
+      mode_double: "双集结", mode_triple: "三集结", slot_weak1: "消耗 1", slot_weak2: "消耗 2", rally_mode_saved: "集结模式已同步", mode_saving: "正在同步…", confirm_drop_weak2: "切回双集结会移除 {n} 的消耗 2 位置。继续？", mode_changed_elsewhere: "另一位指挥已更改集结模式，已同步最新状态", mode_unavailable: "当前房间暂不支持三集结", firetri: "⚔️ 点两下发三集结", need3: "请选择消耗 1、消耗 2 和主力三名车头",
+      roster_search: "按昵称或 Player ID 搜索", replace_choose: "选择要替换的位置", role_choose: "选择 {n} 的位置", replace_weak: "替换消耗 · {n}", replace_weak1: "替换消耗 1 · {n}", replace_weak2: "替换消耗 2 · {n}", replace_main: "替换主力 · {n}", replace_cancel: "取消", already_kingdom: "该玩家已在王国 {k}", stage_other_kingdom: "该玩家刚被另一王国选中，已恢复你的选择",
       edit_march: "修改 {n} 的行军时间", march_save: "保存", march_cancel: "取消", march_adjust: "调整行军时间", march_decrease: "减少 {n} 秒", march_increase: "增加 {n} 秒", march_latest: "房间当前值：{x}", march_active_unchanged: "已发出的倒数不会被这次修改影响", march_invalid: "请输入 0:05–3:00（5–180 秒）", march_conflict: "另一位指挥已更新；保留了你的草稿", march_retry: "按最新值重试", march_adopt: "采用最新值", march_saved: "已保存并同步到全房间", march_pending: "正在等待服务器确认与房间同步…", march_unsaved: "未保存 · 连接恢复后请手动重试", march_stale: "该玩家已不存在，正在刷新房间", march_locked: "先解锁指挥台才能修改",
       plat_ios: "🍎 iPhone：通常可在后台提醒；开战前请锁屏实测", plat_android: "🤖 安卓：保持本页亮屏最稳；系统可能暂停后台", plat_desktop: "💻 电脑：保持本标签页开启，并先做一次测试",
       atk_note: "🟡 集结 5:00 → 🟢 行军 → 到点落地", order_cancelled: "✖ 指令已取消", defense_demo: "演练动画 · 非实时战况"
@@ -379,7 +381,7 @@
       fired: "Fired ✓", notconn: "Not connected · reconnecting", notsynced: "Still syncing — wait a sec", nomarch: "A captain has no march time set",
       cancelq: "Tap again to cancel the order", cancelled: "Cancelled", staged_line: "🛡️ You're the {k} {r} captain · stand by",
       as_on: "🔊 Alerts on — you can switch to the game", as_warn: "⚠️ Sound paused by the OS — tap to resume", bgtest: "🔒 Test bg", bgtest_on: "Lock & switch to the game — a full 10s countdown demo starts now 🔔", 
-      ready_btn: "✅ I'm ready", ready_done: "✓ Ready", notready: "A captain hasn't tapped Ready — firing anyway", readyon: "✓ Told the commander you're ready", readyline: "Ready {n}/{m}", rally_live: "A rally is still live in this kingdom — cancel it before a refill", cap_absent: "A captain went offline — firing anyway", syncp: "{n}/{m} synced & present", syncp_pick: "Pick 2 captains", land_cap: "LAND",
+      ready_btn: "✅ I'm ready", ready_done: "✓ Ready", notready: "A captain hasn't tapped Ready — firing anyway", readyon: "✓ Told the commander you're ready", readyline: "Ready {n}/{m}", rally_live: "A rally is still live in this kingdom — cancel it before a refill", cap_absent: "A captain went offline — firing anyway", syncp: "{n}/{m} synced & present", syncp_pick: "Pick {n} captains", land_cap: "LAND",
       delivery_sent: "Sent", delivery_received: "Received ✓", delivery_received_count: "Received {n}/{m}", delivery_missing: "No confirmation", delivery_expired: "Expired",
       settings: "⚙️ Alert settings", bgtest2: "🔔 Test lock-screen / in-game alert", cmdlink: "🔓 I'm the commander → unlock", marchlab: "March time to the castle", marchtip2: "in-game: open a rally on the castle, read that number",
       cancel_k: "✖ Cancel {k}'s rally", legend: "● you ○ mates · 30s per ring, outer = farther", unlocking: "checking password…", checklist_done: "All set — just wait for the commander",
@@ -392,7 +394,8 @@
       d_ph_gather: "① Enemy gathering (rush)…", d_ph_send: "② SEND! right now", d_ph_land: "③ Enemy hits", d_ph_refill: "✅ Reinforced · held", d_ph_low: "③ Garrison low → reinforce!", d_ph_inc: "② Incoming → watch the landing",
       d_fx_send: "SEND!", d_fx_land: "Hits", d_fx_refill: "Reinforced!", d_fx_depart: "They march!", d_ph_depart: "② They marched → watch the landing", d_gather_cd: "gather {x}", d_land_cd: "land {x}", d_whale: "incoming rally", d_enemy: "Enemy ",
       slot_weak: "🛡️ SACRIFICE", slot_weak_sub: "lands first · eats the garrison", slot_main: "👑 MAIN", slot_main_sub: "lands +1s right behind", slot_empty: "—", slot_swap_tip: "Main/sacrifice swapped",
-      roster_search: "Search nickname or Player ID", replace_choose: "Choose the captain to replace", replace_weak: "Replace Sacrifice · {n}", replace_main: "Replace Main · {n}", replace_cancel: "Cancel", already_kingdom: "Already selected for Kingdom {k}", stage_other_kingdom: "Another kingdom just selected this player; your prior picks were restored",
+      mode_double: "Double Rally", mode_triple: "Triple Rally", slot_weak1: "Sacrifice 1", slot_weak2: "Sacrifice 2", rally_mode_saved: "Rally mode synced", mode_saving: "Syncing…", confirm_drop_weak2: "Switching to Double removes {n} from Sacrifice 2. Continue?", mode_changed_elsewhere: "Another commander changed the rally mode; latest state synced", mode_unavailable: "Triple Rally is unavailable in this room", firetri: "⚔️ Double-tap for Triple Rally", need3: "Select Sacrifice 1, Sacrifice 2, and Main",
+      roster_search: "Search nickname or Player ID", replace_choose: "Choose the captain to replace", role_choose: "Choose a role for {n}", replace_weak: "Replace Sacrifice · {n}", replace_weak1: "Replace Sacrifice 1 · {n}", replace_weak2: "Replace Sacrifice 2 · {n}", replace_main: "Replace Main · {n}", replace_cancel: "Cancel", already_kingdom: "Already selected for Kingdom {k}", stage_other_kingdom: "Another kingdom just selected this player; your prior picks were restored",
       edit_march: "Edit {n}'s march time", march_save: "Save", march_cancel: "Cancel", march_adjust: "Adjust march time", march_decrease: "Decrease {n} seconds", march_increase: "Increase {n} seconds", march_latest: "Current room value: {x}", march_active_unchanged: "An active countdown will not change", march_invalid: "Enter 0:05–3:00 (5–180 seconds)", march_conflict: "Another commander updated this player; your draft is preserved", march_retry: "Retry on latest", march_adopt: "Adopt latest", march_saved: "Saved and synchronized to the room", march_pending: "Waiting for server confirmation and room sync…", march_unsaved: "Not saved · retry manually after reconnect", march_stale: "This player is gone; refreshing the room", march_locked: "Unlock the commander console to edit",
       plat_ios: "🍎 iPhone: background alerts usually work; lock-screen test before battle", plat_android: "🤖 Android: keeping this page visible is safest; the OS may pause it", plat_desktop: "💻 Desktop: keep this tab open and run one test first",
       atk_note: "🟡 gather 5:00 → 🟢 march → lands", order_cancelled: "✖ Order cancelled", defense_demo: "Timing rehearsal · not live battle state"
@@ -590,11 +593,12 @@
       }
       return { anchor: anchor, mine: false };
     },
-    rolesForMode: function () { return ["weak", "main"]; },
-    reconcilePicks: function (picks) {
+    rolesForMode: function (mode) { return mode === "triple" ? ["weak", "weak2", "main"] : ["weak", "main"]; },
+    reconcilePicks: function (picks, mode) {
+      var allowedRoles = mode === "triple" ? ["weak", "weak2", "main"] : ["weak", "main"];
       var seenPid = Object.create(null), seenRole = Object.create(null);
       return (Array.isArray(picks) ? picks : []).filter(function (pick) {
-        if (!pick || !pick.pid || (pick.role !== "weak" && pick.role !== "main") || seenPid[pick.pid] || seenRole[pick.role]) return false;
+        if (!pick || !pick.pid || allowedRoles.indexOf(pick.role) < 0 || seenPid[pick.pid] || seenRole[pick.role]) return false;
         seenPid[pick.pid] = true; seenRole[pick.role] = true; return true;
       }).map(function (pick) { return { pid: pick.pid, role: pick.role }; });
     }
@@ -608,7 +612,9 @@
         typeof rallyCandidate.isRallyCommand === "function" &&
         typeof rallyCandidate.targetFor === "function" &&
         typeof rallyCandidate.rolesForMode === "function" &&
-        typeof rallyCandidate.reconcilePicks === "function") {
+        typeof rallyCandidate.reconcilePicks === "function" &&
+        typeof rallyCandidate.selectPlayer === "function" &&
+        typeof rallyCandidate.movePlayerToRole === "function") {
       rallyApi = rallyCandidate;
       rallyClientBuild = rallyCandidate.BUILD;
       tripleClientAvailable = true;
@@ -617,6 +623,124 @@
   function isRallyCommand(command) {
     try { return rallyApi.isRallyCommand(command) === true; }
     catch (e) { return fallbackRallyApi.isRallyCommand(command); }
+  }
+  function rallyModeRecord(kingdom, sourceRoom) {
+    var currentRoom = sourceRoom || room, fallback = { mode: "double", revision: 0 };
+    var raw = currentRoom && currentRoom.rallyModes && currentRoom.rallyModes[kingdom] || fallback;
+    return {
+      mode: raw && raw.mode === "triple" ? "triple" : "double",
+      revision: raw && Number.isInteger(raw.revision) && raw.revision >= 0 ? raw.revision : 0
+    };
+  }
+  function rallyMode(kingdom, sourceRoom) {
+    var raw = rallyModeRecord(kingdom, sourceRoom);
+    return !tripleClientAvailable && raw.mode === "triple" ? "double" : raw.mode;
+  }
+  function rallyModeWritable(kingdom, sourceRoom) {
+    var currentRoom = sourceRoom || room, raw = rallyModeRecord(kingdom, currentRoom);
+    if (raw.mode === "double") return true;
+    return !!(tripleClientAvailable && currentRoom && currentRoom.capabilities && currentRoom.capabilities.tripleRally);
+  }
+  function commandUsesTripleRoles(command) {
+    return !!command && (command.type === "triple_rally" || !!(command.payload && command.payload.rallySize === 3));
+  }
+  function rallyRoleLabel(role, triple) {
+    return tk(role === "main" ? "main" : role === "weak2" ? "slot_weak2" : triple ? "slot_weak1" : "weak");
+  }
+  function clearPendingRallyMode() {
+    if (pendingRallyMode && pendingRallyMode.timeoutId) window.clearTimeout(pendingRallyMode.timeoutId);
+    pendingRallyMode = null;
+    renderRallyMode();
+  }
+  function settleRallyModeMutation() {
+    if (!pendingRallyMode || !room) return false;
+    var current = rallyModeRecord(pendingRallyMode.kingdom);
+    var expectedRevision = pendingRallyMode.baseRevision + 1;
+    if (current.revision > expectedRevision || (current.revision === expectedRevision && current.mode !== pendingRallyMode.mode)) {
+      clearPendingRallyMode();
+      window.toast(tk("mode_changed_elsewhere"));
+      return false;
+    }
+    if (pendingRallyMode.ackRevision !== expectedRevision || current.revision !== expectedRevision || current.mode !== pendingRallyMode.mode) return false;
+    clearPendingRallyMode();
+    window.toast(tk("rally_mode_saved"));
+    return true;
+  }
+  function handleRallyModeMessage(message) {
+    if (!message || message.t !== "rallyModeSaved") return false;
+    if (pendingRallyMode && message.mutationId === pendingRallyMode.mutationId &&
+        message.kingdom === pendingRallyMode.kingdom && message.mode === pendingRallyMode.mode &&
+        Number.isInteger(message.revision) && message.revision === pendingRallyMode.baseRevision + 1) {
+      pendingRallyMode.ackRevision = message.revision;
+      settleRallyModeMutation();
+    }
+    return true;
+  }
+  function handleRallyModeError(message) {
+    if (!pendingRallyMode || !message || message.mutationId !== pendingRallyMode.mutationId) return false;
+    if (message.error === "bad_password") {
+      clearPendingRallyMode();
+      invalidateCommanderAccess();
+      return true;
+    }
+    if (["rally_mode_conflict", "invalid_rally_mode", "triple_disabled"].indexOf(message.error) < 0) return false;
+    clearPendingRallyMode();
+    window.toast(tk(message.error === "rally_mode_conflict" ? "mode_changed_elsewhere" : "mode_unavailable"));
+    if (sock && typeof sock.refresh === "function") sock.refresh();
+    return true;
+  }
+  function handleRallyStageConflict(message) {
+    if (!message || message.mutationId || message.error !== "rally_mode_conflict") return false;
+    if (pendingStageMutation) rollbackStageSelection(null, true, true);
+    window.toast(tk("mode_changed_elsewhere"));
+    if (sock && typeof sock.refresh === "function") sock.refresh();
+    return true;
+  }
+  function renderRallyMode() {
+    var control = $("rallyModeControl"), input = $("tripleMode"), scope = $("rallyModeScope");
+    var status = $("rallyModeStatus"), label = $("tripleModeLabel");
+    if (!control || !input || !scope || !status || !label) return;
+    var current = rallyModeRecord(fireKingdom);
+    var allowed = !!(tripleClientAvailable && room && room.capabilities && room.capabilities.tripleRally);
+    control.hidden = !allowed;
+    scope.textContent = tk("kw" + fireKingdom);
+    label.textContent = tk("mode_triple");
+    input.checked = current.mode === "triple";
+    input.disabled = !!pendingRallyMode || !!pendingStageMutation || !!queuedStageByK[fireKingdom] || !roomPw || !allowed;
+    status.textContent = pendingRallyMode ? tk("mode_saving") : tk(current.mode === "triple" ? "mode_triple" : "mode_double");
+  }
+  function requestRallyMode(mode) {
+    if (mode !== "double" && mode !== "triple") return false;
+    var current = rallyModeRecord(fireKingdom);
+    var allowed = !!(tripleClientAvailable && room && room.capabilities && room.capabilities.tripleRally);
+    if (!sock || !roomPw || !allowed || pendingRallyMode || pendingStageMutation || queuedStageByK[fireKingdom] || mode === current.mode) { renderRallyMode(); return false; }
+    if (mode === "double") {
+      var weak2 = pickedByK[fireKingdom].filter(function (pick) { return pick.role === "weak2"; })[0];
+      var name = weak2 ? playerDisplayText(weak2.pid, room && room.players) : "";
+      if (weak2 && !window.confirm(tkf("confirm_drop_weak2", { n: name }))) { renderRallyMode(); return false; }
+    }
+    var mutationId = crypto.randomUUID(), kingdom = fireKingdom;
+    pendingRallyMode = {
+      mutationId: mutationId, kingdom: kingdom, mode: mode, baseRevision: current.revision,
+      ackRevision: null, timeoutId: window.setTimeout(function () {
+        if (pendingRallyMode && pendingRallyMode.mutationId === mutationId) {
+          clearPendingRallyMode(); window.toast(tk("notconn"));
+          if (sock && typeof sock.refresh === "function") sock.refresh();
+        }
+      }, 8000)
+    };
+    var sent = sock.send({
+      t: "setRallyMode", mutationId: mutationId, password: roomPw,
+      kingdom: kingdom, mode: mode, baseRevision: current.revision
+    });
+    if (!sent) { clearPendingRallyMode(); window.toast(tk("notconn")); return false; }
+    renderRallyMode();
+    return true;
+  }
+  function wireRallyMode() {
+    var input = $("tripleMode"); if (!input) return;
+    input.onchange = function () { requestRallyMode(input.checked ? "triple" : "double"); };
+    renderRallyMode();
   }
   // Captains receive their exact personal launch second. Everyone else receives ONE join countdown for the
   // active rally, fixing the old visual-only joiner path while avoiding overlapping cues from both kingdoms.
@@ -948,9 +1072,10 @@
   function isReady(p) { return !!(p && p.march && p.lastSeen && (window.serverNow() - Date.parse(p.lastSeen)) < 70000); }
   function refreshSyncPill() {
     var el = $("syncPill"); if (!el) return;
-    var cur = pickedByK[fireKingdom], n = cur.length, rn = cur.filter(function (x) { return isReady(room && room.players && room.players[x.pid]); }).length;
-    if (!n) { el.textContent = tk("syncp_pick"); el.className = "syncpill"; return; }
-    el.textContent = tkf("syncp", { n: rn, m: n }); el.className = "syncpill" + (n === 2 && rn === 2 ? " allgo" : "");
+    var cur = pickedByK[fireKingdom], required = rallyMode(fireKingdom) === "triple" ? 3 : 2;
+    var n = cur.length, rn = cur.filter(function (x) { return isReady(room && room.players && room.players[x.pid]); }).length;
+    if (!n) { el.textContent = tkf("syncp_pick", { n: required }); el.className = "syncpill"; return; }
+    el.textContent = tkf("syncp", { n: rn, m: n }); el.className = "syncpill" + (n === required && rn === required ? " allgo" : "");
   }
   function paintHero() {
     var ph = $("phero"), c = room ? activeCommand(room) : null;
@@ -965,7 +1090,7 @@
       var sm = stagedForMe();
       // staged = ONE LINE in the sticky chrome (the hourglass banner is gone); commander (the stager) never sees it
       var showSt = !!(sm && !roomPw), sl = $("stagedLine");
-      if (sl) { sl.classList.toggle("hide", !showSt); if (showSt) sl.textContent = tkf("staged_line", { k: tk("kw" + sm.kingdom), r: tk(sm.role === "main" ? "main" : "weak") }); }
+      if (sl) { sl.classList.toggle("hide", !showSt); if (showSt) sl.textContent = tkf("staged_line", { k: tk("kw" + sm.kingdom), r: rallyRoleLabel(sm.role, rallyMode(sm.kingdom) === "triple") }); }
       $("chrome").classList.toggle("staged", showSt);
       if (iw) iw.classList.toggle("hide", !!(sm || roomPw));   // idle "then what": answer it in one persistent line (commander/staged states have their own)
       ph.className = "phero hide"; return;
@@ -996,8 +1121,8 @@
     $("pheroKick").textContent = (room.live && room.live.mode === "sim" ? (L() ? "🧪 PRACTICE · " : "🧪 演练 · ") : "") + (kd ? tk("kw" + kd) : "");
     if (c.type === "ping") { $("pheroTitle").textContent = tk("sc_title"); $("pheroNum").textContent = "🔊"; $("pheroSub").textContent = tk("sc_sub"); $("pheroPips").innerHTML = ""; return; }
     if (c.type === "refill") { $("pheroTitle").textContent = tk("refilltitle"); $("pheroSub").textContent = tk("refillsub"); }
-    else if (tg.mine && rem > countdownLead) { $("pheroTitle").textContent = tkf("waitlaunch", { n: countdownLead }); $("pheroNum").textContent = "⏳"; $("pheroSub").textContent = (tg.role === "main" ? tk("main") : tk("weak")); $("pheroPips").innerHTML = ""; return; }
-    else if (tg.mine) { $("pheroTitle").textContent = tk("youlaunch"); $("pheroSub").textContent = (tg.role === "main" ? tk("main") : tk("weak")); }
+    else if (tg.mine && rem > countdownLead) { $("pheroTitle").textContent = tkf("waitlaunch", { n: countdownLead }); $("pheroNum").textContent = "⏳"; $("pheroSub").textContent = rallyRoleLabel(tg.role, commandUsesTripleRoles(c)); $("pheroPips").innerHTML = ""; return; }
+    else if (tg.mine) { $("pheroTitle").textContent = tk("youlaunch"); $("pheroSub").textContent = rallyRoleLabel(tg.role, commandUsesTripleRoles(c)); }
     else { $("pheroTitle").textContent = tk("whalelaunch"); $("pheroSub").textContent = tk("joincue"); }
     $("pheroNum").textContent = rem >= 1 ? (tg.mine ? String(rem) : (rem > 10 ? window.mmss(rem) : String(rem))) : rem > -3 ? tk("go") : "—";
     $("pheroPips").innerHTML = pips(rem);
@@ -1316,25 +1441,24 @@
   }
 
   /* ---------- commander ---------- */
-  function renderKingdomPick() { var b = $("kingdomPick"); if (!b) return; b.innerHTML = [1, 2].map(function (n) { return '<button class="chipbtn ' + (fireKingdom === n ? "kon" : "") + '" data-k="' + n + '">🌍 ' + tk("kw" + n) + '</button>'; }).join(""); b.querySelectorAll("button").forEach(function (x) { x.onclick = function () { fireKingdom = +x.getAttribute("data-k"); closeReplacement(false); renderKingdomPick(); if (room) renderRoster(); setCancelLabel(); }; }); }
+  function renderKingdomPick() { var b = $("kingdomPick"); if (!b) return; b.innerHTML = [1, 2].map(function (n) { return '<button class="chipbtn ' + (fireKingdom === n ? "kon" : "") + '" data-k="' + n + '">🌍 ' + tk("kw" + n) + '</button>'; }).join(""); b.querySelectorAll("button").forEach(function (x) { x.onclick = function () { fireKingdom = +x.getAttribute("data-k"); closeReplacement(false); renderKingdomPick(); renderRallyMode(); if (room) renderRoster(); setCancelLabel(); }; }); renderRallyMode(); }
   function renderLead() { var b = $("lead"); if (!b) return; b.innerHTML = [10, 15, 30, 60].map(function (v) { return '<button class="chipbtn ' + (v === lead ? "on" : "") + '" data-v="' + v + '">' + (L() ? "in " + v + "s" : v + "秒后") + '</button>'; }).join(""); b.querySelectorAll("button").forEach(function (x) { x.onclick = function () { lead = +x.getAttribute("data-v"); renderLead(); }; }); }
 
   function canonicalPick(pid, role, players) {
     var player = players && players[pid];
     if (!player) return null;
-    return { pid: pid, role: role === "main" ? "main" : "weak", name: player.name || pid, march: player.march, marchRevision: Number.isInteger(player.marchRevision) ? player.marchRevision : 0 };
+    var canonicalRole = role === "main" ? "main" : role === "weak2" ? "weak2" : "weak";
+    return { pid: pid, role: canonicalRole, name: player.name || pid, march: player.march, marchRevision: Number.isInteger(player.marchRevision) ? player.marchRevision : 0 };
   }
-  function reconcilePickList(list, players) {
-    var seenPid = Object.create(null), seenRole = Object.create(null), next = [];
-    (Array.isArray(list) ? list : []).some(function (pick) {
-      if (next.length >= 2) return true;
-      var pid = pick && String(pick.pid || ""), role = pick && pick.role;
-      if (!players || !Object.prototype.hasOwnProperty.call(players, pid) || (role !== "weak" && role !== "main") || seenPid[pid] || seenRole[role]) return false;
-      seenPid[pid] = true; seenRole[role] = true; next.push({ pid: pid, role: role }); return false;
-    });
-    return next;
+  function reconcilePickList(list, players, mode) {
+    var reconciled;
+    try { reconciled = rallyApi.reconcilePicks(list, mode === "triple" ? "triple" : "double"); }
+    catch (e) { reconciled = fallbackRallyApi.reconcilePicks(list, mode); }
+    return reconciled.filter(function (pick) {
+      return players && Object.prototype.hasOwnProperty.call(players, pick.pid);
+    }).map(function (pick) { return { pid: pick.pid, role: pick.role }; });
   }
-  function reconcilePicks(players) { [1, 2].forEach(function (kingdom) { pickedByK[kingdom] = reconcilePickList(pickedByK[kingdom], players); }); }
+  function reconcilePicks(players, sourceRoom) { [1, 2].forEach(function (kingdom) { pickedByK[kingdom] = reconcilePickList(pickedByK[kingdom], players, rallyModeRecord(kingdom, sourceRoom).mode); }); }
   function clonePicks(list) { return (list || []).map(function (pick) { return { pid: pick.pid, role: pick.role }; }); }
   function pickSignature(list) { return clonePicks(list).sort(function (a, b) { return a.role.localeCompare(b.role); }).map(function (pick) { return pick.role + ":" + pick.pid; }).join("|"); }
   function otherKingdomForPid(pid, kingdom) {
@@ -1362,33 +1486,46 @@
   }
   function closeReplacement(restoreFocus) {
     var origin = pendingReplacementOrigin || pendingReplacementPid;
-    pendingReplacementPid = ""; pendingReplacementOrigin = null; pendingReplacementIncumbents = null;
+    pendingReplacementPid = ""; pendingReplacementOrigin = null; pendingReplacementIncumbents = null; pendingReplacementAction = "";
     if ($("replaceOvl")) $("replaceOvl").classList.remove("show");
     var page = document.querySelector(".wrap"); if (page) { page.inert = false; page.removeAttribute("inert"); }
     if (restoreFocus) { if (pendingStageMutation || queuedStageByK[1] || queuedStageByK[2]) stageFocusByK[fireKingdom] = origin; restoreRosterFocus(origin); }
   }
-  function openReplacement(pid) {
+  function openReplacement(pid, availableRoles, action) {
     if (!room || !room.players || !room.players[pid]) return;
-    pendingReplacementPid = pid; pendingReplacementOrigin = pid;
+    pendingReplacementPid = pid; pendingReplacementOrigin = pid; pendingReplacementAction = action === "move" ? "move" : "replace";
     var weak = pickedByK[fireKingdom].filter(function (pick) { return pick.role === "weak"; })[0];
+    var weak2 = pickedByK[fireKingdom].filter(function (pick) { return pick.role === "weak2"; })[0];
     var main = pickedByK[fireKingdom].filter(function (pick) { return pick.role === "main"; })[0];
-    pendingReplacementIncumbents = { weak: weak && weak.pid, main: main && main.pid, signature: pickSignature(pickedByK[fireKingdom]) };
-    $("replaceTitle").textContent = tk("replace_choose");
-    $("replaceWeak").hidden = !weak; $("replaceMain").hidden = !main;
-    if (weak) $("replaceWeak").textContent = tkf("replace_weak", { n: playerDisplayText(weak.pid, room.players) });
-    if (main) $("replaceMain").textContent = tkf("replace_main", { n: playerDisplayText(main.pid, room.players) });
+    var modeRecord = rallyModeRecord(fireKingdom);
+    pendingReplacementIncumbents = {
+      weak: weak && weak.pid, weak2: weak2 && weak2.pid, main: main && main.pid,
+      signature: pickSignature(pickedByK[fireKingdom]), kingdom: fireKingdom,
+      mode: modeRecord.mode, modeRevision: modeRecord.revision
+    };
+    var roles = Array.isArray(availableRoles) ? availableRoles : rallyApi.rolesForMode(rallyMode(fireKingdom));
+    $("replaceTitle").textContent = pendingReplacementAction === "move" ? tkf("role_choose", { n: playerDisplayText(pid, room.players) }) : tk("replace_choose");
+    $("replaceWeak").hidden = roles.indexOf("weak") < 0 || (pendingReplacementAction === "replace" && !weak);
+    $("replaceWeak2").hidden = roles.indexOf("weak2") < 0 || (pendingReplacementAction === "replace" && !weak2);
+    $("replaceMain").hidden = roles.indexOf("main") < 0 || (pendingReplacementAction === "replace" && !main);
+    if (!$("replaceWeak").hidden) $("replaceWeak").textContent = pendingReplacementAction === "move" ? tk("slot_weak1") : tkf(rallyMode(fireKingdom) === "triple" ? "replace_weak1" : "replace_weak", { n: playerDisplayText(weak.pid, room.players) });
+    if (!$("replaceWeak2").hidden) $("replaceWeak2").textContent = pendingReplacementAction === "move" ? tk("slot_weak2") : tkf("replace_weak2", { n: playerDisplayText(weak2.pid, room.players) });
+    if (!$("replaceMain").hidden) $("replaceMain").textContent = pendingReplacementAction === "move" ? tk("main") : tkf("replace_main", { n: playerDisplayText(main.pid, room.players) });
     $("replaceCancel").textContent = tk("replace_cancel");
     $("replaceOvl").classList.add("show");
     var page = document.querySelector(".wrap"); if (page) page.inert = true;
-    setTimeout(function () { var first = !$("replaceWeak").hidden ? $("replaceWeak") : $("replaceMain"); if (first) first.focus(); }, 0);
+    setTimeout(function () { var first = [$("replaceWeak"), $("replaceWeak2"), $("replaceMain")].filter(function (button) { return button && !button.hidden; })[0]; if (first) first.focus(); }, 0);
   }
-  function rollbackStageSelection(message, discardQueued) {
+  function rollbackStageSelection(message, discardQueued, onlyPendingKingdom) {
     if (!pendingStageMutation) return false;
     var rollback = pendingStageMutation, focusPid = stageFocusByK[rollback.kingdom]; pendingStageMutation = null;
-    if (discardQueued) { queuedStageByK[1] = null; queuedStageByK[2] = null; }
+    if (discardQueued) {
+      if (onlyPendingKingdom) queuedStageByK[rollback.kingdom] = null;
+      else { queuedStageByK[1] = null; queuedStageByK[2] = null; }
+    }
     [1, 2].forEach(function (kingdom) {
       pickedByK[kingdom] = queuedStageByK[kingdom]
-        ? reconcilePickList(queuedStageByK[kingdom], room && room.players)
+        ? reconcilePickList(queuedStageByK[kingdom].picks, room && room.players, rallyModeRecord(kingdom).mode)
         : clonePicks(serverStagedByK[kingdom]);
     });
     closeReplacement(false); if (room) renderRoster();
@@ -1401,24 +1538,38 @@
     var previous = clonePicks(pickedByK[fireKingdom]);
     var active = document.activeElement, focusPid = active && active.dataset && active.dataset.pid;
     if (focusPid) stageFocusByK[fireKingdom] = focusPid;
-    pickedByK[fireKingdom] = reconcilePickList(next, room && room.players);
+    if (pendingRallyMode) { window.toast(tk("mode_saving")); return; }
+    if (!rallyModeWritable(fireKingdom)) { window.toast(tk("mode_unavailable")); return; }
+    pickedByK[fireKingdom] = reconcilePickList(next, room && room.players, rallyModeRecord(fireKingdom).mode);
     if (pendingReplacementPid && pendingReplacementIncumbents && pickSignature(pickedByK[fireKingdom]) !== pendingReplacementIncumbents.signature) closeReplacement(true);
-    picksTouched = true; renderRoster(); stageBroadcast(previous);
+    renderRoster(); stageBroadcast(previous);
   }
   function applyReplacement(pid, role) {
     var candidate = pid || pendingReplacementPid, other = otherKingdomForPid(candidate, fireKingdom), current = pickedByK[fireKingdom];
-    var currentRole = current.filter(function (pick) { return pick.role === role; })[0], expectedPid = pendingReplacementIncumbents && pendingReplacementIncumbents[role];
-    if (!candidate || !room || !room.players[candidate] || other || !currentRole || !expectedPid || currentRole.pid !== expectedPid) { closeReplacement(true); return; }
-    var next = current.filter(function (pick) { return pick.role !== role && pick.pid !== candidate; }).concat([{ pid: candidate, role: role }]);
+    var currentRole = current.filter(function (pick) { return pick.role === role; })[0], expectedPid = pendingReplacementIncumbents && pendingReplacementIncumbents[role], next;
+    if (!candidate || !room || !room.players[candidate] || other || !pendingReplacementIncumbents || pickSignature(current) !== pendingReplacementIncumbents.signature) { closeReplacement(true); return; }
+    if (pendingReplacementAction === "move") {
+      next = rallyApi.movePlayerToRole(current, candidate, role, rallyMode(fireKingdom));
+      if (pickSignature(next) === pickSignature(current)) { closeReplacement(true); return; }
+    } else {
+      if (!currentRole || !expectedPid || currentRole.pid !== expectedPid) { closeReplacement(true); return; }
+      next = rallyApi.selectPlayer(current, candidate, rallyMode(fireKingdom), role).picks;
+    }
     stageFocusByK[fireKingdom] = candidate; closeReplacement(false); commitPicks(next);
   }
   function selectOrReplacePlayer(pid) {
     var other = otherKingdomForPid(pid, fireKingdom), current = pickedByK[fireKingdom], existing = current.filter(function (pick) { return pick.pid === pid; })[0];
     if (other) { window.toast(tkf("already_kingdom", { k: other })); return; }
-    if (existing) { commitPicks(current.filter(function (pick) { return pick.pid !== pid; })); return; }
-    if (current.length >= 2) { openReplacement(pid); return; }
-    var role = current.some(function (pick) { return pick.role === "weak"; }) ? "main" : "weak";
-    commitPicks(current.concat([{ pid: pid, role: role }]));
+    if (!rallyModeWritable(fireKingdom)) { window.toast(tk("mode_unavailable")); return; }
+    if (!tripleClientAvailable) {
+      if (existing) { commitPicks(current.filter(function (pick) { return pick.pid !== pid; })); return; }
+      if (current.length >= 2) { openReplacement(pid, ["weak", "main"], "replace"); return; }
+      var role = current.some(function (pick) { return pick.role === "weak"; }) ? "main" : "weak";
+      commitPicks(current.concat([{ pid: pid, role: role }])); return;
+    }
+    var result = rallyApi.selectPlayer(current, pid, rallyMode(fireKingdom));
+    if (result.needsReplacement) { openReplacement(pid, result.roles, "replace"); return; }
+    commitPicks(result.picks);
   }
   function parseMMSS(value) {
     var match = /^(\d{1,2}):(\d{2})$/.exec(String(value || "").trim());
@@ -1578,7 +1729,7 @@
         if (String(pair && pair.pid || "").trim() === pid) impacts.push({ kingdom: kingdom, role: String(pair.role || "") });
       });
     });
-    var roleRank = function (role) { return role === "weak" ? 0 : role === "main" ? 1 : 2; };
+    var roleRank = function (role) { return role === "weak" ? 0 : role === "weak2" ? 1 : role === "main" ? 2 : 3; };
     impacts.sort(function (a, b) { return a.kingdom - b.kingdom || roleRank(a.role) - roleRank(b.role) || a.role.localeCompare(b.role); });
     var commands = (currentRoom && currentRoom.live && currentRoom.live.commands) || {}, nowSec = window.serverNowSec(), active = false;
     Object.keys(commands).forEach(function (key) {
@@ -1656,7 +1807,7 @@
     $("removePlayerTitle").textContent = tkf("remove_confirm", { n: snapshot.name });
     $("removePlayerDescription").textContent = tk("remove_description");
     var impactLines = snapshot.impacts.map(function (impact) {
-      var role = impact.role === "weak" ? tk("weak") : impact.role === "main" ? tk("main") : impact.role;
+      var role = rallyRoleLabel(impact.role, rallyModeRecord(impact.kingdom, sourceRoom).mode === "triple");
       return tkf("remove_impact_line", { k: impact.kingdom, r: role });
     });
     $("removePlayerImpact").textContent = impactLines.length ? tk("remove_impact") + "\n" + impactLines.join("\n") : tk("remove_no_impact");
@@ -1741,8 +1892,9 @@
   function renderRoster() {
     var box = $("roster"); if (!box || !room) return;
     var players = Object.keys(room.players || {}).map(function (pid) { return Object.assign({ pid: pid }, room.players[pid]); });
+    var mode = rallyMode(fireKingdom), required = mode === "triple" ? 3 : 2;
     var cur = pickedByK[fireKingdom], otherK = fireKingdom === 1 ? 2 : 1, other = pickedByK[otherK].concat(serverStagedByK[otherK] || []);
-    $("pickCnt").textContent = cur.length + "/2";
+    $("pickCnt").textContent = cur.length + "/" + required;
     box.innerHTML = "";
     var searchWrap = $("rosterSearchWrap"), search = $("rosterSearch"), showSearch = players.length > 6;
     if (searchWrap) searchWrap.classList.toggle("hide", !showSearch);
@@ -1770,9 +1922,17 @@
       if (parts.suffix) { var suffix = document.createElement("span"); suffix.className = "roster-name-suffix"; suffix.textContent = parts.suffix; el.appendChild(suffix); }
       el.setAttribute("aria-label", playerDisplayText(p.pid, room.players) + (inO ? " · " + tkf("already_kingdom", { k: otherK }) : ""));
       var roleButton = document.createElement("button"); roleButton.type = "button"; roleButton.className = "roster-role " + (sel ? sel.role : inO ? "otherk" : "ghost"); roleButton.dataset.pid = p.pid;
-      roleButton.textContent = sel ? tk(sel.role === "main" ? "main" : "weak") : inO ? "🌍" + otherK : "—";
-      roleButton.setAttribute("aria-disabled", sel ? "false" : "true"); roleButton.setAttribute("aria-label", sel ? tk(sel.role === "main" ? "main" : "weak") : inO ? tkf("already_kingdom", { k: otherK }) : tk("slot_empty"));
-      roleButton.onclick = function () { if (!sel) return; var next = cur.map(function (pick) { return { pid: pick.pid, role: pick.pid === sel.pid ? (sel.role === "main" ? "weak" : "main") : (pick.role === "main" ? "weak" : "main") }; }); commitPicks(next); };
+      roleButton.textContent = sel ? rallyRoleLabel(sel.role, mode === "triple") : inO ? "🌍" + otherK : "—";
+      roleButton.setAttribute("aria-disabled", sel ? "false" : "true"); roleButton.setAttribute("aria-label", sel ? rallyRoleLabel(sel.role, mode === "triple") : inO ? tkf("already_kingdom", { k: otherK }) : tk("slot_empty"));
+      roleButton.onclick = function () {
+        if (!sel) return;
+        if (mode === "triple") {
+          openReplacement(sel.pid, rallyApi.rolesForMode(mode).filter(function (role) { return role !== sel.role; }), "move");
+          return;
+        }
+        var next = cur.map(function (pick) { return { pid: pick.pid, role: pick.pid === sel.pid ? (sel.role === "main" ? "weak" : "main") : (pick.role === "main" ? "weak" : "main") }; });
+        commitPicks(next);
+      };
       var timeButton = document.createElement("button"); timeButton.type = "button"; timeButton.className = "roster-time"; timeButton.dataset.pid = p.pid; timeButton.textContent = window.mmss(p.march || 0); timeButton.setAttribute("aria-disabled", roomPw ? "false" : "true"); timeButton.setAttribute("aria-expanded", editingPlayerPid === p.pid ? "true" : "false"); timeButton.setAttribute("aria-controls", "commanderMarchEditor"); timeButton.setAttribute("aria-label", tkf("edit_march", { n: playerDisplayText(p.pid, room.players) }) + " · " + window.mmss(p.march || 0));
       timeButton.onclick = function () { openCommanderMarchEditor(p.pid, timeButton); };
       var del = document.createElement("button");
@@ -1784,8 +1944,9 @@
       wrap.appendChild(el); wrap.appendChild(roleButton); wrap.appendChild(timeButton); wrap.appendChild(del); box.appendChild(wrap);
     });
     refreshSyncPill(); renderSlots(); renderCommanderMarchEditor(); if (rosterActionsPid) renderRosterActionsMenu();
-    var ready = cur.length === 2 && cur.some(function (pick) { return pick.role === "weak"; }) && cur.some(function (pick) { return pick.role === "main"; });
-    var fd = $("fireDouble"); if (fd) fd.disabled = !ready;
+    var roles = rallyApi.rolesForMode(mode), ready = cur.length === required && roles.every(function (role) { return cur.some(function (pick) { return pick.role === role; }); });
+    var fd = $("fireDouble"); if (fd) fd.disabled = mode === "triple" || !rallyModeWritable(fireKingdom) || !ready || !!pendingStageMutation || !!queuedStageByK[fireKingdom] || !!pendingRallyMode;
+    var fireLabel = $("t_firedbl"); if (fireLabel) fireLabel.textContent = tk(mode === "triple" ? "firetri" : "firedbl");
   }
   function deliveryForPlayer(command, pid) {
     if (!command || !Array.isArray(command.delivery)) return null;
@@ -1818,9 +1979,46 @@
   }
   // explicit role slots: who's SACRIFICE (lands first, eats the garrison) vs MAIN (+1s behind) is never a guess.
   // Tap a filled slot's × to unpick; ⇄ swaps roles in one tap (the roster-badge tap still works too).
+  function renderTripleSlots(kingdom) {
+    var box = $("pickSlots"); if (!box) return;
+    var cur = pickedByK[kingdom], players = (room && room.players) || {}, counts = duplicateNameCounts(players);
+    var liveCommand = room && room.live && room.live.commands && room.live.commands[kingdom];
+    var livePairs = liveCommand && liveCommand.payload && Array.isArray(liveCommand.payload.pairs) ? liveCommand.payload.pairs : [];
+    var frozen = cur.length === 0 && livePairs.length > 0 && commandUsesTripleRoles(liveCommand), source = frozen ? livePairs : cur;
+    var roles = rallyApi.rolesForMode("triple");
+    box.classList.add("triple"); box.classList.toggle("frozen", frozen);
+    function cell(role) {
+      var raw = source.filter(function (pick) { return pick.role === role; })[0];
+      var captain = frozen ? raw : raw && canonicalPick(raw.pid, role, players);
+      var parts = captain ? (players[captain.pid] ? playerDisplayParts(captain.pid, players, counts) : { name: captain.name || captain.pid, suffix: "" }) : null;
+      var status = frozen && captain ? deliveryForPlayer(liveCommand, captain.pid) : null;
+      var deliveryClass = status ? "delivery " + status.kind + (status.kind === "received" && !status.complete ? " partial" : "") : "";
+      return '<div class="slot ' + role + (captain ? " filled" : "") + (frozen ? " frozen" : "") + '"' + (captain ? ' data-pid="' + window.esc(captain.pid) + '"' : "") + '>'
+        + '<div class="sl">' + rallyRoleLabel(role, true) + '</div>'
+        + (captain ? '<div class="sv"><span class="slot-name">' + window.esc(parts.name) + '</span>' + (parts.suffix ? '<span class="roster-name-suffix">' + window.esc(parts.suffix) + '</span>' : '') + ' <small>' + window.mmss(captain.march || 0) + '</small>' + (frozen ? '' : '<button type="button" class="sx" data-pid="' + window.esc(captain.pid) + '" aria-label="' + window.esc(tkf("remove_aria", { n: parts.name })) + '">×</button>') + '</div>'
+          : '<div class="sv empty">' + tk("slot_empty") + '</div>')
+        + '<div class="ss">' + tk(role === "main" ? "slot_main_sub" : "slot_weak_sub") + '</div>'
+        + (status ? '<span class="' + deliveryClass + '">' + window.esc(status.text) + '</span>' : '') + '</div>';
+    }
+    box.innerHTML = roles.map(cell).join("");
+    box.querySelectorAll(".sx").forEach(function (button) {
+      button.onclick = function () {
+        var pid = button.getAttribute("data-pid");
+        commitPicks(pickedByK[kingdom].filter(function (pick) { return pick.pid !== pid; }));
+      };
+    });
+    armDeliveryStatusTimer(frozen ? liveCommand : null);
+  }
   function renderSlots(kingdom) {
     var box = $("pickSlots"); if (!box) return;
-    var selectedKingdom = kingdom || fireKingdom, cur = pickedByK[selectedKingdom], players = (room && room.players) || {}, counts = duplicateNameCounts(players);
+    var selectedKingdom = kingdom || fireKingdom;
+    var selectedCommand = room && room.live && room.live.commands && room.live.commands[selectedKingdom];
+    var selectedPairs = selectedCommand && selectedCommand.payload && Array.isArray(selectedCommand.payload.pairs) ? selectedCommand.payload.pairs : [];
+    var frozenCommand = pickedByK[selectedKingdom].length === 0 && selectedPairs.length > 0;
+    var tripleSlots = frozenCommand ? commandUsesTripleRoles(selectedCommand) : rallyMode(selectedKingdom) === "triple";
+    if (tripleSlots) { renderTripleSlots(selectedKingdom); return; }
+    box.classList.remove("triple");
+    var cur = pickedByK[selectedKingdom], players = (room && room.players) || {}, counts = duplicateNameCounts(players);
     var liveCommand = room && room.live && room.live.commands && room.live.commands[selectedKingdom];
     var livePairs = liveCommand && liveCommand.payload && Array.isArray(liveCommand.payload.pairs) ? liveCommand.payload.pairs : [];
     var frozen = cur.length === 0 && livePairs.length > 0, source = frozen ? livePairs : cur;
@@ -1849,7 +2047,10 @@
   // hard sync gate that does NOT waste the commander's confirm tap: if unsynced, resync then auto-fire on success
   function gateSync(fn) { if (syncedOK) return fn(); window.toast(tk("notsynced")); beginClockSync(function (ok) { if (ok) fn(); else window.toast(tk("notconn")); }); }
   function fireDouble() {
-    var commandKingdom = fireKingdom, cur = pickedByK[commandKingdom]; if (cur.length < 2) { window.toast(tk("need2")); return; }
+    var commandKingdom = fireKingdom;
+    if (!rallyModeWritable(commandKingdom)) { window.toast(tk("mode_unavailable")); return; }
+    if (pendingStageMutation || queuedStageByK[commandKingdom] || pendingRallyMode) { window.toast(tk("mode_saving")); return; }
+    var cur = pickedByK[commandKingdom]; if (cur.length < 2) { window.toast(tk("need2")); return; }
     var weakPick = cur.filter(function (x) { return x.role === "weak"; })[0], mainPick = cur.filter(function (x) { return x.role === "main"; })[0];
     var weak = weakPick && canonicalPick(weakPick.pid, "weak", room && room.players), main = mainPick && canonicalPick(mainPick.pid, "main", room && room.players);
     if (!weak || !main || weak.pid === main.pid) { window.toast(tk("need2")); return; }   // belt+braces: never fire the same player as both roles
@@ -1886,22 +2087,38 @@
   }
   function stageBroadcast(previous) {
     if (!roomPw || !sock) return false;
-    queuedStageByK[fireKingdom] = clonePicks(pickedByK[fireKingdom]);
+    var record = rallyModeRecord(fireKingdom);
+    if (!rallyModeWritable(fireKingdom)) { window.toast(tk("mode_unavailable")); return false; }
+    queuedStageByK[fireKingdom] = {
+      picks: clonePicks(pickedByK[fireKingdom]), mode: record.mode, modeRevision: record.revision
+    };
     return pumpStageQueue();
   }
   function pumpStageQueue() {
     if (pendingStageMutation || !roomPw || !sock) return false;
     var kingdom = queuedStageByK[1] ? 1 : queuedStageByK[2] ? 2 : 0;
     if (!kingdom) return true;
-    var desired = clonePicks(queuedStageByK[kingdom]); queuedStageByK[kingdom] = null;
+    var queued = queuedStageByK[kingdom], record = rallyModeRecord(kingdom);
+    queuedStageByK[kingdom] = null;
+    if (!rallyModeWritable(kingdom) || queued.mode !== record.mode || queued.modeRevision !== record.revision) {
+      pickedByK[kingdom] = clonePicks(serverStagedByK[kingdom]);
+      var staleFocus = stageFocusByK[kingdom]; stageFocusByK[kingdom] = "";
+      if (room) renderRoster(); if (staleFocus) restoreRosterFocus(staleFocus);
+      window.toast(tk(!rallyModeWritable(kingdom) ? "mode_unavailable" : "mode_changed_elsewhere"));
+      return pumpStageQueue();
+    }
+    var desired;
+    try { desired = rallyApi.reconcilePicks(queued.picks, record.mode); }
+    catch (e) { desired = fallbackRallyApi.reconcilePicks(queued.picks, record.mode); }
+    desired = reconcilePickList(desired, room && room.players, record.mode);
     if (pickSignature(desired) === pickSignature(serverStagedByK[kingdom])) {
       pickedByK[kingdom] = clonePicks(serverStagedByK[kingdom]);
       var settledFocus = stageFocusByK[kingdom]; stageFocusByK[kingdom] = "";
       if (room) renderRoster(); if (settledFocus) restoreRosterFocus(settledFocus);
       return pumpStageQueue();
     }
-    pendingStageMutation = { kingdom: kingdom, expected: desired, awaitingReconnect: false, reconnectAfterSnapshot: -1 };
-    var ok = sock.send({ t: "stage", password: roomPw, staged: { kingdom: kingdom, pairs: desired } });
+    pendingStageMutation = { kingdom: kingdom, expected: desired, mode: record.mode, modeRevision: record.revision, awaitingReconnect: false, reconnectAfterSnapshot: -1 };
+    var ok = sock.send({ t: "stage", password: roomPw, staged: { kingdom: kingdom, modeRevision: record.revision, pairs: desired } });
     if (!ok) rollbackStageSelection(tk("notconn"), true);
     return ok;
   }
@@ -2100,6 +2317,7 @@
     return true;
   }
   function handleSocketMessage(message) {
+    if (handleRallyModeMessage(message)) return;
     if (handleStageSuperseded(message)) return;
     if (handleDeviceStatusSaved(message)) return;
     if (handleDeliveryAckSaved(message)) return;
@@ -2188,6 +2406,7 @@
     sock.onOpen = function () { deliveryShadowConnectionOpened(); initialStateSeen = false; safeUpdateCheck(); registrationPending = false; setNet(true); sendDeviceStatus(); retryPendingDeliveryAcks(true); beginClockSync().then(deliveryShadowClockCallback()); };
     sock.onClose = function () {
       initialStateSeen = false; registrationPending = false;
+      clearPendingRallyMode();
       if (pendingMarchMutation && !pendingMarchMutation.ackSeen) pendingMarchMutation = null;
       if (pendingCommanderMarchMutation && !pendingCommanderMarchMutation.ackSeen) { pendingCommanderMarchMutation = null; commanderMarchStatus = "unsaved"; commanderMarchStatusTone = "err"; commanderMarchDirty = true; renderCommanderMarchEditor(); }
       else if (pendingCommanderMarchMutation) { pendingCommanderMarchMutation.awaitingReconnect = true; pendingCommanderMarchMutation.reconnectAfterSnapshot = roomSnapshotSequence; }
@@ -2198,6 +2417,8 @@
     sock.onError = function (m) {
       if (rejectPendingDeliveryAck(m)) return;
       if (m && m.source === "deviceStatus" && ["invalid_device_identity", "socket_identity_locked", "device_owned_by_other_pid"].indexOf(m.error) >= 0) return;
+      if (handleRallyModeError(m)) return;
+      if (handleRallyStageConflict(m)) return;
       if (handleCommanderMarchProtocolError(m)) return;
       if (handlePlayerProtocolError(m)) return;
       if (handleRemovalProtocolError(m)) return;
@@ -2249,28 +2470,43 @@
     var ownRemovedName = ownRemoved ? (myProfile.name || trackedPid) : "", acknowledgedOwnRemoval = false;
     [1, 2].forEach(function (kd) {
       var canonicalStaged = r.live && r.live.staged && r.live.staged[kd];
-      serverStagedByK[kd] = canonicalStaged && Array.isArray(canonicalStaged.pairs) ? canonicalStaged.pairs.map(function (pick) { return { pid: pick.pid, role: pick.role }; }) : [];
+      var incomingRecord = rallyModeRecord(kd, r);
+      var canonicalPairs = canonicalStaged && Array.isArray(canonicalStaged.pairs) ? canonicalStaged.pairs : [];
+      try { canonicalPairs = rallyApi.reconcilePicks(canonicalPairs, incomingRecord.mode); }
+      catch (e) { canonicalPairs = fallbackRallyApi.reconcilePicks(canonicalPairs, incomingRecord.mode); }
+      serverStagedByK[kd] = reconcilePickList(canonicalPairs, nextPlayers, incomingRecord.mode);
     });
-    if (roomPw && !picksTouched) {
-      [1, 2].forEach(function (kd) {
-        var staged = r.live && r.live.staged && r.live.staged[kd];
-        if (staged && Array.isArray(staged.pairs) && staged.pairs.length && !pickedByK[kd].length) {
-          pickedByK[kd] = staged.pairs.map(function (pick) { return { pid: pick.pid, role: pick.role }; });
-        }
-      });
-    }
-    reconcilePicks(nextPlayers);
+    reconcilePicks(nextPlayers, r);
+    [1, 2].forEach(function (kd) {
+      var record = rallyModeRecord(kd, r), queued = queuedStageByK[kd];
+      if (queued && (queued.mode !== record.mode || queued.modeRevision !== record.revision)) {
+        queuedStageByK[kd] = null; pickedByK[kd] = clonePicks(serverStagedByK[kd]);
+        if (!settledStageFocusPid) settledStageFocusPid = stageFocusByK[kd];
+        stageFocusByK[kd] = "";
+      }
+    });
     if (pendingStageMutation) {
-      var stageKingdom = pendingStageMutation.kingdom;
-      if (pickSignature(serverStagedByK[stageKingdom]) === pickSignature(pendingStageMutation.expected)) {
+      var stageKingdom = pendingStageMutation.kingdom, stageRecord = rallyModeRecord(stageKingdom, r);
+      if (pendingStageMutation.mode !== stageRecord.mode || pendingStageMutation.modeRevision !== stageRecord.revision) {
+        pendingStageMutation = null; queuedStageByK[stageKingdom] = null;
+        pickedByK[stageKingdom] = clonePicks(serverStagedByK[stageKingdom]);
+        settledStageFocusPid = settledStageFocusPid || stageFocusByK[stageKingdom]; stageFocusByK[stageKingdom] = "";
+      } else if (pickSignature(serverStagedByK[stageKingdom]) === pickSignature(pendingStageMutation.expected)) {
         pendingStageMutation = null;
         if (!queuedStageByK[stageKingdom]) { pickedByK[stageKingdom] = clonePicks(serverStagedByK[stageKingdom]); settledStageFocusPid = stageFocusByK[stageKingdom]; stageFocusByK[stageKingdom] = ""; }
       } else if (pendingStageMutation.awaitingReconnect && freshRoomSnapshot && roomSnapshotSequence > pendingStageMutation.reconnectAfterSnapshot) {
-        rollbackStageSelection();
+        pendingStageMutation = null;
+        pickedByK[stageKingdom] = queuedStageByK[stageKingdom]
+          ? reconcilePickList(queuedStageByK[stageKingdom].picks, nextPlayers, stageRecord.mode)
+          : clonePicks(serverStagedByK[stageKingdom]);
       }
     }
     [1, 2].forEach(function (kd) { if ((!pendingStageMutation || pendingStageMutation.kingdom !== kd) && !queuedStageByK[kd]) pickedByK[kd] = clonePicks(serverStagedByK[kd]); });
-    if (pendingReplacementPid && (!nextPlayers[pendingReplacementPid] || pickedByK[fireKingdom].length < 2 || otherKingdomForPid(pendingReplacementPid, fireKingdom) || (pendingReplacementIncumbents && pickSignature(pickedByK[fireKingdom]) !== pendingReplacementIncumbents.signature))) closeReplacement(true);
+    var replacementRecord = pendingReplacementIncumbents && rallyModeRecord(fireKingdom, r);
+    if (pendingReplacementPid && (!nextPlayers[pendingReplacementPid] || otherKingdomForPid(pendingReplacementPid, fireKingdom) ||
+        (pendingReplacementIncumbents && (pendingReplacementIncumbents.kingdom !== fireKingdom ||
+          pickSignature(pickedByK[fireKingdom]) !== pendingReplacementIncumbents.signature ||
+          replacementRecord.mode !== pendingReplacementIncumbents.mode || replacementRecord.revision !== pendingReplacementIncumbents.modeRevision)))) closeReplacement(true);
     var removingOwnPid = !!(removalState && removalState.pid === trackedPid);
     acknowledgedOwnRemoval = reconcileRemovalState(r, freshRoomSnapshot) && ownRemoved && removingOwnPid;
     if (ownRemoved) {
@@ -2306,7 +2542,8 @@
       var gone = liveCommands(room).filter(function (c) { return myTarget(c).anchor > nowS - 1 && newIds.indexOf(c.id) < 0; });
       if (gone.some(function (c) { return myTarget(c).mine; })) { beepCancelled(); window.toast(tk("order_cancelled")); }
     }
-    room = r; if (firstSnapshot) sendDeviceStatus(); if (!pendingStageMutation) pumpStageQueue(); reconcileCommanderMarchState(nextPlayers); setNet(true); if (pendingUnlock && r.updatedBy && r.updatedBy === pendingTok) unlockedOK(); presenceN = r.presence || 1; paintChrome(); paintHero(); syncMap(); renderRoster(); if (settledStageFocusPid) restoreRosterFocus(settledStageFocusPid); scheduleAllCues(); paintAudioStatus();
+    room = r; settleRallyModeMutation(); renderRallyMode();
+    if (firstSnapshot) sendDeviceStatus(); if (!pendingStageMutation) pumpStageQueue(); reconcileCommanderMarchState(nextPlayers); setNet(true); if (pendingUnlock && r.updatedBy && r.updatedBy === pendingTok) unlockedOK(); presenceN = r.presence || 1; paintChrome(); paintHero(); syncMap(); renderRoster(); if (settledStageFocusPid) restoreRosterFocus(settledStageFocusPid); scheduleAllCues(); paintAudioStatus();
     var ew = (r.config && r.config.enemyWhales) || [], key = JSON.stringify(ew);
     if (key !== lastWhalesKey) {
       lastWhalesKey = key; enemyWhales = ew; setBadge(); if (viewMode === "defense") renderDefense();   // only re-render (resets the radar) when the whale list actually changed, not on every heartbeat
@@ -2375,8 +2612,10 @@
   function wireRoom() {
     if (myProfile) showProfileDraft(myProfile);
     wireIdentityControls();
+    wireRallyMode();
     $("rosterSearch").addEventListener("input", function () { rosterQuery = this.value.toLowerCase().trim(); if (room) renderRoster(); });
     $("replaceWeak").onclick = function () { applyReplacement(pendingReplacementPid, "weak"); };
+    $("replaceWeak2").onclick = function () { applyReplacement(pendingReplacementPid, "weak2"); };
     $("replaceMain").onclick = function () { applyReplacement(pendingReplacementPid, "main"); };
     $("replaceCancel").onclick = function () { closeReplacement(true); };
     $("replaceOvl").addEventListener("click", function (event) { if (event.target === $("replaceOvl")) closeReplacement(true); });

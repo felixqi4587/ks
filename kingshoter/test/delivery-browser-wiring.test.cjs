@@ -274,6 +274,7 @@ function createHarness(config = {}) {
     function safeUpdateCheck() { return false; }
     function isCommanderDevice() { return __commander === true; }
     function audioAlive() { __state.calls.audioAlive += 1; return __state.audioArmed === true; }
+    function handleRallyModeMessage() { return false; }
     function handleStageSuperseded() { return false; }
     function handleDeviceStatusSaved(message) {
       __state.log.push('core:' + String(message && message.t || ''));
@@ -306,8 +307,11 @@ function createHarness(config = {}) {
       });
     }
     function renderCommanderMarchEditor() {}
+    function clearPendingRallyMode() {}
     function markRemovalDisconnected() {}
     function rejectPendingDeliveryAck() { return false; }
+    function handleRallyModeError() { return false; }
+    function handleRallyStageConflict() { return false; }
     function handleCommanderMarchProtocolError() { return false; }
     function handlePlayerProtocolError() { return false; }
     function handleRemovalProtocolError() { return false; }

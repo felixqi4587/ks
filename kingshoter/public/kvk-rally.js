@@ -45,5 +45,34 @@
     }).map((pick) => ({ pid: pick.pid, role: pick.role }));
   }
 
-  return { BUILD, isRallyCommand, targetFor, rolesForMode, reconcilePicks };
+  function selectPlayer(picks, pid, mode, replaceRole) {
+    const current = reconcilePicks(picks, mode);
+    const existing = current.find((pick) => pick.pid === pid);
+    if (existing) return { picks: current.filter((pick) => pick.pid !== pid), needsReplacement: false };
+    const roles = rolesForMode(mode);
+    const used = new Set(current.map((pick) => pick.role));
+    const emptyRole = roles.find((role) => !used.has(role));
+    if (emptyRole) return { picks: current.concat({ pid, role: emptyRole }), needsReplacement: false };
+    if (!roles.includes(replaceRole)) return { picks: current, needsReplacement: true, roles };
+    return {
+      picks: current.filter((pick) => pick.role !== replaceRole).concat({ pid, role: replaceRole }),
+      needsReplacement: false
+    };
+  }
+
+  function movePlayerToRole(picks, pid, targetRole, mode) {
+    const current = reconcilePicks(picks, mode);
+    const roles = rolesForMode(mode);
+    if (!roles.includes(targetRole)) return current;
+    const moving = current.find((pick) => pick.pid === pid);
+    if (!moving || moving.role === targetRole) return current;
+    const occupied = current.find((pick) => pick.role === targetRole);
+    return current.map((pick) => {
+      if (pick.pid === pid) return { pid: pick.pid, role: targetRole };
+      if (occupied && pick.pid === occupied.pid) return { pid: pick.pid, role: moving.role };
+      return pick;
+    });
+  }
+
+  return { BUILD, isRallyCommand, targetFor, rolesForMode, reconcilePicks, selectPlayer, movePlayerToRole };
 }));

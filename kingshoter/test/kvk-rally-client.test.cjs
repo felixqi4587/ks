@@ -77,3 +77,53 @@ test('reconciliation returns canonical copies and rejects duplicate players and 
   ]);
   assert.notEqual(rally.reconcilePicks([first], 'double')[0], first);
 });
+
+test('Triple fills weak, weak2, main and never silently replaces a fourth player', () => {
+  let result = rally.selectPlayer([], 'a', 'triple');
+  result = rally.selectPlayer(result.picks, 'b', 'triple');
+  result = rally.selectPlayer(result.picks, 'c', 'triple');
+  assert.deepEqual(plain(result.picks), [
+    { pid: 'a', role: 'weak' },
+    { pid: 'b', role: 'weak2' },
+    { pid: 'c', role: 'main' }
+  ]);
+
+  const fourth = rally.selectPlayer(result.picks, 'd', 'triple');
+  assert.equal(fourth.needsReplacement, true);
+  assert.deepEqual(plain(fourth.picks), plain(result.picks));
+  assert.deepEqual(plain(fourth.roles), ['weak', 'weak2', 'main']);
+});
+
+test('moving to an occupied Triple role swaps captains without loss', () => {
+  const picks = [{ pid: 'a', role: 'weak' }, { pid: 'b', role: 'weak2' }, { pid: 'c', role: 'main' }];
+  assert.deepEqual(plain(rally.movePlayerToRole(picks, 'a', 'main', 'triple')), [
+    { pid: 'a', role: 'main' },
+    { pid: 'b', role: 'weak2' },
+    { pid: 'c', role: 'weak' }
+  ]);
+});
+
+test('Double selection keeps its two-role fill, replacement, and swap behavior', () => {
+  let result = rally.selectPlayer([], 'a', 'double');
+  result = rally.selectPlayer(result.picks, 'b', 'double');
+  assert.deepEqual(plain(result.picks), [
+    { pid: 'a', role: 'weak' },
+    { pid: 'b', role: 'main' }
+  ]);
+
+  const third = rally.selectPlayer(result.picks, 'c', 'double');
+  assert.equal(third.needsReplacement, true);
+  assert.deepEqual(plain(third.picks), plain(result.picks));
+  assert.deepEqual(plain(third.roles), ['weak', 'main']);
+
+  result = rally.selectPlayer(third.picks, 'c', 'double', 'weak');
+  assert.equal(result.needsReplacement, false);
+  assert.deepEqual(plain(result.picks), [
+    { pid: 'b', role: 'main' },
+    { pid: 'c', role: 'weak' }
+  ]);
+  assert.deepEqual(plain(rally.movePlayerToRole(result.picks, 'c', 'main', 'double')), [
+    { pid: 'b', role: 'weak' },
+    { pid: 'c', role: 'main' }
+  ]);
+});

@@ -125,6 +125,14 @@
       <h2>🎖️ <span id="t_cmd">指挥台</span><span class="cnt" id="pickCnt">0/2</span></h2>
       <div class="lab" id="t_kdhint" style="margin-top:0"></div>
       <div class="chiprow" id="kingdomPick"></div>
+      <section id="rallyModeControl" class="rally-mode" hidden aria-labelledby="rallyModeScope">
+        <span id="rallyModeScope"></span>
+        <label class="switch-row" for="tripleMode">
+          <input id="tripleMode" type="checkbox" role="switch" aria-describedby="rallyModeStatus">
+          <span id="tripleModeLabel">Triple Rally</span>
+        </label>
+        <span id="rallyModeStatus" class="hint" aria-live="polite"></span>
+      </section>
       <div class="slots" id="pickSlots"></div>
       <div class="roster-search hide" id="rosterSearchWrap"><input id="rosterSearch" type="search" autocomplete="off" aria-label="Search players"></div>
       <div class="hint hide" id="duplicateHint" role="note"></div>
@@ -197,7 +205,7 @@
 <!-- explicit third-player replacement; a full selection never shifts silently -->
 <div class="ovl" id="replaceOvl" role="dialog" aria-modal="true" aria-labelledby="replaceTitle"><div class="ob">
   <h3 id="replaceTitle">Choose a captain to replace</h3>
-  <div class="replace-actions"><button class="btn full" id="replaceWeak"></button><button class="btn full" id="replaceMain"></button></div>
+  <div class="replace-actions"><button class="btn full" id="replaceWeak"></button><button class="btn full" id="replaceWeak2"></button><button class="btn full" id="replaceMain"></button></div>
   <button class="btn full" id="replaceCancel" style="margin-top:8px"></button>
 </div></div>
 
