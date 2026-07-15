@@ -67,3 +67,7 @@ test('platform gates do not capture the top-level custom-domain routes as vars',
   assert.ok(routes >= 0 && vars > routes && assets > vars,
     'routes must remain top-level, with [vars] introduced only after its array closes');
 });
+
+test('production enables Triple for every room', () => {
+  assert.match(wrangler, /^TRIPLE_RALLY_ENABLED = "1"$/m);
+});

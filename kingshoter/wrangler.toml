@@ -9,7 +9,7 @@ routes = [
 ]
 
 [vars]
-TRIPLE_RALLY_ENABLED = "0"
+TRIPLE_RALLY_ENABLED = "1"
 TRIPLE_RALLY_QA_ENABLED = "1"
 
 # Static frontend (Workers Static Assets) — public/ served at the edge.
