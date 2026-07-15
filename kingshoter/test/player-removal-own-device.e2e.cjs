@@ -10,6 +10,7 @@ const meKey = `kingshoter_r_${room}_me`;
 const deviceKey = `kvk:${room}:delivery-device:v1`;
 const originalDeviceId = '11111111-1111-4111-8111-111111111111';
 const secondDeviceId = '22222222-2222-4222-8222-222222222222';
+const profileOwnershipKey = '33333333-3333-4333-8333-333333333333';
 
 (async () => {
   const browser = await chromium.launch({ headless: true, channel: 'chrome' });
@@ -26,15 +27,38 @@ const secondDeviceId = '22222222-2222-4222-8222-222222222222';
   manager.on('pageerror', error => errors.push(`manager: ${error.message}`));
 
   try {
-    await player.addInitScript(({ profileKey, deliveryKey, seededDevice }) => {
-      localStorage.setItem(profileKey, JSON.stringify({ pid: '001', name: 'Test 001', march: 32 }));
+    await player.addInitScript(({ storageKey, deliveryKey, seededDevice, ownerKey }) => {
+      localStorage.setItem(storageKey, JSON.stringify({
+        pid: '001', playerId: '001', name: 'Test 001', march: 32,
+        marchRevision: 0, identityMode: 'playerId', editable: true, profileKey: ownerKey
+      }));
       localStorage.setItem(deliveryKey, seededDevice);
-    }, { profileKey: meKey, deliveryKey: deviceKey, seededDevice: originalDeviceId });
-    await secondPlayer.addInitScript(({ profileKey, deliveryKey, seededDevice }) => {
-      localStorage.setItem(profileKey, JSON.stringify({ pid: '001', name: 'Test 001', march: 32 }));
+    }, { storageKey: meKey, deliveryKey: deviceKey, seededDevice: originalDeviceId, ownerKey: profileOwnershipKey });
+    await secondPlayer.addInitScript(({ storageKey, deliveryKey, seededDevice }) => {
+      localStorage.setItem(storageKey, JSON.stringify({
+        pid: '001', playerId: '001', name: 'Test 001', march: 32,
+        marchRevision: 0, identityMode: 'playerId', editable: false
+      }));
       localStorage.setItem(deliveryKey, seededDevice);
-    }, { profileKey: meKey, deliveryKey: deviceKey, seededDevice: secondDeviceId });
-    await Promise.all([player.goto(url), secondPlayer.goto(url), manager.goto(url)]);
+    }, { storageKey: meKey, deliveryKey: deviceKey, seededDevice: secondDeviceId });
+
+    await manager.goto(url);
+    await manager.evaluate(({ roomName, ownerKey }) => new Promise((resolve, reject) => {
+      const protocol = location.protocol === 'https:' ? 'wss' : 'ws:';
+      const socket = new WebSocket(`${protocol}//${location.host}/api/ws?room=${encodeURIComponent(roomName)}`);
+      const timer = setTimeout(() => reject(new Error('canonical player seed timed out')), 5000);
+      socket.onerror = () => { clearTimeout(timer); reject(new Error('canonical player seed failed')); };
+      socket.onopen = () => socket.send(JSON.stringify({
+        t: 'registerPlayer', pid: '001', playerId: '001', name: 'Test 001', march: 32,
+        identityMode: 'playerId', alliance: '', profileKey: ownerKey
+      }));
+      socket.onmessage = event => {
+        const message = JSON.parse(event.data);
+        if (message.t !== 'state' || !message.room.players['001']) return;
+        clearTimeout(timer); socket.close(); resolve();
+      };
+    }), { roomName: room, ownerKey: profileOwnershipKey });
+    await Promise.all([player.goto(url), secondPlayer.goto(url)]);
     await manager.waitForFunction(() => document.querySelector('#roster .rp[data-pid="001"]'), null, { timeout: 5000 });
 
     await player.locator('#soundGate').click().catch(() => {});

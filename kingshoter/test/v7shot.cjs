@@ -12,7 +12,7 @@ const { chromium } = require("playwright");
   await p.locator("#pid").fill("900000123"); await p.waitForTimeout(1500);
   await p.locator("#marchRange").fill("50"); await p.locator("#saveBtn").click(); await p.waitForTimeout(500);
   // seed 2nd player over a raw WS
-  await p.evaluate((room) => new Promise(res => { const ws = new WebSocket("ws://" + location.host + "/api/ws?room=" + room); ws.onopen = () => { ws.send(JSON.stringify({ t: "setMarch", pid: "900000456", name: "Bravo", march: 80, alliance: "" })); setTimeout(() => { ws.close(); res(1); }, 400); }; }), RM);
+  await p.evaluate((room) => new Promise(res => { const ws = new WebSocket("ws://" + location.host + "/api/ws?room=" + room); ws.onopen = () => { ws.send(JSON.stringify({ t: "setMarch", pid: "900000456", name: "Bravo", march: 80, alliance: "", profileKey: "70000000-0000-4000-8000-000000000002" })); setTimeout(() => { ws.close(); res(1); }, 400); }; }), RM);
   await p.waitForTimeout(600);
   await p.screenshot({ path: "test/journey/v7-player.png", fullPage: false });
   // commander unlock + pick both + check metrics

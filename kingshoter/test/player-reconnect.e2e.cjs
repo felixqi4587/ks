@@ -12,6 +12,7 @@ const room = makeQaRoom('player-reconnect');
 const url = qaRoomUrl(base, room, { notour: 1 });
 const pid = '900000051';
 const meKey = `kingshoter_r_${room}_me`;
+const profileKey = '90000000-0000-4000-8000-000000000051';
 
 async function connectRoom(roomName) {
   const safeRoom = assertQaRoomName(roomName);
@@ -64,7 +65,10 @@ async function seedCanonicalPlayer() {
   const socket = await connectRoom(room);
   await socket.waitFor(message => message.t === 'state');
   let start = socket.mark();
-  socket.send({ t: 'registerPlayer', pid, name: 'Server Canonical', march: 40, identityMode: 'playerId', alliance: '' });
+  socket.send({
+    t: 'registerPlayer', pid, name: 'Server Canonical', march: 40,
+    identityMode: 'playerId', alliance: '', profileKey
+  });
   await socket.waitFor(message => message.t === 'state' && message.room.players[pid] && message.room.players[pid].marchRevision === 0, start);
   start = socket.mark();
   socket.send({
@@ -80,7 +84,10 @@ async function seedCanonicalPlayer() {
   ]) {
     const mutationId = `seed-${update.revision}`;
     start = socket.mark();
-    socket.send({ t: 'updateOwnMarch', mutationId, pid, march: update.march, baseRevision: update.baseRevision });
+    socket.send({
+      t: 'updateOwnMarch', mutationId, pid, profileKey,
+      march: update.march, baseRevision: update.baseRevision
+    });
     await Promise.all([
       socket.waitFor(message => message.t === 'playerMarchSaved' && message.mutationId === mutationId, start),
       socket.waitFor(message => message.t === 'state' && message.room.players[pid] && message.room.players[pid].march === update.march && message.room.players[pid].marchRevision === update.revision, start)
@@ -100,7 +107,8 @@ async function readSnapshot() {
   const seeder = await seedCanonicalPlayer();
   const browser = await chromium.launch({ headless: true, channel: 'chrome' });
   const context = await browser.newContext({ viewport: { width: 390, height: 1000 }, locale: 'en-US' });
-  let dropInitialState = true, dropNextSavedState = false, observedRegistrations = 0, observedInvalidMarchErrors = 0;
+  let holdInitialStates = true, observedInitialState = false, dropNextSavedState = false;
+  let observedRegistrations = 0, observedStoredProfileErrors = 0;
   await installQaWebSocketGuard(context, room, {
     shouldDropClientMessage({ data }) {
       const message = JSON.parse(String(data));
@@ -109,8 +117,8 @@ async function readSnapshot() {
     },
     shouldDropServerMessage({ data }) {
       const message = JSON.parse(String(data));
-      if (message.t === 'error' && message.error === 'invalid_march') observedInvalidMarchErrors += 1;
-      if (dropInitialState && message.t === 'state') { dropInitialState = false; return true; }
+      if (message.t === 'error' && message.error === 'invalid_profile_key') observedStoredProfileErrors += 1;
+      if (holdInitialStates && message.t === 'state') { observedInitialState = true; return true; }
       if (!dropNextSavedState) return false;
       const player = message.t === 'state' && message.room.players[pid];
       if (!player || player.march !== 55 || player.marchRevision !== 5) return false;
@@ -124,24 +132,26 @@ async function readSnapshot() {
   page.on('pageerror', error => errors.push(error.message));
 
   try {
-    await page.addInitScript(({ key, playerId }) => {
+    await page.addInitScript(({ key, playerId, ownerKey }) => {
       if (sessionStorage.getItem('reconnect-stale-seeded')) return;
       localStorage.setItem(key, JSON.stringify({
         pid: playerId,
         name: 'Stale Local',
         march: 90,
         marchRevision: 0,
-        identityMode: 'playerId'
+        identityMode: 'playerId',
+        profileKey: ownerKey
       }));
       sessionStorage.setItem('reconnect-stale-seeded', '1');
-    }, { key: meKey, playerId: pid });
+    }, { key: meKey, playerId: pid, ownerKey: profileKey });
     await page.goto(url);
     page.on('framenavigated', frame => { if (frame === page.mainFrame()) navigations += 1; });
     const firstStateDeadline = Date.now() + 5000;
-    while (dropInitialState && Date.now() < firstStateDeadline) await new Promise(resolve => setTimeout(resolve, 25));
-    assert.equal(dropInitialState, false, 'the authoritative first state was deliberately held for the pre-state UI assertion');
+    while (!observedInitialState && Date.now() < firstStateDeadline) await new Promise(resolve => setTimeout(resolve, 25));
+    assert.equal(observedInitialState, true, 'the authoritative first state was deliberately held for the pre-state UI assertion');
     assert.equal(await page.locator('#fillCard').isVisible(), true, 'a stored profile waits visibly for the authoritative first state');
     assert.equal(await page.locator('#youChip').isVisible(), false, 'a stale stored profile is not collapsed before the first state');
+    holdInitialStates = false;
     seeder.send({
       t: 'setConfig',
       password: 'task-five-removal',
@@ -170,7 +180,10 @@ async function readSnapshot() {
     });
     await remover.waitFor(message => message.t === 'deviceStatusSaved' && message.pid === pid, start);
     start = remover.mark();
-    remover.send({ t: 'updateOwnMarch', mutationId: 'remote-draft', pid, march: 45, baseRevision: 3 });
+    remover.send({
+      t: 'updateOwnMarch', mutationId: 'remote-draft', pid, profileKey,
+      march: 45, baseRevision: 3
+    });
     initial = await remover.waitFor(message => message.t === 'state' && message.room.players[pid].march === 45 && message.room.players[pid].marchRevision === 4, start);
     await page.waitForFunction(({ key }) => {
       const profile = JSON.parse(localStorage.getItem(key) || 'null');
@@ -243,21 +256,21 @@ async function readSnapshot() {
       identityMode: 'playerId'
     })), { key: meKey, playerId: pid });
     const registrationsBeforeReload = observedRegistrations;
-    const errorsBeforeReload = observedInvalidMarchErrors;
+    const errorsBeforeReload = observedStoredProfileErrors;
     await page.reload();
-    const deadline = Date.now() + 5000;
-    while ((observedRegistrations === registrationsBeforeReload || observedInvalidMarchErrors === errorsBeforeReload) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 25));
-    assert.ok(observedRegistrations > registrationsBeforeReload, 'the missing stored profile attempted create-only registration');
-    assert.ok(observedInvalidMarchErrors > errorsBeforeReload, 'the invalid stored registration was rejected before retry');
-    await page.locator('#toast.show').waitFor({ state: 'visible', timeout: 5000 });
-    assert.equal(await page.locator('#fillCard').isVisible(), true, 'stored registration errors keep the profile draft visible');
-    assert.equal(await page.locator('#youChip').isVisible(), false, 'stored registration errors do not leave a stale chip visible');
+    await page.locator('#fillCard').waitFor({ state: 'visible', timeout: 5000 });
+    await page.waitForFunction(key => localStorage.getItem(key) === null, meKey);
+    await page.waitForTimeout(300);
+    assert.equal(observedRegistrations, registrationsBeforeReload, 'a removed stored player is never silently recreated');
+    assert.equal(observedStoredProfileErrors, errorsBeforeReload, 'stale local data is cleared without a rejected network write');
+    assert.equal(await page.locator('#youChip').isVisible(), false, 'a removed stored identity does not leave a stale chip visible');
     await page.locator('#soundGate').click().catch(() => {});
+    await page.locator('#pid').fill(pid);
     await page.locator('#marchRange').fill('40');
     await page.locator('#saveBtn').click();
     await page.locator('#youChip').waitFor({ state: 'visible', timeout: 5000 });
     const retried = await readSnapshot();
-    assert.equal(retried.room.players[pid].march, 40, 'a corrected stored registration retries create-only registration');
+    assert.equal(retried.room.players[pid].march, 40, 'only an explicit new registration can recreate a removed player');
     assert.equal(retried.room.players[pid].marchRevision, 0);
     seeder.close();
     console.log(`✓ server-first reconnect and inline own-device removal (${room})`);

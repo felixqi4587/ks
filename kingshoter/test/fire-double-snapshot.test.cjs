@@ -33,7 +33,7 @@ function harness() {
     },
     pickedByK: { 1: [{ pid: 'weak', role: 'weak' }, { pid: 'main', role: 'main' }] },
     pendingStageMutation: null,
-    queuedStageByK: { 1: null },
+    queuedStageByK: { 1: null, 2: null },
     pendingRallyMode: null,
     rallyModeWritable: () => true,
     canonicalPick(pid, role, players) {
@@ -60,7 +60,7 @@ function harness() {
     afterSync: null,
     consumed: false
   };
-  vm.runInNewContext(`${extractFunction('fireDouble')}\nthis.fireDouble = fireDouble;`, sandbox);
+  vm.runInNewContext(`${extractFunction('stageIntentBlocksFire')}\n${extractFunction('fireDouble')}\nthis.fireDouble = fireDouble;`, sandbox);
   return sandbox;
 }
 

@@ -11,6 +11,7 @@ const secondPid = '810000002';
 const reconnectMissingPid = '810000003';
 const reconnectMismatchPid = '810000004';
 const legacyPid = 'legacy-march';
+const profileKey = '81000000-0000-4000-8000-000000000001';
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 function createPacketGate() {
@@ -140,20 +141,23 @@ async function enableAndUnlock(page, pageUrl = url) {
       installQaWebSocketGuard(playerContext, room)
     ]);
     await Promise.all([installSocketTracking(commanderAContext), installSocketTracking(commanderBContext)]);
-    await playerContext.addInitScript(({ key, playerPid }) => {
-      localStorage.setItem(key, JSON.stringify({ pid: playerPid, name: 'March Captain', march: 40, marchRevision: 0, identityMode: 'playerId' }));
-    }, { key: `kingshoter_r_${room}_me`, playerPid: pid });
+    await playerContext.addInitScript(({ key, playerPid, ownerKey }) => {
+      localStorage.setItem(key, JSON.stringify({
+        pid: playerPid, name: 'March Captain', march: 40, marchRevision: 0,
+        identityMode: 'playerId', profileKey: ownerKey
+      }));
+    }, { key: `kingshoter_r_${room}_me`, playerPid: pid, ownerKey: profileKey });
     const bootstrap = await bootstrapContext.newPage();
     await bootstrap.goto(url);
     await sendMessages(bootstrap, [
       { t: 'setConfig', password, config: { castleName: '', rallyAllies: [], enemyWhales: [] }, by: 'march-sync-bootstrap' },
-      { t: 'registerPlayer', pid, name: 'March Captain', march: 40, identityMode: 'playerId', alliance: '' },
-      { t: 'registerPlayer', pid: secondPid, name: 'Second Captain', march: 44, identityMode: 'playerId', alliance: '' },
-      { t: 'registerPlayer', pid: reconnectMissingPid, name: 'Reconnect Captain', march: 42, identityMode: 'playerId', alliance: '' },
-      { t: 'registerPlayer', pid: reconnectMismatchPid, name: 'Mismatch Captain', march: 43, identityMode: 'playerId', alliance: '' },
+      { t: 'registerPlayer', pid, name: 'March Captain', march: 40, identityMode: 'playerId', alliance: '', profileKey },
+      { t: 'registerPlayer', pid: secondPid, name: 'Second Captain', march: 44, identityMode: 'playerId', alliance: '', profileKey },
+      { t: 'registerPlayer', pid: reconnectMissingPid, name: 'Reconnect Captain', march: 42, identityMode: 'playerId', alliance: '', profileKey },
+      { t: 'registerPlayer', pid: reconnectMismatchPid, name: 'Mismatch Captain', march: 43, identityMode: 'playerId', alliance: '', profileKey },
       ...Array.from({ length: 4 }, (_, index) => ({
         t: 'registerPlayer', pid: `81000001${index}`, name: `Reserve ${index + 1}`, march: 35 + index,
-        identityMode: 'playerId', alliance: ''
+        identityMode: 'playerId', alliance: '', profileKey
       }))
     ]);
 
@@ -169,9 +173,9 @@ async function enableAndUnlock(page, pageUrl = url) {
       player.goto(url)
     ]);
 
-    assert.equal(await commanderA.locator('link[href="app.css?v=2026071501"]').count(), 1);
-    assert.equal(await commanderA.locator('script[src="/app.js?v=2026071501"]').count(), 1);
-    assert.equal(await commanderA.locator('script[src="/kvk.js?v=2026071501"]').count(), 1);
+    assert.equal(await commanderA.locator('link[href="app.css?v=2026071502"]').count(), 1);
+    assert.equal(await commanderA.locator('script[src="/app.js?v=2026071502"]').count(), 1);
+    assert.equal(await commanderA.locator('script[src="/kvk.js?v=2026071502"]').count(), 1);
 
     const canonicalBeforeLegacy = await readRoom(bootstrap);
     const legacyRoom = structuredClone(canonicalBeforeLegacy);

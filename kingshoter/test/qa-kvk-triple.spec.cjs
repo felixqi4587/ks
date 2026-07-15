@@ -9,13 +9,74 @@ const {
 
 const PROFILE_KEY = room => `kingshoter_r_${room}_me`;
 const DEVICE_KEY = room => `kvk:${room}:delivery-device:v1`;
-const profile = (pid, name, march) => ({ pid, name, march, marchRevision: 0, identityMode: 'playerId' });
+const seededProfiles = new Set();
+const profile = (pid, name, march) => ({
+  pid, playerId: pid, name, march, marchRevision: 0, identityMode: 'playerId',
+  profileKey: crypto.randomUUID(), editable: true
+});
 const password = () => `qa-${crypto.randomBytes(12).toString('hex')}`;
 const deviceId = index => `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
 
 function parseFrame(data) {
   try { return JSON.parse(Buffer.isBuffer(data) ? data.toString('utf8') : String(data)); }
   catch (error) { return null; }
+}
+
+function deliveryOnlyProfile(source) {
+  const copy = { ...source, editable: false };
+  delete copy.profileKey;
+  return copy;
+}
+
+async function ensureCanonicalProfile(baseURL, room, source) {
+  const cacheKey = `${new URL(baseURL).origin}:${room}:${source.pid}`;
+  if (seededProfiles.has(cacheKey)) return;
+  if (!source.profileKey) throw new Error(`owner profile must seed ${source.pid} before delivery-only devices`);
+  const endpoint = new URL('/api/ws', baseURL);
+  endpoint.protocol = endpoint.protocol === 'https:' ? 'wss:' : 'ws:';
+  endpoint.searchParams.set('room', assertQaRoomName(room));
+  const registrationId = crypto.randomUUID();
+  const socket = new WebSocket(endpoint);
+  await new Promise((resolve, reject) => {
+    let canonicalSeen = false;
+    let ackSeen = false;
+    let sent = false;
+    const timer = setTimeout(() => reject(new Error(`profile seed timed out for ${source.pid}`)), 10_000);
+    const finish = () => {
+      if (!canonicalSeen || !ackSeen) return;
+      clearTimeout(timer); seededProfiles.add(cacheKey);
+      try { socket.close(); } catch (error) {}
+      resolve();
+    };
+    socket.addEventListener('message', event => {
+      const message = parseFrame(event.data);
+      if (!message) return;
+      if (message.t === 'state') {
+        const canonical = message.room && message.room.players && message.room.players[source.pid];
+        canonicalSeen = !!(canonical && canonical.name === source.name && canonical.march === source.march);
+        if (!sent) {
+          sent = true;
+          socket.send(JSON.stringify({
+            t: 'registerPlayer', registrationId, pid: source.pid, playerId: source.playerId,
+            name: source.name, march: source.march, identityMode: source.identityMode,
+            profileKey: source.profileKey
+          }));
+        }
+        finish();
+      } else if (message.t === 'playerRegistered' && message.registrationId === registrationId) {
+        if (message.pid !== source.pid || message.editable !== true) {
+          clearTimeout(timer); reject(new Error(`profile seed ownership mismatch for ${source.pid}`));
+          return;
+        }
+        ackSeen = true; finish();
+      } else if (message.t === 'error' && message.registrationId === registrationId) {
+        clearTimeout(timer); reject(new Error(`profile seed failed for ${source.pid}: ${message.error}`));
+      }
+    });
+    socket.addEventListener('error', () => {
+      clearTimeout(timer); reject(new Error(`profile seed socket failed for ${source.pid}`));
+    }, { once: true });
+  });
 }
 
 function createGate(options = {}) {
@@ -54,6 +115,7 @@ async function installHttpGuard(context, baseURL, blockedScripts) {
 
 async function openActor(browser, baseURL, room, options) {
   assertQaRoomName(room);
+  await ensureCanonicalProfile(baseURL, room, options.profile);
   const gate = options.gate || createGate();
   const context = await browser.newContext({
     viewport: options.viewport || { width: 390, height: 1050 },
@@ -229,7 +291,7 @@ test('Triple lifecycle synchronizes roles, timing, delivery truth, audience, and
     const main = await add({ key: 'main', profile: p.main, deviceId: deviceId(3) });
     const fourth = await add({ key: 'fourth', profile: p.fourth, deviceId: deviceId(4) });
     const member = await add({ key: 'member', profile: p.member, deviceId: deviceId(5) });
-    const commanderA = await add({ key: 'commander-a', profile: p.weak, deviceId: deviceId(6) });
+    const commanderA = await add({ key: 'commander-a', profile: deliveryOnlyProfile(p.weak), deviceId: deviceId(6) });
     const commanderB = await add({ key: 'commander-b', profile: p.observer, deviceId: deviceId(7) });
     await waitForPlayerCount(request, baseURL, room, 6);
     await closeActor(fourth);
@@ -337,7 +399,7 @@ test('an active Triple command projects safely to a rally-module-missing target'
     const registrar = await add({ key: 'cache-target-register', profile: p.target, deviceId: deviceId(12) });
     const main = await add({ key: 'cache-main', profile: p.main, deviceId: deviceId(13) });
     const member = await add({ key: 'cache-member', profile: p.member, deviceId: deviceId(14) });
-    const commanderA = await add({ key: 'cache-commander-a', profile: p.weak, deviceId: deviceId(15) });
+    const commanderA = await add({ key: 'cache-commander-a', profile: deliveryOnlyProfile(p.weak), deviceId: deviceId(15) });
     const commanderB = await add({ key: 'cache-commander-b', profile: p.observer, deviceId: deviceId(16) });
     await waitForPlayerCount(request, baseURL, room, 5);
     await closeActor(registrar);
@@ -355,7 +417,7 @@ test('an active Triple command projects safely to a rally-module-missing target'
 
     const fallbackGate = createGate();
     const fallback = await add({
-      key: 'cache-fallback-target', profile: p.target, deviceId: deviceId(17), gate: fallbackGate,
+      key: 'cache-fallback-target', profile: deliveryOnlyProfile(p.target), deviceId: deviceId(17), gate: fallbackGate,
       blockScripts: ['kvk-rally.js']
     });
     await expect.poll(() => !!latestProjectedState(fallbackGate, before.id), { timeout: 12_000 }).toBe(true);

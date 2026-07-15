@@ -264,7 +264,7 @@ function createHarness(config = {}) {
     var qp = __qp, ROOM = __room;
     var sock = null, myPid = __pid, deviceId = __deviceId;
     var tripleClientAvailable = false;
-    var initialStateSeen = false, registrationPending = false, syncedOK = false;
+    var initialStateSeen = false, registrationPending = false, pendingRegistrationProfile = null, syncedOK = false;
     var syncAttempt = 0;
     var pendingMarchMutation = null, pendingCommanderMarchMutation = null;
     var pendingStageMutation = null, roomSnapshotSequence = 0;
@@ -274,6 +274,7 @@ function createHarness(config = {}) {
     function safeUpdateCheck() { return false; }
     function isCommanderDevice() { return __commander === true; }
     function audioAlive() { __state.calls.audioAlive += 1; return __state.audioArmed === true; }
+    function handlePlayerRegistrationAck() { return false; }
     function handleRallyModeMessage() { return false; }
     function handleStageSuperseded() { return false; }
     function handleDeviceStatusSaved(message) {
@@ -291,6 +292,7 @@ function createHarness(config = {}) {
       return sock.send({ t: 'deviceStatus', pid: myPid, deviceId: deviceId, soundReady: true });
     }
     function retryPendingDeliveryAcks() { __state.log.push('core:retryAcks'); }
+    function resetPendingRegistrationConnectionEvidence() { return false; }
     function beginClockSync(done) {
       var attempt = ++syncAttempt;
       syncedOK = false;
@@ -395,13 +397,13 @@ function sentType(state, type) {
 }
 
 test('the updater bootstrap and isolated delivery controller load in one build generation', () => {
-  const updateIndex = html.indexOf('<script src="/kvk-update.js?v=2026071501"></script>');
-  const appIndex = html.indexOf('<script src="/app.js?v=2026071501"></script>');
-  const shadowTag = '<script src="/kvk-delivery-shadow.js?v=2026071501"></script>';
+  const updateIndex = html.indexOf('<script src="/kvk-update.js?v=2026071502"></script>');
+  const appIndex = html.indexOf('<script src="/app.js?v=2026071502"></script>');
+  const shadowTag = '<script src="/kvk-delivery-shadow.js?v=2026071502"></script>';
   const shadowIndex = html.indexOf(shadowTag);
-  const rallyTag = '<script src="/kvk-rally.js?v=2026071501"></script>';
+  const rallyTag = '<script src="/kvk-rally.js?v=2026071502"></script>';
   const rallyIndex = html.indexOf(rallyTag);
-  const kvkIndex = html.indexOf('<script src="/kvk.js?v=2026071501"></script>');
+  const kvkIndex = html.indexOf('<script src="/kvk.js?v=2026071502"></script>');
 
   assert.ok(updateIndex >= 0, 'supported-build updater loads');
   assert.ok(appIndex > updateIndex, 'shared app loads after the updater');
@@ -418,7 +420,7 @@ test('KvK cache assertions move atomically to the supported build', () => {
   const cacheSources = [html, ...CACHE_TEST_PATHS.map(read)];
   for (const source of cacheSources) {
     assert.equal(source.includes('kvk.js?v=41') || source.includes('kvk\\.js\\?v=41'), false);
-    assert.equal(source.includes('kvk.js?v=2026071501') || source.includes('kvk\\.js\\?v=2026071501'), true);
+    assert.equal(source.includes('kvk.js?v=2026071502') || source.includes('kvk\\.js\\?v=2026071502'), true);
   }
 });
 

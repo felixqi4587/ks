@@ -20,7 +20,7 @@ export function normalizeProfilePlayerId(value) {
 }
 
 export function profilePlayerId(pid, player) {
-  if (!player || player.identityMode !== 'playerId') return '';
+  if (!player || player.identityMode === 'nickname') return '';
   return normalizeProfilePlayerId(player.playerId) || normalizeProfilePlayerId(pid);
 }
 

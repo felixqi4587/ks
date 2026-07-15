@@ -47,11 +47,30 @@ async function readProfile(page) {
   return page.evaluate(key => JSON.parse(localStorage.getItem(key) || 'null'), meKey);
 }
 
+async function broadcastDeviceStatus(page, pid) {
+  await page.evaluate(({ roomName, playerId }) => new Promise((resolve, reject) => {
+    const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+    const socket = new WebSocket(`${protocol}://${location.host}/api/ws?room=${encodeURIComponent(roomName)}`);
+    const timer = setTimeout(() => reject(new Error('pending registration broadcast timeout')), 5000);
+    socket.onopen = () => socket.send(JSON.stringify({
+      t: 'deviceStatus', pid: playerId,
+      deviceId: '40000000-0000-4000-8000-000000000004', soundReady: false
+    }));
+    socket.onmessage = event => {
+      const message = JSON.parse(String(event.data));
+      if (message.t !== 'deviceStatusSaved') return;
+      clearTimeout(timer); socket.close(); resolve();
+    };
+    socket.onerror = () => { clearTimeout(timer); reject(new Error('pending registration broadcast failed')); };
+  }), { roomName: room, playerId: pid });
+}
+
 (async () => {
   const browser = await chromium.launch({ headless: true, channel: 'chrome' });
   const raceContext = await browser.newContext({ viewport: { width: 375, height: 900 }, locale: 'en-US' });
   const retryContext = await browser.newContext({ viewport: { width: 375, height: 900 }, locale: 'en-US' });
   const abortContext = await browser.newContext({ viewport: { width: 375, height: 900 }, locale: 'en-US' });
+  const pendingContext = await browser.newContext({ viewport: { width: 375, height: 900 }, locale: 'en-US' });
   const pageErrors = [];
   const raceLookups = [];
   const raceRegistrations = [];
@@ -59,10 +78,15 @@ async function readProfile(page) {
   const retryRegistrations = [];
   const retryProfileUpdates = [];
   const abortLookups = [];
+  const pendingRegistrations = [];
   let retryLookupCount = 0;
+  let holdPendingCanonical = true;
+  let pendingCanonicalDrops = 0;
   let dropNextRetryProfileUpdate = false;
   let dropNextRetryProfileAck = false;
   let droppedRetryProfileAck = null;
+  let dropNextRetryRegistrationAck = false;
+  let droppedRetryRegistrationAck = null;
 
   try {
     await Promise.all([
@@ -89,6 +113,11 @@ async function readProfile(page) {
         },
         shouldDropServerMessage({ data }) {
           const message = JSON.parse(String(data));
+          if (dropNextRetryRegistrationAck && message.t === 'playerRegistered') {
+            dropNextRetryRegistrationAck = false;
+            droppedRetryRegistrationAck = message;
+            return true;
+          }
           if (dropNextRetryProfileAck && message.t === 'playerProfileSaved') {
             dropNextRetryProfileAck = false;
             droppedRetryProfileAck = message;
@@ -97,7 +126,26 @@ async function readProfile(page) {
           return false;
         }
       }),
-      installQaWebSocketGuard(abortContext, room)
+      installQaWebSocketGuard(abortContext, room),
+      installQaWebSocketGuard(pendingContext, room, {
+        shouldDropClientMessage({ data }) {
+          const message = JSON.parse(String(data));
+          if (message.t === 'registerPlayer') pendingRegistrations.push(message);
+          return false;
+        },
+        shouldDropServerMessage({ data }) {
+          if (!holdPendingCanonical) return false;
+          try {
+            const message = JSON.parse(String(data));
+            const players = message.t === 'state' && message.room && message.room.players;
+            if (players && Object.values(players).some(player => player && player.name === 'Pending Draft')) {
+              pendingCanonicalDrops += 1;
+              return true;
+            }
+          } catch (_) {}
+          return false;
+        }
+      })
     ]);
 
     await raceContext.addInitScript(() => {
@@ -223,15 +271,16 @@ async function readProfile(page) {
     const racePage = await raceContext.newPage();
     const retryPage = await retryContext.newPage();
     const abortPage = await abortContext.newPage();
-    for (const [name, page] of [['race', racePage], ['retry', retryPage], ['abort', abortPage]]) {
+    const pendingPage = await pendingContext.newPage();
+    for (const [name, page] of [['race', racePage], ['retry', retryPage], ['abort', abortPage], ['pending', pendingPage]]) {
       page.on('pageerror', error => pageErrors.push(`${name}: ${error.message}`));
     }
-    await Promise.all([racePage.goto(url), retryPage.goto(url), abortPage.goto(url)]);
-    await Promise.all([enableSound(racePage), enableSound(retryPage), enableSound(abortPage)]);
+    await Promise.all([racePage.goto(url), retryPage.goto(url), abortPage.goto(url), pendingPage.goto(url)]);
+    await Promise.all([enableSound(racePage), enableSound(retryPage), enableSound(abortPage), enableSound(pendingPage)]);
 
-    assert.equal(await racePage.locator('link[href="app.css?v=2026071501"]').count(), 1, 'the identity CSS cache version is exact');
-    assert.equal(await racePage.locator('script[src="/app.js?v=2026071501"]').count(), 1, 'the shared socket cache version is exact');
-    assert.equal(await racePage.locator('script[src="/kvk.js?v=2026071501"]').count(), 1, 'the identity script cache version is exact');
+    assert.equal(await racePage.locator('link[href="app.css?v=2026071502"]').count(), 1, 'the identity CSS cache version is exact');
+    assert.equal(await racePage.locator('script[src="/app.js?v=2026071502"]').count(), 1, 'the shared socket cache version is exact');
+    assert.equal(await racePage.locator('script[src="/kvk.js?v=2026071502"]').count(), 1, 'the identity script cache version is exact');
     assert.equal(await racePage.locator('#identityMode').getAttribute('role'), 'radiogroup');
     assert.match(await racePage.locator('#identityMode').getAttribute('aria-label'), /Identity/i);
     assert.equal(await racePage.locator('#identityPlayerId').getAttribute('role'), 'radio');
@@ -273,6 +322,27 @@ async function readProfile(page) {
       assert.ok(mobile.cardScroll <= mobile.cardClient, `${modeId} does not overflow the identity card at 375px`);
       assert.ok(mobile.playerHeight >= 44 && mobile.nicknameHeight >= 44, 'both identity options have 44px touch targets');
     }
+
+    await selectNickname(pendingPage);
+    await pendingPage.locator('#pid').fill('Pending Draft');
+    await setMarch(pendingPage, 43);
+    await pendingPage.locator('#saveBtn').click();
+    await waitFor(() => pendingRegistrations.length === 1 && pendingCanonicalDrops > 0,
+      'canonical state held while a new registration is pending');
+    assert.equal(await pendingPage.locator('#identityPlayerId').isDisabled(), true,
+      'pending registration locks Player ID mode before canonical confirmation');
+    assert.equal(await pendingPage.locator('#identityNickname').isDisabled(), true,
+      'pending registration locks Nickname mode before canonical confirmation');
+    assert.equal(await pendingPage.locator('#pid').getAttribute('readonly'), '',
+      'pending registration protects the submitted identity draft from later overwrite');
+    assert.equal(await pendingPage.locator('#saveBtn').isDisabled(), true,
+      'pending registration disables duplicate Save attempts');
+    holdPendingCanonical = false;
+    await broadcastDeviceStatus(pendingPage, pendingRegistrations[0].pid);
+    await pendingPage.locator('#youChip').waitFor({ state: 'visible', timeout: 8000 });
+    const pendingProfile = await readProfile(pendingPage);
+    assert.equal(pendingProfile.name, 'Pending Draft');
+    assert.equal(pendingProfile.profileKey, pendingRegistrations[0].profileKey);
 
     await playerRadio.click();
     await racePage.locator('#pid').fill('111111');
@@ -331,6 +401,8 @@ async function readProfile(page) {
     assert.equal(failedPlayerRegistration.name, 'Current Player');
     assert.equal(failedPlayerRegistration.march, 44);
     assert.equal(failedPlayerRegistration.identityMode, 'playerId');
+    assert.match(failedPlayerRegistration.profileKey, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      'a new player registration carries a private edit capability');
     assert.equal(await readProfile(racePage), null, 'only canonical room state persists a Player ID profile');
     await racePage.evaluate(() => window.__qaRaceSockets.at(-1).close(4000, 'QA Player ID reconnect'));
     await waitFor(() => raceRegistrations.length >= 1, 'false-send Player ID profile resend after reconnect', 12000);
@@ -338,11 +410,15 @@ async function readProfile(page) {
     assert.equal(raceRegistrations[0].playerId, failedPlayerRegistration.playerId, 'reconnect keeps the explicit Player ID');
     assert.equal(raceRegistrations[0].name, failedPlayerRegistration.name);
     assert.equal(raceRegistrations[0].march, failedPlayerRegistration.march);
+    assert.equal(raceRegistrations[0].profileKey, failedPlayerRegistration.profileKey,
+      'a disconnected registration retry keeps the same edit capability');
     await racePage.locator('#youChip').waitFor({ state: 'visible', timeout: 8000 });
     const raceProfile = await readProfile(racePage);
     assert.equal(raceProfile.pid, '222222');
     assert.equal(raceProfile.playerId, '222222');
     assert.equal(raceProfile.identityMode, 'playerId');
+    assert.equal(raceProfile.profileKey, failedPlayerRegistration.profileKey,
+      'the private edit capability is retained only in the local profile');
 
     await selectNickname(retryPage);
     await retryPage.locator('#pid').fill('  Tester  ');
@@ -355,12 +431,25 @@ async function readProfile(page) {
     assert.equal(failedRegistration.name, 'Tester');
     assert.equal(failedRegistration.march, 45);
     assert.equal(failedRegistration.identityMode, 'nickname');
+    assert.match(failedRegistration.profileKey, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
     assert.equal(await readProfile(retryPage), null, 'only canonical room state persists a nickname profile');
+    dropNextRetryRegistrationAck = true;
     await retryPage.evaluate(() => window.__qaRoomSockets.at(-1).close(4000, 'QA reconnect'));
     await waitFor(() => retryRegistrations.length >= 1, 'false-send nickname profile resend after reconnect', 12000);
     assert.equal(retryRegistrations[0].pid, failedRegistration.pid, 'reconnect reuses the exact transient nickname routing key');
     assert.equal(retryRegistrations[0].name, failedRegistration.name);
     assert.equal(retryRegistrations[0].march, failedRegistration.march);
+    assert.equal(retryRegistrations[0].profileKey, failedRegistration.profileKey);
+    assert.equal(retryRegistrations[0].registrationId, failedRegistration.registrationId,
+      'registration retry keeps the exact ACK correlation id');
+    await waitFor(() => droppedRetryRegistrationAck, 'persisted registration with dropped ACK');
+    assert.equal(await readProfile(retryPage), null, 'canonical state without the private ACK cannot claim edit ownership');
+    await retryPage.evaluate(() => window.__qaRoomSockets.at(-1).close(4000, 'QA registration ACK retry'));
+    await waitFor(() => retryRegistrations.length >= 2, 'existing-player registration ACK retry', 12000);
+    assert.equal(retryRegistrations[1].registrationId, failedRegistration.registrationId,
+      'ACK-loss reconnect reuses the pending registration attempt');
+    assert.equal(retryRegistrations[1].profileKey, failedRegistration.profileKey,
+      'ACK-loss reconnect reuses the private edit capability');
     await retryPage.locator('#youChip').waitFor({ state: 'visible', timeout: 8000 });
 
     const abortLookupBaseline = abortLookups.length;
@@ -376,6 +465,8 @@ async function readProfile(page) {
     const abortProfile = await readProfile(abortPage);
     assert.equal(retryProfile.identityMode, 'nickname');
     assert.equal(abortProfile.identityMode, 'nickname');
+    assert.equal(retryProfile.profileKey, failedRegistration.profileKey);
+    assert.match(abortProfile.profileKey, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
     assert.equal(retryProfile.name, 'Tester');
     assert.equal(abortProfile.name, 'Tester');
     assert.match(retryProfile.pid, /^n_[0-9a-f]{22}$/);
@@ -430,6 +521,8 @@ async function readProfile(page) {
     assert.equal(droppedUpdate.name, 'Converted Player');
     assert.equal(droppedUpdate.march, 47);
     assert.equal(droppedUpdate.baseRevision, retryProfile.marchRevision);
+    assert.equal(droppedUpdate.profileKey, retryProfile.profileKey,
+      'profile edits prove ownership independently of the public audio device binding');
     assert.equal(await retryPage.locator('#identityPlayerId').isDisabled(), true, 'pending profile save locks identity mode');
     assert.equal(await retryPage.locator('#identityNickname').isDisabled(), true);
     assert.equal(await retryPage.locator('#saveBtn').isDisabled(), true, 'pending profile save disables Save');
@@ -526,6 +619,7 @@ async function readProfile(page) {
     assert.equal(raceNicknameUpdate.pid, raceProfile.pid, 'Player ID to nickname keeps the routing pid');
     assert.equal(raceNicknameUpdate.identityMode, 'nickname');
     assert.equal(raceNicknameUpdate.name, 'Race Captain');
+    assert.equal(raceNicknameUpdate.profileKey, raceProfile.profileKey);
     assert.equal(Object.hasOwn(raceNicknameUpdate, 'playerId'), false, 'nickname mutation omits stale Player ID metadata');
     const editedRaceProfile = await readProfile(racePage);
     assert.equal(editedRaceProfile.pid, raceProfile.pid);

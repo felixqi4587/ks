@@ -6,6 +6,7 @@ const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard } = req
 const base = process.env.BASE || 'http://127.0.0.1:8791';
 const room = makeQaRoom({ title: basename(__filename, '.cjs') });
 const roomUrl = qaRoomUrl(base, room, { notour: 1 });
+const profileKey = '30000000-0000-4000-8000-000000000001';
 
 (async () => {
   const browser = await chromium.launch({ headless: true, channel: 'chrome' });
@@ -41,8 +42,8 @@ const roomUrl = qaRoomUrl(base, room, { notour: 1 });
 
   try {
     const meKey = `kingshoter_r_${room}_me`;
-    await manager.addInitScript(({ key }) => {
-      localStorage.setItem(key, JSON.stringify({ pid: '001', name: 'Test 001', march: 32 }));
+    await manager.addInitScript(({ key, ownerKey }) => {
+      localStorage.setItem(key, JSON.stringify({ pid: '001', name: 'Test 001', march: 32, profileKey: ownerKey }));
       const nativeSend = WebSocket.prototype.send;
       WebSocket.prototype.send = function (data) {
         let message = null;
@@ -77,7 +78,7 @@ const roomUrl = qaRoomUrl(base, room, { notour: 1 });
           window.__processedRemovalSocket = this;
         }
       };
-    }, { key: meKey });
+    }, { key: meKey, ownerKey: profileKey });
     await Promise.all([manager.goto(roomUrl), observer.goto(roomUrl)]);
     assertQaRoomName(room);
     await observer.evaluate(roomName => new Promise(resolve => {
@@ -93,20 +94,20 @@ const roomUrl = qaRoomUrl(base, room, { notour: 1 });
     }), room);
 
     assertQaRoomName(room);
-    await manager.evaluate(roomName => new Promise(resolve => {
+    await manager.evaluate(({ roomName, ownerKey }) => new Promise(resolve => {
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
       const ws = new WebSocket(`${proto}://${location.host}/api/ws?room=${encodeURIComponent(roomName)}`);
       let sent = false;
       ws.onopen = () => {
-        ws.send(JSON.stringify({ t: 'setMarch', pid: '001', name: 'Test 001', march: 32, alliance: '' }));
-        ws.send(JSON.stringify({ t: 'setMarch', pid: 'kimchi', name: 'Kimchi', march: 32, alliance: '' }));
+        ws.send(JSON.stringify({ t: 'setMarch', pid: '001', name: 'Test 001', march: 32, alliance: '', profileKey: ownerKey }));
+        ws.send(JSON.stringify({ t: 'setMarch', pid: 'kimchi', name: 'Kimchi', march: 32, alliance: '', profileKey: ownerKey }));
         sent = true;
       };
       ws.onmessage = event => {
         const message = JSON.parse(event.data);
         if (sent && message.t === 'state' && message.room.players['001'] && message.room.players.kimchi) { ws.close(); resolve(); }
       };
-    }), room);
+    }), { roomName: room, ownerKey: profileKey });
 
     await manager.waitForFunction(() => document.querySelectorAll('#roster .rp').length === 2, null, { timeout: 5000 });
     assert.equal(await manager.locator('#console').isVisible(), false, 'commander console starts locked');
@@ -281,9 +282,9 @@ const roomUrl = qaRoomUrl(base, room, { notour: 1 });
       const state = window.__roomStates[window.__roomStates.length - 1];
       return state && !state.players['001'] && state.players.kimchi;
     }, null, { timeout: 5000 });
-    assert.equal(await manager.locator('link[href="app.css?v=2026071501"]').count(), 1);
-    assert.equal(await manager.locator('script[src="/app.js?v=2026071501"]').count(), 1);
-    assert.equal(await manager.locator('script[src="/kvk.js?v=2026071501"]').count(), 1);
+    assert.equal(await manager.locator('link[href="app.css?v=2026071502"]').count(), 1);
+    assert.equal(await manager.locator('script[src="/app.js?v=2026071502"]').count(), 1);
+    assert.equal(await manager.locator('script[src="/kvk.js?v=2026071502"]').count(), 1);
     assert.deepEqual(errors, []);
     console.log(`✓ removal actions, retry, reconnect, and inline synchronization (${room})`);
   } finally {

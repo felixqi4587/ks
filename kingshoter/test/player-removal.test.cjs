@@ -1,6 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { createHash } = require('node:crypto');
 const { loadRoom, createRoomHarness, claimRoom } = require('./room-harness.cjs');
+
+const PROFILE_KEY = '10000000-0000-4000-8000-000000000001';
 
 test('player removal requires commander authentication before roster lookup', async () => {
   const { Room } = await loadRoom();
@@ -17,11 +20,14 @@ test('player removal requires commander authentication before roster lookup', as
 test('authenticated player removal deletes only its target and broadcasts once', async () => {
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room);
+  h.room.profileOwners = { '001': 'a'.repeat(64), kimchi: 'b'.repeat(64) };
   await claimRoom(h);
 
   await h.room.webSocketMessage(h.ws, JSON.stringify({ t: 'removePlayer', password: 'commander-secret', pid: '001' }));
 
   assert.equal(h.room.room.players['001'], undefined);
+  assert.equal(h.room.profileOwners['001'], undefined);
+  assert.equal(h.room.profileOwners.kimchi, 'b'.repeat(64));
   assert.equal(h.room.room.players.kimchi.name, 'Kimchi');
   assert.deepEqual(h.calls, ['persistAll', 'broadcast']);
   assert.deepEqual(h.sent, []);
@@ -29,6 +35,43 @@ test('authenticated player removal deletes only its target and broadcasts once',
   await h.room.webSocketMessage(h.ws, JSON.stringify({ t: 'hb', pid: '001' }));
   assert.equal(h.room.room.players['001'], undefined, 'a deleted player heartbeat cannot recreate its profile');
   assert.deepEqual(h.calls, ['persistAll', 'broadcast']);
+});
+
+test('removal persistence failure restores public roster, staging, and every private owner fact', async () => {
+  const { Room } = await loadRoom();
+  const h = createRoomHarness(Room, {
+    staged: { kingdom: 1, pairs: [{ pid: '001', role: 'weak' }] }
+  });
+  h.room.room.live.staged[2] = { kingdom: 2, pairs: [{ pid: '001', role: 'main' }] };
+  h.room.profileOwners = { '001': 'a'.repeat(64), kimchi: 'b'.repeat(64) };
+  h.room.devices = [{
+    pid: '001', deviceId: '00000000-0000-4000-8000-000000000101',
+    soundReady: true, lastSeenMs: h.nowMs
+  }];
+  h.room.deliveryAcks = [{
+    commandId: 'old', pid: '001', deviceId: '00000000-0000-4000-8000-000000000101',
+    outcome: 'scheduled', atMs: h.nowMs
+  }];
+  await claimRoom(h);
+  const beforeRoom = structuredClone(h.room.room);
+  const beforeOwners = structuredClone(h.room.profileOwners);
+  const beforeDevices = structuredClone(h.room.devices);
+  const beforeAcks = structuredClone(h.room.deliveryAcks);
+  h.room.persistAll = async () => {
+    h.calls.push('persistAll');
+    throw new Error('storage unavailable');
+  };
+
+  await assert.doesNotReject(() => h.room.webSocketMessage(h.ws, JSON.stringify({
+    t: 'removePlayer', password: 'commander-secret', pid: '001'
+  })));
+
+  assert.deepEqual(h.sent, [{ t: 'error', error: 'remove_persist_failed', pid: '001' }]);
+  assert.deepEqual(h.room.room, beforeRoom);
+  assert.deepEqual({ ...h.room.profileOwners }, beforeOwners);
+  assert.deepEqual(h.room.devices, beforeDevices);
+  assert.deepEqual(h.room.deliveryAcks, beforeAcks);
+  assert.deepEqual(h.calls, ['persistAll']);
 });
 
 test('authenticated removal clears every staged reference atomically', async () => {
@@ -206,9 +249,13 @@ test('normalized double-rally ids stay canonical and immutable while their activ
     t: 'deviceStatus', pid: normalizedPid,
     deviceId: '00000000-0000-4000-8000-000000000102', soundReady: false
   }));
+  h.room.profileOwners = {
+    [normalizedPid]: createHash('sha256').update(PROFILE_KEY).digest('hex')
+  };
   h.reset();
   await h.room.webSocketMessage(h.ws, JSON.stringify({
-    t: 'updateOwnMarch', mutationId: 'long-update', pid: normalizedPid, march: 33, baseRevision: 0
+    t: 'updateOwnMarch', mutationId: 'long-update', pid: normalizedPid,
+    profileKey: PROFILE_KEY, march: 33, baseRevision: 0
   }));
   assert.equal(h.room.room.players[normalizedPid].march, 33);
   assert.deepEqual(h.room.room.live.commands[1].payload.pairs, frozenPairs);

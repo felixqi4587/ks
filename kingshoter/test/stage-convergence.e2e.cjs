@@ -6,6 +6,7 @@ const base = process.env.BASE || 'http://127.0.0.1:8791';
 const pid = '900000001';
 const secondPid = '900000002';
 const password = 'stage-convergence-password';
+const profileKey = '40000000-0000-4000-8000-000000000001';
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 async function waitForValue(read, label, timeout = 8000) {
@@ -50,7 +51,10 @@ async function readRoom(page, room) {
 async function openCommander(page, room) {
   await page.goto(qaRoomUrl(base, room, { notour: 1, lang: 'en' }));
   await page.locator('#soundGate').click();
-  await rawMessages(page, room, [{ t: 'registerPlayer', pid, name: 'Convergence Captain', march: 40, identityMode: 'playerId' }]);
+  await rawMessages(page, room, [{
+    t: 'registerPlayer', pid, name: 'Convergence Captain', march: 40,
+    identityMode: 'playerId', profileKey
+  }]);
   await page.locator('#cmdUnlock').click();
   await page.locator('#pwInput').fill(password);
   await page.locator('#pwGo').click();
@@ -153,7 +157,10 @@ async function newerIntentAfterRejectionCase(browser) {
     });
     const page = await context.newPage();
     await openCommander(page, room);
-    await rawMessages(page, room, [{ t: 'registerPlayer', pid: secondPid, name: 'Newer Captain', march: 41, identityMode: 'playerId' }]);
+    await rawMessages(page, room, [{
+      t: 'registerPlayer', pid: secondPid, name: 'Newer Captain', march: 41,
+      identityMode: 'playerId', profileKey
+    }]);
     await page.locator(`#roster .rp[data-pid="${secondPid}"]`).waitFor();
 
     hideRemoteStage = true;
@@ -204,21 +211,22 @@ async function registrationCollisionCase(browser) {
         } catch (_) { return false; }
       }
     });
-    await context.addInitScript(({ key, profile }) => localStorage.setItem(key, JSON.stringify(profile)), {
-      key: `kingshoter_r_${room}_me`,
-      profile: { pid: selfPid, name: 'Pending Self', march: 40, marchRevision: 0, identityMode: 'playerId' }
-    });
     const page = await context.newPage();
     await openCommander(page, room);
-    assert.equal(selfRegistrations, 1, 'stored registration is pending at the transport gate');
+    await page.locator('#pid').fill(selfPid);
+    await page.locator('#marchRange').fill('40');
+    await page.locator('#saveBtn').click();
+    await waitForValue(() => selfRegistrations, 'explicit registration at the transport gate');
+    assert.equal(selfRegistrations, 1, 'explicit registration is pending at the transport gate');
 
     heldRemovalState = true;
     await rawMessages(page, room, [{ t: 'removePlayer', password, pid }]);
     await page.locator(`#roster .rp[data-pid="${pid}"]`).click();
     await page.waitForFunction(playerPid => document.querySelector(`#roster .rp[data-pid="${playerPid}"]`)?.getAttribute('aria-pressed') === 'false', pid, { timeout: 5000 });
 
-    await page.locator('#saveBtn').click();
     await page.waitForTimeout(100);
+    assert.equal(await page.locator('#saveBtn').isDisabled(), true,
+      'an unscoped stage error leaves the explicit registration pending');
     assert.equal(selfRegistrations, 1, 'unscoped stage player_missing does not consume registration state');
     heldRemovalState = false;
     const server = await readRoom(page, room);

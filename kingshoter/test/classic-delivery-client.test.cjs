@@ -2,11 +2,30 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 
 const root = path.join(__dirname, '..');
 const script = fs.readFileSync(path.join(root, 'public', 'kvk.js'), 'utf8');
 const html = fs.readFileSync(path.join(root, 'public', 'kvk.html'), 'utf8');
 const css = fs.readFileSync(path.join(root, 'public', 'app.css'), 'utf8');
+
+function extractFunction(source, name) {
+  const start = source.indexOf(`function ${name}(`);
+  assert.notEqual(start, -1, `missing ${name}`);
+  const open = source.indexOf('{', start);
+  let depth = 0;
+  for (let index = open; index < source.length; index += 1) {
+    if (source[index] === '{') depth += 1;
+    else if (source[index] === '}' && --depth === 0) return source.slice(start, index + 1);
+  }
+  assert.fail(`unterminated ${name}`);
+}
+
+function stageIntentBlocksFire(pendingStageMutation, queuedStageByK, kingdom) {
+  const context = { pendingStageMutation, queuedStageByK, kingdom, result: null };
+  vm.runInNewContext(`${extractFunction(script, 'stageIntentBlocksFire')}; result = stageIntentBlocksFire(kingdom);`, context);
+  return context.result;
+}
 
 test('Classic client confirms only canonical persisted delivery ACKs and retries with bounded backoff', () => {
   assert.match(script, /function hasFuturePersonalCue\(/);
@@ -56,6 +75,11 @@ test('Fire consumes same-kingdom queued stage intent before a late broadcast can
   assert.match(script, /function consumeStageForFire\(/);
   assert.match(script, /if\s*\(ok\)\s*consumeStageForFire\(commandKingdom\)/);
   assert.match(script, /function handleStageSuperseded\(/);
+  const currentQueue = { 1: { picks: [{ pid: 'a' }, { pid: 'b' }] }, 2: null };
+  assert.equal(stageIntentBlocksFire(null, currentQueue, 1), false);
+  assert.equal(stageIntentBlocksFire({ kingdom: 1 }, currentQueue, 1), false);
+  assert.equal(stageIntentBlocksFire({ kingdom: 2 }, currentQueue, 1), true);
+  assert.equal(stageIntentBlocksFire({ kingdom: 1 }, { 1: currentQueue[1], 2: { picks: [{ pid: 'c' }] } }, 1), true);
 });
 
 test('Classic commander keeps fired slots visible and reserves green for receipt', () => {
@@ -67,10 +91,10 @@ test('Classic commander keeps fired slots visible and reserves green for receipt
 });
 
 test('KvK cache versions move atomically with the delivery client and styles', () => {
-  assert.match(html, /app\.css\?v=2026071501/);
-  assert.match(html, /kvk-update\.js\?v=2026071501/);
-  assert.match(html, /app\.js\?v=2026071501/);
-  assert.match(html, /kvk-delivery-shadow\.js\?v=2026071501/);
-  assert.match(html, /kvk-rally\.js\?v=2026071501/);
-  assert.match(html, /kvk\.js\?v=2026071501/);
+  assert.match(html, /app\.css\?v=2026071502/);
+  assert.match(html, /kvk-update\.js\?v=2026071502/);
+  assert.match(html, /app\.js\?v=2026071502/);
+  assert.match(html, /kvk-delivery-shadow\.js\?v=2026071502/);
+  assert.match(html, /kvk-rally\.js\?v=2026071502/);
+  assert.match(html, /kvk\.js\?v=2026071502/);
 });

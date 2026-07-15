@@ -6,6 +6,7 @@ const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard } = req
 const base = process.env.BASE || 'http://127.0.0.1:8791';
 const room = makeQaRoom({ title: basename(__filename, '.cjs') });
 const url = qaRoomUrl(base, room, { notour: 1 });
+const profileKey = '50000000-0000-4000-8000-000000000001';
 
 async function unlock(page, password) {
   await page.locator('#soundGate').click().catch(() => {});
@@ -39,13 +40,13 @@ async function openRemove(page, pid) {
   try {
     await Promise.all([a.goto(url), b.goto(url)]);
     assertQaRoomName(room);
-    await a.evaluate(roomName => new Promise(resolve => {
+    await a.evaluate(({ roomName, ownerKey }) => new Promise(resolve => {
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
       const ws = new WebSocket(`${proto}://${location.host}/api/ws?room=${encodeURIComponent(roomName)}`);
       let sent = false;
       ws.onopen = () => {
         for (const [pid, name, march] of [['001', 'Test 001', 32], ['kimchi', 'Kimchi', 40], ['hml', 'HML', 45]]) {
-          ws.send(JSON.stringify({ t: 'setMarch', pid, name, march, alliance: '' }));
+          ws.send(JSON.stringify({ t: 'setMarch', pid, name, march, alliance: '', profileKey: ownerKey }));
         }
         sent = true;
       };
@@ -53,7 +54,7 @@ async function openRemove(page, pid) {
         const message = JSON.parse(event.data);
         if (sent && message.t === 'state' && ['001', 'kimchi', 'hml'].every(pid => message.room.players[pid])) { ws.close(); resolve(); }
       };
-    }), room);
+    }), { roomName: room, ownerKey: profileKey });
 
     await unlock(a, 'multi-remove-password');
     await rowClick(a, '001');

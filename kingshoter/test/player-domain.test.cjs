@@ -68,6 +68,26 @@ test('profile player ids normalize strictly and preserve legacy numeric routing 
   assert.equal(profilePlayerId('900000002', { identityMode: 'nickname', playerId: '900000001' }), '');
 });
 
+test('legacy numeric routing ids remain reserved unless the record is explicitly nickname mode', async () => {
+  const { applyOwnProfileUpdate, profilePlayerId, registerPlayer } = await domain();
+  const players = {
+    '900000009': { name: 'Legacy', march: 35, marchRevision: 0 },
+    routeA: { name: 'Alpha', march: 36, marchRevision: 0, identityMode: 'nickname' }
+  };
+
+  assert.equal(profilePlayerId('900000009', players['900000009']), '900000009');
+  assert.equal(registerPlayer(players, {
+    pid: 'routeB', identityMode: 'playerId', playerId: '900000009', name: 'Bravo', march: 37
+  }, '2026-07-15T00:00:00.000Z').error, 'player_id_conflict');
+  assert.equal(applyOwnProfileUpdate(players, {
+    mutationId: 'legacy-collision', pid: 'routeA', identityMode: 'playerId',
+    playerId: '900000009', name: 'Alpha', march: 36, baseRevision: 0
+  }).error, 'player_id_conflict');
+  assert.equal(profilePlayerId('900000010', {
+    name: 'Explicit Nickname', march: 38, identityMode: 'nickname'
+  }), '');
+});
+
 test('whole-profile edits are atomic, keep the routing pid, and return canonical profiles', async () => {
   const { applyOwnProfileUpdate } = await domain();
   const nowISO = '2026-07-15T00:00:00.000Z';

@@ -49,7 +49,11 @@ function identityMismatchHarness() {
     toasts,
     classes
   };
-  vm.runInNewContext(`${extractFunction('restoreResolvedPlayerName')}\n${extractFunction('handlePlayerProtocolError')}\nthis.handlePlayerProtocolError = handlePlayerProtocolError;`, sandbox);
+  vm.runInNewContext(
+    `${extractFunction('restoreResolvedPlayerName')}\n${extractFunction('armPendingRegistrationRetry')}\n${extractFunction('handlePlayerProtocolError')}\n` +
+    'this.handlePlayerProtocolError = handlePlayerProtocolError;',
+    sandbox
+  );
   return sandbox;
 }
 
@@ -68,6 +72,7 @@ function profileAckHarness() {
   const sandbox = {
     pendingMarchMutation: pending,
     settlements: 0,
+    handlePlayerRegistrationAck() { return false; },
     handleRallyModeMessage() { return false; },
     handleStageSuperseded() { return false; },
     handleDeviceStatusSaved() { return false; },
@@ -103,6 +108,7 @@ function profileSettlementHarness() {
     cards: 0,
     controls: [],
     toasts: [],
+    handlePlayerRegistrationAck() { return false; },
     handleRallyModeMessage() { return false; },
     handleStageSuperseded() { return false; },
     handleDeviceStatusSaved() { return false; },
@@ -135,10 +141,13 @@ function profileErrorHarness() {
     nicknameDraftRoutingKey: 'nickname-key',
     myProfile: {
       pid: 'opaque-route', identityMode: 'nickname', name: 'Old Canonical',
-      march: 41, marchRevision: 2
+      march: 41, marchRevision: 2, editable: true,
+      profileKey: '20000000-0000-4000-8000-000000000002'
     },
     identityMode: 'playerId',
     cancelIdentityLookup() { sandbox.lookupsCancelled += 1; },
+    saveProfile(profile) { sandbox.myProfile = profile; sandbox.savedProfiles.push(profile); },
+    showInCard() { sandbox.cards += 1; },
     showExistingIdentity() { sandbox.identityRestored = true; },
     syncIdentityControls() { sandbox.controlsSynced += 1; },
     tk(key) { return key; },
@@ -158,10 +167,96 @@ function profileErrorHarness() {
     controlsSynced: 0,
     lookupsCancelled: 0,
     refreshes: 0,
+    cards: 0,
+    savedProfiles: [],
     toasts: [],
     classes
   };
-  vm.runInNewContext(`${extractFunction('restoreResolvedPlayerName')}\n${extractFunction('handlePlayerProtocolError')}\nthis.handlePlayerProtocolError = handlePlayerProtocolError;`, sandbox);
+  vm.runInNewContext(
+    `${extractFunction('restoreResolvedPlayerName')}\n${extractFunction('armPendingRegistrationRetry')}\n${extractFunction('handlePlayerProtocolError')}\n` +
+    'this.handlePlayerProtocolError = handlePlayerProtocolError;',
+    sandbox
+  );
+  return sandbox;
+}
+
+function registrationSettlementHarness() {
+  const pending = {
+    registrationId: 'registration-1', pid: '900000111', identityMode: 'playerId',
+    playerId: '900000111', name: 'Captain', march: 42, profileKey: '10000000-0000-4000-8000-000000000001',
+    draftVersion: 3, ackSeen: false, stateSeen: false, canonicalPlayer: null, editable: null
+  };
+  const sandbox = {
+    pendingRegistrationProfile: pending,
+    registrationPending: true,
+    draftVersion: 3,
+    draftActive: true,
+    ownPlayerSeen: false,
+    myProfile: null,
+    myPid: '',
+    deviceId: 'device-1',
+    ROOM: 'qa-kvk-registration-client',
+    nicknameDraftRoutingKey: 'nickname-route',
+    viewMode: 'attack',
+    saves: [],
+    cards: 0,
+    existing: 0,
+    deviceStatuses: 0,
+    toasts: [],
+    saveProfile(profile) { sandbox.myProfile = profile; sandbox.myPid = profile && profile.pid || ''; sandbox.saves.push(profile); },
+    cancelIdentityLookup() {},
+    sendDeviceStatus() { sandbox.deviceStatuses += 1; },
+    showInCard() { sandbox.cards += 1; },
+    showExistingIdentity() { sandbox.existing += 1; },
+    renderDefense() {},
+    tk(key) { return key; },
+    window: {
+      getRoomDeviceId() { return 'device-2'; },
+      mmss(value) { return String(value); },
+      toast(message) { sandbox.toasts.push(message); }
+    }
+  };
+  vm.runInNewContext(
+    `${extractFunction('acceptPendingRegistration')}\n${extractFunction('handlePlayerRegistrationAck')}\n` +
+    'this.acceptPendingRegistration = acceptPendingRegistration; this.handlePlayerRegistrationAck = handlePlayerRegistrationAck;',
+    sandbox
+  );
+  return sandbox;
+}
+
+function pendingRegistrationRetryHarness(sendResult = true) {
+  const pending = {
+    registrationId: 'registration-uncertain', pid: '900000222', identityMode: 'playerId',
+    playerId: '900000222', name: 'Delayed Captain', march: 44,
+    profileKey: '10000000-0000-4000-8000-000000000002',
+    draftVersion: 5, ackSeen: true, stateSeen: true,
+    canonicalPlayer: { name: 'Delayed Captain', march: 44 }, editable: true,
+    everSent: true, manualRetry: false
+  };
+  const sandbox = {
+    pendingRegistrationProfile: pending,
+    registrationPending: false,
+    draftActive: false,
+    sock: {
+      send(message) { sandbox.messages.push(message); return sendResult; }
+    },
+    messages: [],
+    controls: [],
+    toasts: [],
+    syncIdentityControls(locked) { sandbox.controls.push(locked); },
+    restoreResolvedPlayerName() {},
+    tk(key) { return key; },
+    window: { toast(message) { sandbox.toasts.push(message); } }
+  };
+  vm.runInNewContext(
+    `${extractFunction('armPendingRegistrationRetry')}\n${extractFunction('resetPendingRegistrationConnectionEvidence')}\n` +
+    `${extractFunction('registerPendingProfile')}\n${extractFunction('reconcileMissingPendingRegistration')}\n` +
+    'this.armPendingRegistrationRetry = armPendingRegistrationRetry; ' +
+    'this.resetPendingRegistrationConnectionEvidence = resetPendingRegistrationConnectionEvidence; ' +
+    'this.registerPendingProfile = registerPendingProfile; ' +
+    'this.reconcileMissingPendingRegistration = reconcileMissingPendingRegistration;',
+    sandbox
+  );
   return sandbox;
 }
 
@@ -268,6 +363,157 @@ test('profile save settles only after matching ACK and state in either arrival o
   assert.equal(stateFirst.adoptions, 1);
 });
 
+test('registration persists an editable capability only after its exact ACK and canonical state', () => {
+  const player = {
+    identityMode: 'playerId', playerId: '900000111', name: 'Captain', march: 42, marchRevision: 0
+  };
+  const ack = {
+    t: 'playerRegistered', registrationId: 'registration-1', pid: '900000111',
+    created: true, editable: true
+  };
+
+  const stateFirst = registrationSettlementHarness();
+  stateFirst.acceptPendingRegistration(player);
+  assert.equal(stateFirst.pendingRegistrationProfile.stateSeen, true);
+  assert.equal(stateFirst.saves.length, 0, 'canonical state alone cannot claim edit ownership');
+  assert.equal(stateFirst.handlePlayerRegistrationAck(ack), true);
+  assert.equal(stateFirst.pendingRegistrationProfile, null);
+  assert.equal(stateFirst.saves[0].profileKey, '10000000-0000-4000-8000-000000000001');
+  assert.equal(stateFirst.saves[0].editable, true);
+  assert.equal(stateFirst.deviceStatuses, 1);
+
+  const ackFirst = registrationSettlementHarness();
+  assert.equal(ackFirst.handlePlayerRegistrationAck(ack), true);
+  assert.notEqual(ackFirst.pendingRegistrationProfile, null, 'ACK alone cannot settle without room state');
+  assert.equal(ackFirst.saves.length, 0);
+  ackFirst.acceptPendingRegistration(player);
+  assert.equal(ackFirst.pendingRegistrationProfile, null);
+  assert.equal(ackFirst.saves[0].profileKey, '10000000-0000-4000-8000-000000000001');
+});
+
+test('a second device joins the captain for alerts without inheriting edit ownership', () => {
+  const h = registrationSettlementHarness();
+  h.acceptPendingRegistration({
+    identityMode: 'playerId', playerId: '900000111', name: 'Canonical Captain', march: 39, marchRevision: 4
+  });
+
+  assert.equal(h.handlePlayerRegistrationAck({
+    t: 'playerRegistered', registrationId: 'registration-1', pid: '900000111',
+    created: false, editable: false
+  }), true);
+  assert.equal(h.pendingRegistrationProfile, null);
+  assert.equal(h.saves[0].name, 'Canonical Captain');
+  assert.equal(h.saves[0].march, 39);
+  assert.equal(h.saves[0].marchRevision, 4);
+  assert.equal(h.saves[0].editable, false);
+  assert.equal(Object.hasOwn(h.saves[0], 'profileKey'), false, 'delivery-only devices never persist the rejected key');
+  assert.equal(h.deviceStatuses, 1, 'delivery-only devices still bind for captain audio');
+});
+
+test('registration ACKs are scoped to the exact pending attempt', () => {
+  const h = registrationSettlementHarness();
+  assert.equal(h.handlePlayerRegistrationAck({
+    t: 'playerRegistered', registrationId: 'stale-registration', pid: '900000111',
+    created: true, editable: true
+  }), false);
+  assert.equal(h.pendingRegistrationProfile.ackSeen, false);
+  assert.equal(h.registrationPending, true);
+  assert.equal(h.saves.length, 0);
+});
+
+test('an uncertain sent registration keeps its capability and waits for an explicit retry', () => {
+  const h = pendingRegistrationRetryHarness();
+  const originalPending = h.pendingRegistrationProfile;
+
+  assert.equal(h.armPendingRegistrationRetry(), true);
+
+  assert.equal(h.pendingRegistrationProfile, originalPending, 'the pending owner key is retained');
+  assert.equal(h.pendingRegistrationProfile.registrationId, 'registration-uncertain');
+  assert.equal(h.pendingRegistrationProfile.profileKey, '10000000-0000-4000-8000-000000000002');
+  assert.equal(h.pendingRegistrationProfile.manualRetry, true);
+  assert.equal(h.pendingRegistrationProfile.ackSeen, false, 'an ACK from an older connection is not trusted');
+  assert.equal(h.pendingRegistrationProfile.stateSeen, false, 'an older snapshot is not trusted');
+  assert.equal(h.pendingRegistrationProfile.canonicalPlayer, null);
+  assert.equal(h.pendingRegistrationProfile.editable, null);
+  assert.equal(h.registrationPending, false);
+  assert.equal(h.draftActive, true);
+  assert.deepEqual(h.messages, [], 'missing reconnect snapshots never auto-create a player');
+  assert.deepEqual(h.toasts, ['registration_retry']);
+});
+
+test('registration recovery is non-creating while an explicit retry reuses the frozen attempt', () => {
+  const recovery = pendingRegistrationRetryHarness();
+  recovery.registerPendingProfile(true);
+  assert.equal(recovery.messages.length, 1);
+  assert.equal(recovery.messages[0].recoverOnly, true);
+  assert.equal(recovery.messages[0].registrationId, 'registration-uncertain');
+  assert.equal(recovery.messages[0].profileKey, '10000000-0000-4000-8000-000000000002');
+
+  const explicit = pendingRegistrationRetryHarness();
+  explicit.pendingRegistrationProfile.manualRetry = true;
+  explicit.registerPendingProfile(false);
+  assert.equal(explicit.messages.length, 1);
+  assert.equal(Object.hasOwn(explicit.messages[0], 'recoverOnly'), false,
+    'only a user-triggered submit may create a missing player');
+  assert.equal(explicit.pendingRegistrationProfile.manualRetry, false);
+  assert.equal(explicit.pendingRegistrationProfile.everSent, true);
+});
+
+test('room-state registration recovery can never use a creating registration frame', () => {
+  const onState = extractFunction('onState');
+  assert.match(onState, /registerPendingProfile\(true\)/);
+  assert.doesNotMatch(onState, /else if \(firstSnapshot && !registrationPending\) registerPendingProfile\(\)/);
+});
+
+test('reconnect clears stale evidence without invalidating a visible manual retry', () => {
+  const h = pendingRegistrationRetryHarness();
+  h.pendingRegistrationProfile.manualRetry = true;
+
+  assert.equal(h.resetPendingRegistrationConnectionEvidence(), true);
+
+  assert.equal(h.pendingRegistrationProfile.manualRetry, true);
+  assert.equal(h.pendingRegistrationProfile.ackSeen, false);
+  assert.equal(h.pendingRegistrationProfile.stateSeen, false);
+  assert.equal(h.pendingRegistrationProfile.canonicalPlayer, null);
+  assert.equal(h.pendingRegistrationProfile.editable, null);
+});
+
+test('a later missing snapshot releases a pending registration after canonical state disappeared', () => {
+  const h = pendingRegistrationRetryHarness();
+  h.pendingRegistrationProfile.ackSeen = false;
+  h.pendingRegistrationProfile.stateSeen = true;
+  h.pendingRegistrationProfile.manualRetry = false;
+
+  assert.equal(h.reconcileMissingPendingRegistration(false), true);
+
+  assert.equal(h.pendingRegistrationProfile.manualRetry, true);
+  assert.equal(h.pendingRegistrationProfile.stateSeen, false);
+  assert.deepEqual(h.messages, [], 'a commander deletion never causes an automatic creating frame');
+  assert.deepEqual(h.toasts, ['registration_retry']);
+});
+
+test('a non-creating recovery miss retains the exact pending capability for manual retry', () => {
+  const h = profileErrorHarness();
+  h.pendingMarchMutation = null;
+  h.pendingRegistrationProfile = {
+    registrationId: 'recover-miss', pid: 'new-route', identityMode: 'nickname', name: 'New Player',
+    march: 45, profileKey: '10000000-0000-4000-8000-000000000003',
+    ackSeen: false, stateSeen: true, canonicalPlayer: { name: 'New Player', march: 45 },
+    editable: null, everSent: true, manualRetry: false
+  };
+  h.registrationPending = true;
+
+  assert.equal(h.handlePlayerProtocolError({
+    t: 'error', error: 'player_missing', registrationId: 'recover-miss', pid: 'new-route'
+  }), true);
+  assert.equal(h.pendingRegistrationProfile.registrationId, 'recover-miss');
+  assert.equal(h.pendingRegistrationProfile.profileKey, '10000000-0000-4000-8000-000000000003');
+  assert.equal(h.pendingRegistrationProfile.manualRetry, true);
+  assert.equal(h.pendingRegistrationProfile.stateSeen, false);
+  assert.equal(h.registrationPending, false);
+  assert.deepEqual(h.toasts, ['registration_retry']);
+});
+
 for (const error of [
   'player_id_conflict', 'invalid_player_id', 'invalid_nickname',
   'profile_persist_failed', 'player_conflict'
@@ -288,8 +534,29 @@ for (const error of [
     assert.deepEqual(h.classes, ['fillCard:remove:hide', 'youChip:add:hide']);
     if (error === 'player_id_conflict') assert.deepEqual(h.toasts, ['player_id_taken']);
     if (error === 'player_conflict') assert.deepEqual(h.toasts, ['profile_conflict']);
+    if (error === 'profile_owner_mismatch') assert.deepEqual(h.toasts, ['profile_owner_mismatch']);
   });
 }
+
+test('a rejected stored edit downgrades only profile editing while preserving captain alerts', () => {
+  const h = profileErrorHarness();
+
+  assert.equal(h.handlePlayerProtocolError({
+    t: 'error', error: 'profile_owner_mismatch', mutationId: 'profile-save-1', pid: 'opaque-route'
+  }), true);
+
+  assert.equal(h.pendingMarchMutation, null);
+  assert.equal(h.myProfile.pid, 'opaque-route');
+  assert.equal(h.myProfile.editable, false);
+  assert.equal(Object.hasOwn(h.myProfile, 'profileKey'), false);
+  assert.equal(h.cards, 1);
+  assert.deepEqual(h.toasts, ['profile_delivery_only']);
+});
+
+test('a missing stored player is never silently auto-created after commander removal', () => {
+  assert.doesNotMatch(source, /function registerStoredProfile\(/);
+  assert.doesNotMatch(extractFunction('onState'), /registerStoredProfile\(/);
+});
 
 test('identity mismatch releases a pending self-save and reconnects for a fresh socket binding', () => {
   const h = identityMismatchHarness();
@@ -303,6 +570,40 @@ test('identity mismatch releases a pending self-save and reconnects for a fresh 
   assert.deepEqual(h.toasts, ['identity_rebinding']);
   assert.equal(h.refreshes, 1);
   assert.deepEqual(h.classes, ['fillCard:remove:hide', 'youChip:add:hide']);
+});
+
+test('registration persistence failure releases the pending registration for a manual retry', () => {
+  const h = profileErrorHarness();
+  h.pendingMarchMutation = null;
+  h.pendingRegistrationProfile = {
+    pid: 'new-route', identityMode: 'nickname', name: 'New Player', requestedMarch: 45
+  };
+  h.registrationPending = true;
+
+  assert.equal(h.handlePlayerProtocolError({
+    t: 'error', error: 'registration_persist_failed', pid: 'new-route'
+  }), true);
+  assert.equal(h.pendingRegistrationProfile, null);
+  assert.equal(h.registrationPending, false);
+  assert.equal(h.draftActive, true);
+  assert.deepEqual(h.toasts, ['notconn']);
+});
+
+test('a full roster releases the pending registration and tells the player to contact a commander', () => {
+  const h = profileErrorHarness();
+  h.pendingMarchMutation = null;
+  h.pendingRegistrationProfile = {
+    pid: 'new-route', identityMode: 'nickname', name: 'New Player', requestedMarch: 45
+  };
+  h.registrationPending = true;
+
+  assert.equal(h.handlePlayerProtocolError({
+    t: 'error', error: 'roster_full', pid: 'new-route'
+  }), true);
+  assert.equal(h.pendingRegistrationProfile, null);
+  assert.equal(h.registrationPending, false);
+  assert.equal(h.draftActive, true);
+  assert.deepEqual(h.toasts, ['roster_full']);
 });
 
 test('identity mismatch for another mutation does not disturb the current self-save', () => {

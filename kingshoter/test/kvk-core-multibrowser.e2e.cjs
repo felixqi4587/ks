@@ -48,8 +48,60 @@ function requestedProjects(argv) {
   return project === 'all' ? ['chromium', 'firefox', 'webkit'] : [project];
 }
 
-function playerProfile(pid, name, march) {
-  return { pid, name, march, marchRevision: 0, identityMode: 'playerId' };
+function playerProfile(pid, name, march, profileKey) {
+  return {
+    pid,
+    playerId: pid,
+    name,
+    march,
+    marchRevision: 0,
+    identityMode: 'playerId',
+    editable: true,
+    profileKey
+  };
+}
+
+async function seedCanonicalPlayers(browser, room, profiles) {
+  assertQaRoomName(room);
+  const context = await browser.newContext({ locale: 'en-US' });
+  await installQaWebSocketGuard(context, room, { expectedOrigin: base });
+  const page = await context.newPage();
+  try {
+    await page.goto(qaRoomUrl(base, room, { notour: 1, lang: 'en' }), { waitUntil: 'domcontentloaded' });
+    await page.evaluate(({ roomName, records }) => new Promise((resolve, reject) => {
+      const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+      const socket = new WebSocket(`${protocol}://${location.host}/api/ws?room=${encodeURIComponent(roomName)}`);
+      const timer = setTimeout(() => {
+        try { socket.close(); } catch (_) {}
+        reject(new Error('Timed out seeding canonical QA roster'));
+      }, 8_000);
+      socket.onerror = () => {
+        clearTimeout(timer);
+        reject(new Error('Canonical QA roster WebSocket failed'));
+      };
+      socket.onopen = () => records.forEach(record => socket.send(JSON.stringify({
+        t: 'registerPlayer',
+        pid: record.pid,
+        playerId: record.playerId,
+        name: record.name,
+        march: record.march,
+        identityMode: record.identityMode,
+        profileKey: record.profileKey,
+        alliance: ''
+      })));
+      socket.onmessage = event => {
+        let message = null;
+        try { message = JSON.parse(String(event.data)); } catch (_) {}
+        const roster = message && message.t === 'state' && message.room && message.room.players;
+        if (!roster || !records.every(record => Object.hasOwn(roster, record.pid))) return;
+        clearTimeout(timer);
+        socket.close();
+        resolve();
+      };
+    }), { roomName: room, records: profiles });
+  } finally {
+    await context.close();
+  }
 }
 
 function packetGate(options = {}) {
@@ -532,19 +584,31 @@ async function runCoreScenario(browser, engineName) {
   const captainBGate = packetGate();
   const ordinaryGate = packetGate();
   const selectedCommanderGate = packetGate();
-  const captainAProfile = playerProfile('910000001', 'Captain A', 60);
-  const captainBProfile = playerProfile('910000002', 'Captain B', 70);
-  const ordinaryProfile = playerProfile('910000003', 'Ordinary Member', 80);
-  const selectedCommanderProfile = playerProfile('910000004', 'Selected Commander', 65);
+  const captainAProfile = playerProfile('910000001', 'Captain A', 60,
+    '91000000-0000-4000-8000-000000000001');
+  const captainBProfile = playerProfile('910000002', 'Captain B', 70,
+    '91000000-0000-4000-8000-000000000002');
+  const ordinaryProfile = playerProfile('910000003', 'Ordinary Member', 80,
+    '91000000-0000-4000-8000-000000000003');
+  const selectedCommanderProfile = playerProfile('910000004', 'Selected Commander', 65,
+    '91000000-0000-4000-8000-000000000004');
+  const captainASecondProfile = { ...captainAProfile, editable: false };
+  delete captainASecondProfile.profileKey;
   const roles = [];
 
   try {
+    await seedCanonicalPlayers(browser, room, [
+      captainAProfile,
+      captainBProfile,
+      ordinaryProfile,
+      selectedCommanderProfile
+    ]);
     const opened = await Promise.all([
       openRole(browser, { room, label: 'commander-only', errors }),
       openRole(browser, { room, label: 'captain-a', profile: captainAProfile, deviceId: '11111111-1111-4111-8111-111111111111', gate: captainAGate, errors }),
       openRole(browser, { room, label: 'captain-b', profile: captainBProfile, deviceId: '33333333-3333-4333-8333-333333333333', gate: captainBGate, errors }),
       openRole(browser, { room, label: 'ordinary-member', profile: ordinaryProfile, deviceId: '44444444-4444-4444-8444-444444444444', gate: ordinaryGate, errors }),
-      openRole(browser, { room, label: 'captain-a-second-device', profile: captainAProfile, deviceId: '22222222-2222-4222-8222-222222222222', gate: captainASecondGate, errors }),
+      openRole(browser, { room, label: 'captain-a-second-device', profile: captainASecondProfile, deviceId: '22222222-2222-4222-8222-222222222222', gate: captainASecondGate, errors }),
       openRole(browser, { room, label: 'nickname-tester-1', errors, viewport: { width: 375, height: 1000 } }),
       openRole(browser, { room, label: 'nickname-tester-2', errors, viewport: { width: 375, height: 1000 } }),
       openRole(browser, { room, label: 'selected-commander', profile: selectedCommanderProfile, deviceId: '55555555-5555-4555-8555-555555555555', gate: selectedCommanderGate, errors })
@@ -553,6 +617,20 @@ async function runCoreScenario(browser, engineName) {
     const [commander, captainA, captainB, ordinary, captainASecond, testerOne, testerTwo, selectedCommander] = opened;
     assert.equal(new Set(opened.map(role => role.context)).size, 8,
       'every requested role uses an independent BrowserContext');
+    await captainA.page.locator('#editBtn').filter({ hasText: /^Edit$/ }).waitFor({ timeout: 8_000 });
+    await captainASecond.page.locator('#editBtn').filter({ hasText: /^Change player$/ }).waitFor({ timeout: 8_000 });
+    const initialCaptainProfiles = await Promise.all([captainA, captainASecond].map(role =>
+      role.page.evaluate(roomName => JSON.parse(
+        localStorage.getItem(`kingshoter_r_${roomName}_me`) || 'null'
+      ), room)));
+    assert.equal(initialCaptainProfiles[0].profileKey, captainAProfile.profileKey,
+      'the actual Captain A owner keeps the matching profile capability');
+    assert.equal(initialCaptainProfiles[0].editable, true,
+      'the actual Captain A owner remains editable');
+    assert.equal(Object.hasOwn(initialCaptainProfiles[1], 'profileKey'), false,
+      'the second Captain A device stores no owner capability');
+    assert.equal(initialCaptainProfiles[1].editable, false,
+      'the second Captain A device is explicitly delivery-only');
 
     const testerOneProfile = await registerNickname(testerOne, 'Tester', 55);
     const testerTwoProfile = await registerNickname(testerTwo, 'Tester', 56);
@@ -681,6 +759,12 @@ async function runCoreScenario(browser, engineName) {
         marchRevision: commanderMarchRecord.marchRevision
       }, 'both Captain A browsers persist the synchronized canonical march and revision');
     }
+    assert.equal(storedCaptainProfiles[0].profileKey, captainAProfile.profileKey,
+      'canonical march sync preserves the owner capability only on the owner device');
+    assert.equal(storedCaptainProfiles[0].editable, true);
+    assert.equal(Object.hasOwn(storedCaptainProfiles[1], 'profileKey'), false,
+      'canonical march sync never leaks the owner capability to the second device');
+    assert.equal(storedCaptainProfiles[1].editable, false);
 
     const readyDevices = [
       [captainAGate, captainAProfile.pid, '11111111-1111-4111-8111-111111111111'],
@@ -926,7 +1010,7 @@ async function runCoreScenario(browser, engineName) {
     await captainASecond.page.evaluate(({ roomName, staleProfile }) => {
       localStorage.setItem(`kingshoter_r_${roomName}_me`, JSON.stringify(staleProfile));
       window.__qaRoomSockets.filter(socket => socket.readyState === WebSocket.OPEN).at(-1).close(4000, 'QA stale reconnect');
-    }, { roomName: room, staleProfile: { ...captainAProfile, march: 55, marchRevision: 0 } });
+    }, { roomName: room, staleProfile: { ...captainASecondProfile, march: 55, marchRevision: 0 } });
     await captainASecond.page.waitForFunction(previousCount =>
       window.__qaRoomSockets.length > previousCount && window.__qaRoomSockets.at(-1).readyState === WebSocket.OPEN,
     socketCount, { timeout: 12_000 });
@@ -980,11 +1064,15 @@ async function runCompatibilityScenario(browser, engineName) {
   const ignoredB = packetGate({ ignoreDeliveryProtocol: true, legacyTransport: true });
   const ignoredOrdinary = packetGate({ ignoreDeliveryProtocol: true, legacyTransport: true });
   const ignoredCommander = packetGate({ ignoreDeliveryProtocol: true, legacyTransport: true });
-  const captainAProfile = playerProfile('920000001', 'Compatibility Captain A', 60);
-  const captainBProfile = playerProfile('920000002', 'Compatibility Captain B', 70);
-  const ordinaryProfile = playerProfile('920000003', 'Compatibility Member', 80);
+  const captainAProfile = playerProfile('920000001', 'Compatibility Captain A', 60,
+    '92000000-0000-4000-8000-000000000001');
+  const captainBProfile = playerProfile('920000002', 'Compatibility Captain B', 70,
+    '92000000-0000-4000-8000-000000000002');
+  const ordinaryProfile = playerProfile('920000003', 'Compatibility Member', 80,
+    '92000000-0000-4000-8000-000000000003');
   const roles = [];
   try {
+    await seedCanonicalPlayers(browser, room, [captainAProfile, captainBProfile, ordinaryProfile]);
     const opened = await Promise.all([
       openRole(browser, { room, label: 'compatibility-commander', gate: ignoredCommander, errors }),
       openRole(browser, { room, label: 'compatibility-captain-a', profile: captainAProfile, deviceId: '61111111-1111-4111-8111-111111111111', gate: ignoredA, errors }),

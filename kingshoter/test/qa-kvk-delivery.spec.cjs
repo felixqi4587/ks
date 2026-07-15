@@ -12,6 +12,7 @@ const PASSWORD = () => `qa-${crypto.randomBytes(12).toString('hex')}`;
 const PROFILE_KEY = room => `kingshoter_r_${room}_me`;
 const DEVICE_KEY = room => `kvk:${room}:delivery-device:v1`;
 const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+const seededProfiles = new Set();
 
 function parseFrame(data) {
   try {
@@ -84,7 +85,68 @@ function createFrameGate(initial = {}) {
 }
 
 function numericProfile(pid, name, march) {
-  return { pid, name, march, marchRevision: 0, identityMode: 'playerId' };
+  return {
+    pid, playerId: pid, name, march, marchRevision: 0, identityMode: 'playerId',
+    profileKey: crypto.randomUUID(), editable: true
+  };
+}
+
+function deliveryOnlyProfile(profile) {
+  const copy = { ...profile, editable: false };
+  delete copy.profileKey;
+  return copy;
+}
+
+async function ensureCanonicalProfile(baseURL, room, profile) {
+  if (!profile) return;
+  const cacheKey = `${new URL(baseURL).origin}:${room}:${profile.pid}`;
+  if (seededProfiles.has(cacheKey)) return;
+  if (!profile.profileKey) throw new Error(`owner profile must seed ${profile.pid} before delivery-only devices`);
+  const endpoint = new URL('/api/ws', baseURL);
+  endpoint.protocol = endpoint.protocol === 'https:' ? 'wss:' : 'ws:';
+  endpoint.searchParams.set('room', assertQaRoomName(room));
+  const registrationId = crypto.randomUUID();
+  const socket = new WebSocket(endpoint);
+  await new Promise((resolve, reject) => {
+    let canonicalSeen = false;
+    let ackSeen = false;
+    let sent = false;
+    const timer = setTimeout(() => reject(new Error(`profile seed timed out for ${profile.pid}`)), 10_000);
+    const finish = () => {
+      if (!canonicalSeen || !ackSeen) return;
+      clearTimeout(timer); seededProfiles.add(cacheKey);
+      try { socket.close(); } catch (error) {}
+      resolve();
+    };
+    socket.addEventListener('message', event => {
+      const message = parseFrame(event.data);
+      if (!message) return;
+      if (message.t === 'state') {
+        const canonical = message.room && message.room.players && message.room.players[profile.pid];
+        canonicalSeen = !!(canonical && canonical.name === profile.name && canonical.march === profile.march);
+        if (!sent) {
+          sent = true;
+          socket.send(JSON.stringify({
+            t: 'registerPlayer', registrationId, pid: profile.pid, playerId: profile.playerId,
+            name: profile.name, march: profile.march, identityMode: profile.identityMode,
+            profileKey: profile.profileKey
+          }));
+        }
+        finish();
+      } else if (message.t === 'playerRegistered' && message.registrationId === registrationId) {
+        if (message.pid !== profile.pid || message.editable !== true) {
+          clearTimeout(timer); reject(new Error(`profile seed ownership mismatch for ${profile.pid}`));
+          return;
+        }
+        ackSeen = true; finish();
+      } else if (message.t === 'error' && message.registrationId === registrationId) {
+        clearTimeout(timer); reject(new Error(`profile seed failed for ${profile.pid}: ${message.error}`));
+      }
+    });
+    socket.addEventListener('error', () => {
+      clearTimeout(timer); reject(new Error(`profile seed socket failed for ${profile.pid}`));
+    }, { once: true });
+  });
 }
 
 async function installHttpOriginGuard(context, baseURL) {
@@ -109,6 +171,7 @@ async function openDevice(browser, baseURL, room, options) {
     errors,
     viewport = { width: 390, height: 1000 }
   } = options;
+  await ensureCanonicalProfile(baseURL, room, profile);
   const context = await browser.newContext({ viewport, locale: 'en-US' });
   await installHttpOriginGuard(context, baseURL);
   await installQaWebSocketGuard(context, room, {
@@ -149,6 +212,7 @@ async function openClassicDevice(browser, baseURL, room, options) {
     errors,
     viewport = { width: 390, height: 1000 }
   } = options;
+  await ensureCanonicalProfile(baseURL, room, profile);
   const context = await browser.newContext({ viewport, locale: 'en-US' });
   await installHttpOriginGuard(context, baseURL);
   await installQaWebSocketGuard(context, room, {
@@ -430,7 +494,7 @@ test('eight isolated devices preserve Classic authority and Reliable device trut
     { key: 'captain-a-1', profile: profiles.a, deviceId: '11111111-1111-4111-8111-111111111111', gate: a1Gate },
     { key: 'captain-b', profile: profiles.b, deviceId: '33333333-3333-4333-8333-333333333333' },
     { key: 'ordinary-member', profile: profiles.member, deviceId: '44444444-4444-4444-8444-444444444444' },
-    { key: 'captain-a-2', profile: profiles.a, deviceId: '22222222-2222-4222-8222-222222222222' },
+    { key: 'captain-a-2', profile: deliveryOnlyProfile(profiles.a), deviceId: '22222222-2222-4222-8222-222222222222' },
     { key: 'same-name-1', deviceId: '66666666-6666-4666-8666-666666666666' },
     { key: 'same-name-2', deviceId: '77777777-7777-4777-8777-777777777777' },
     { key: 'selected-commander', profile: profiles.commander, deviceId: '55555555-5555-4555-8555-555555555555' }

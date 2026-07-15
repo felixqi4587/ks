@@ -5,6 +5,7 @@ const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard } = req
 const base = process.env.BASE || 'http://127.0.0.1:8791';
 const room = makeQaRoom('roster-control');
 const url = qaRoomUrl(base, room, { notour: 1 });
+const profileKey = '30000000-0000-4000-8000-000000000003';
 const duplicateOne = 'n_aaaaaaaaaaaaaaaaaa1111';
 const duplicateTwo = 'n_bbbbbbbbbbbbbbbbbb2222';
 const players = [
@@ -103,15 +104,15 @@ async function assertLayout(page, width) {
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(url);
     await page.locator('#soundGate').click();
-    await sendMessages(page, players.map(player => Object.assign({ t: 'registerPlayer' }, player)));
+    await sendMessages(page, players.map(player => Object.assign({ t: 'registerPlayer', profileKey }, player)));
     await page.locator('#cmdUnlock').click();
     await page.locator('#pwInput').fill('roster-password');
     await page.locator('#pwGo').click();
     await page.locator('#console').waitFor({ state: 'visible' });
 
-    assert.equal(await page.locator('link[href="app.css?v=2026071501"]').count(), 1);
-    assert.equal(await page.locator('script[src="/app.js?v=2026071501"]').count(), 1);
-    assert.equal(await page.locator('script[src="/kvk.js?v=2026071501"]').count(), 1);
+    assert.equal(await page.locator('link[href="app.css?v=2026071502"]').count(), 1);
+    assert.equal(await page.locator('script[src="/app.js?v=2026071502"]').count(), 1);
+    assert.equal(await page.locator('script[src="/kvk.js?v=2026071502"]').count(), 1);
     await page.locator('#roster .roster-row').first().waitFor();
     assert.equal(await page.locator('#roster .roster-row').count(), 7);
     assert.equal(await page.locator('#rosterSearchWrap').isVisible(), true);
@@ -218,7 +219,7 @@ async function assertLayout(page, width) {
     }]);
     await expectCanonicalStage([stableA, stableD], canonicalSequence);
     const newOrder = await rosterOrder();
-    assert.deepEqual(newOrder.slice(0, 4), [stableA, stableD, stableB, stableC]);
+    assert.deepEqual(newOrder, oldOrder, 'an active roster pointer freezes surrounding row order too');
     assert.equal(oldOrder.indexOf(stableB), newOrder.indexOf(stableB), 'stable B keeps its final sorted index');
     assert.equal(await page.evaluate(() => window.__qaStableRosterRowMutations), 0, 'stable B row is never removed or reinserted');
     assert.equal(await stableRow.evaluate(row => row.isConnected), true);
@@ -227,8 +228,68 @@ async function assertLayout(page, width) {
     await page.mouse.up();
     assert.equal(await page.evaluate(() => window.__qaStableRosterClickTrusted), true, 'stable B mouseup produces a trusted click');
     await page.locator('#replaceOvl').waitFor({ state: 'visible' });
+    await page.waitForFunction(({ first, second, third, fourth }) => {
+      const order = Array.from(document.querySelectorAll('#roster .roster-row')).map(row => row.dataset.pid);
+      return order.slice(0, 4).join(',') === [first, second, third, fourth].join(',');
+    }, { first: stableA, second: stableD, third: stableB, fourth: stableC });
     await page.locator('#replaceCancel').click();
     await page.evaluate(() => window.__qaStableRosterRowObserver.disconnect());
+
+    canonicalSequence = await page.evaluate(() => window.__qaRosterStateSequence || 0);
+    await sendMessages(page, [{
+      t: 'stage', password: 'roster-password',
+      staged: { kingdom: 1, pairs: [{ pid: stableA, role: 'weak' }, { pid: stableC, role: 'main' }] }
+    }]);
+    await expectCanonicalStage([stableA, stableC], canonicalSequence);
+    const movingOrderBefore = await rosterOrder();
+    assert.deepEqual(movingOrderBefore.slice(0, 4), [stableA, stableC, stableB, stableD]);
+    const movingTarget = primary(stableB);
+    await movingTarget.scrollIntoViewIfNeeded();
+    const movingButton = await movingTarget.elementHandle();
+    const movingRow = await page.locator(`#roster .roster-row[data-pid="${stableB}"]`).elementHandle();
+    const movingBox = await movingTarget.boundingBox();
+    assert.ok(movingButton);
+    assert.ok(movingRow);
+    assert.ok(movingBox);
+    await movingRow.evaluate(row => {
+      window.__qaMovingRosterRowMutations = 0;
+      window.__qaMovingRosterOrderAtPointerUp = null;
+      window.__qaMovingRosterMutationsAtPointerUp = null;
+      window.__qaMovingRosterRowObserver = new MutationObserver(records => {
+        records.forEach(record => {
+          const moved = Array.from(record.removedNodes).concat(Array.from(record.addedNodes)).some(node => node === row);
+          if (moved) window.__qaMovingRosterRowMutations += 1;
+        });
+      });
+      window.__qaMovingRosterRowObserver.observe(row.parentElement, { childList: true });
+    });
+    await movingButton.evaluate(node => {
+      window.__qaMovingRosterClickTrusted = null;
+      node.addEventListener('pointerup', () => {
+        window.__qaMovingRosterOrderAtPointerUp = Array.from(document.querySelectorAll('#roster .roster-row')).map(row => row.dataset.pid);
+        window.__qaMovingRosterMutationsAtPointerUp = window.__qaMovingRosterRowMutations;
+      }, { once: true });
+      node.addEventListener('click', event => { window.__qaMovingRosterClickTrusted = event.isTrusted; }, { once: true });
+    });
+    await page.mouse.move(movingBox.x + movingBox.width / 2, movingBox.y + movingBox.height / 2);
+    await page.mouse.down();
+    canonicalSequence = await page.evaluate(() => window.__qaRosterStateSequence || 0);
+    await sendMessages(page, [{
+      t: 'stage', password: 'roster-password',
+      staged: { kingdom: 1, pairs: [{ pid: stableC, role: 'weak' }, { pid: stableD, role: 'main' }] }
+    }]);
+    await expectCanonicalStage([stableC, stableD], canonicalSequence);
+    await page.mouse.up();
+    assert.deepEqual(await page.evaluate(() => window.__qaMovingRosterOrderAtPointerUp), movingOrderBefore,
+      'an active roster pointer freezes the entire row order until pointerup');
+    assert.equal(await page.evaluate(() => window.__qaMovingRosterMutationsAtPointerUp), 0,
+      'the pressed moving row is never removed or reinserted before pointerup');
+    assert.equal(await page.evaluate(() => window.__qaMovingRosterClickTrusted), true,
+      'a moving-row mouseup still produces a trusted click');
+    await page.locator('#replaceOvl').waitFor({ state: 'visible' });
+    await page.locator('#replaceCancel').click();
+    await page.evaluate(() => window.__qaMovingRosterRowObserver.disconnect());
+
     canonicalSequence = await page.evaluate(() => window.__qaRosterStateSequence || 0);
     await sendMessages(page, [{ t: 'stage', password: 'roster-password', staged: { kingdom: 1, pairs: [] } }]);
     await expectCanonicalStage([], canonicalSequence);

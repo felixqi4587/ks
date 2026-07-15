@@ -19,6 +19,7 @@
   var initialStateSeen = false, ownPlayerSeen = false, registrationPending = false, pendingMarchMutation = null;
   var pendingRegistrationProfile = null, draftActive = false, draftVersion = 0;
   var rosterQuery = "", pendingReplacementPid = "", pendingReplacementOrigin = null, pendingReplacementIncumbents = null, pendingReplacementAction = "";
+  var rosterPointerId = null, rosterReorderPending = false, rosterReorderTimer = 0;
   var pendingStageMutation = null, queuedStageByK = { 1: null, 2: null }, stageFocusByK = { 1: "", 2: "" };
   var pendingRallyMode = null, pendingRallyFire = null;
   var syncFireConfirmation = function () {};
@@ -34,7 +35,8 @@
   if (myProfile && myProfile.pid) {
     myProfile = Object.assign({}, myProfile, {
       marchRevision: Number.isInteger(myProfile.marchRevision) ? myProfile.marchRevision : 0,
-      identityMode: myProfile.identityMode || "playerId"
+      identityMode: myProfile.identityMode || "playerId",
+      editable: myProfile.editable !== false && !!myProfile.profileKey
     });
     if (myProfile.identityMode === "nickname") delete myProfile.playerId;
     else if (!myProfile.playerId && /^\d{1,16}$/.test(String(myProfile.pid))) myProfile.playerId = myProfile.pid;
@@ -334,7 +336,7 @@
       idle_note: "○ 每人离王城的行军时间 · 开打后变成实时进度条", legend_live: "● 主力 ○ 消耗 · 越近王城越快落地",
       join_note: "🐋 集结中 · 现在去游戏里点「加入」车头的集结", pulled_atk: "⚔️ 有开车指令 · 已切到进攻页（可再切回防守）",
       namefail: "✕ 查不到昵称 · 不影响使用，会以 ID 显示", pidph: "游戏内左上角头像里的数字 ID", nicknameph: "输入昵称", marchfirst: "先拖一下滑块（或点±）确认你的行军时间",
-      identity_type: "身份类型", identity_player_id: "Player ID", identity_nickname: "昵称", identity_recommended: "推荐", invalid_nickname: "请输入有效昵称", player_id_taken: "这个 Player ID 已被另一位玩家使用", profile_conflict: "资料已在另一处更新 · 已保留你的草稿", duplicate_suffix: "同名玩家会显示区分标记",
+      identity_type: "身份类型", identity_player_id: "Player ID", identity_nickname: "昵称", identity_recommended: "推荐", invalid_nickname: "请输入有效昵称", player_id_taken: "这个 Player ID 已被另一位玩家使用", profile_conflict: "资料已在另一处更新 · 已保留你的草稿", profile_owner_mismatch: "此设备不能修改这位玩家 · 请让指挥删除后在本机重新登记", profile_delivery_only: "此设备只接收提醒 · 请用登记设备修改，或让指挥删除后重新登记", change_player: "更换玩家", roster_full: "房间名单已满 · 请让指挥先删除不用的玩家", registration_retry: "连接中断 · 点重试后才会重新登记", registration_retry_action: "重试", duplicate_suffix: "同名玩家会显示区分标记",
       defsethint: "分:秒 = 敌鲸到王城的行军时间 · 全队防守页的补兵倒计时都按它算",
       sc_title: "📣 声音测试", sc_sub: "大家听到了吗？", you_short: "你", main_s: "主力", sac_s: "消耗",
       joincue: "开车时点「加入」车头的集结", marchhow: "怎么填：游戏里对王城开一次集结，看那个「行军时间」填进来。",
@@ -378,7 +380,7 @@
       idle_note: "○ each dot = march time to the castle · turns into a live progress bar at fire", legend_live: "● main ○ sacrifice · closer = landing sooner",
       join_note: "🐋 Rally live — go tap JOIN on the whale's rally in-game now", pulled_atk: "⚔️ Launch order live — switched to Attack (you can tab back)",
       namefail: "✕ Name not found · that's fine — your ID will be shown", pidph: "the numeric ID under your in-game avatar", nicknameph: "enter a nickname", marchfirst: "First drag the slider (or tap ±) to confirm your march time",
-      identity_type: "Identity type", identity_player_id: "Player ID", identity_nickname: "Nickname", identity_recommended: "Recommended", invalid_nickname: "Enter a valid nickname", player_id_taken: "This Player ID is already in use", profile_conflict: "Profile changed in another session · your draft is preserved", duplicate_suffix: "Matching nicknames show a distinguishing marker",
+      identity_type: "Identity type", identity_player_id: "Player ID", identity_nickname: "Nickname", identity_recommended: "Recommended", invalid_nickname: "Enter a valid nickname", player_id_taken: "This Player ID is already in use", profile_conflict: "Profile changed in another session · your draft is preserved", profile_owner_mismatch: "This device cannot edit that player · ask a commander to remove it, then register again here", profile_delivery_only: "This device receives alerts only · edit on the owner device, or ask a commander to remove and re-register", change_player: "Change player", roster_full: "This room roster is full · ask a commander to remove an unused player", registration_retry: "Connection interrupted · tap Retry to register again", registration_retry_action: "Retry", duplicate_suffix: "Matching nicknames show a distinguishing marker",
       defsethint: "m:s = the enemy's march time to the castle · everyone's refill countdown is computed from it",
       sc_title: "📣 Sound check", sc_sub: "Everyone hear this?", you_short: "You", main_s: "MAIN", sac_s: "SAC",
       joincue: "Tap JOIN on a whale's rally at GO", marchhow: "How: in-game open a rally on the King's Castle, read its march timer, enter it here.",
@@ -1135,6 +1137,13 @@
   // auto-ready: a captain is ready when joined+filled AND present (a fresh heartbeat ⇒ also clock-synced, since the same path re-runs syncClock). No tap, decays in ~70s if they drop.
   function isReady(p) { return !!(p && p.march && p.lastSeen && (window.serverNow() - Date.parse(p.lastSeen)) < 70000); }
   function requiredCaptains(kingdom) { return rallyMode(kingdom) === "triple" ? 3 : 2; }
+  function stageIntentBlocksFire(kingdom) {
+    if (pendingStageMutation && pendingStageMutation.kingdom !== kingdom) return true;
+    for (var otherKingdom = 1; otherKingdom <= 2; otherKingdom += 1) {
+      if (otherKingdom !== kingdom && queuedStageByK[otherKingdom]) return true;
+    }
+    return false;
+  }
   function updateFireControl() {
     var button = $("fireDouble"), label = $("t_firedbl"), count = $("pickCnt");
     if (!button || !label) return;
@@ -1144,7 +1153,7 @@
     var roles = rallyApi.rolesForMode(mode), complete = valid.length === required && roles.every(function (role) {
       return valid.some(function (pick) { return pick.role === role; });
     });
-    button.disabled = !rallyModeWritable(fireKingdom) || !complete || !!pendingStageMutation || !!queuedStageByK[fireKingdom] || !!pendingRallyMode || !!pendingRallyFire;
+    button.disabled = !rallyModeWritable(fireKingdom) || !complete || stageIntentBlocksFire(fireKingdom) || !!pendingRallyMode || !!pendingRallyFire;
     label.textContent = tk(required === 3 ? "firetri" : "firedbl");
     if (count) count.textContent = valid.length + "/" + required;
     syncFireConfirmation();
@@ -1963,10 +1972,29 @@
     if (message.error === "player_in_live_command" && message.pid === removalState.pid) {
       removalState.status = "blocked"; renderRemovalDialog(); if (typeof sock.refresh === "function") sock.refresh(); return true;
     }
+    if (message.error === "remove_persist_failed" && message.pid === removalState.pid) {
+      removalState.status = "retry"; renderRemovalDialog(); return true;
+    }
     if (message.error === "bad_password") {
       invalidateCommanderAccess(); return true;
     }
     return false;
+  }
+  function beginRosterPointerFreeze(event) {
+    if (!event || rosterPointerId !== null || event.isPrimary === false || (event.pointerType === "mouse" && event.button !== 0)) return;
+    rosterPointerId = event.pointerId;
+    if (rosterReorderTimer) { clearTimeout(rosterReorderTimer); rosterReorderTimer = 0; }
+  }
+  function endRosterPointerFreeze(event) {
+    if (rosterPointerId === null || (event && Number.isFinite(event.pointerId) && event.pointerId !== rosterPointerId)) return;
+    rosterPointerId = null;
+    if (!rosterReorderPending || rosterReorderTimer) return;
+    rosterReorderTimer = setTimeout(function () {
+      rosterReorderTimer = 0;
+      if (rosterPointerId !== null || !rosterReorderPending || !room) return;
+      rosterReorderPending = false;
+      renderRoster();
+    }, 0);
   }
   function renderRoster() {
     var box = $("roster"); if (!box || !room) return;
@@ -2042,11 +2070,15 @@
       el.onclick = function () { selectOrReplacePlayer(p.pid); };
       var haystack = ((p.name || "") + " " + (p.playerId || "") + " " + p.pid).toLowerCase(); wrap.hidden = !!(rosterQuery && haystack.indexOf(rosterQuery) < 0);
     });
-    var nextRow = null;
-    for (var desiredIndex = players.length - 1; desiredIndex >= 0; desiredIndex -= 1) {
-      var desiredPid = players[desiredIndex].pid, desiredRow = rows[desiredPid];
-      if (oldIndexByPid[desiredPid] !== desiredIndex && desiredRow.nextSibling !== nextRow) box.insertBefore(desiredRow, nextRow);
-      nextRow = desiredRow;
+    if (rosterPointerId !== null) rosterReorderPending = true;
+    else {
+      var nextRow = null;
+      for (var desiredIndex = players.length - 1; desiredIndex >= 0; desiredIndex -= 1) {
+        var desiredPid = players[desiredIndex].pid, desiredRow = rows[desiredPid];
+        if (oldIndexByPid[desiredPid] !== desiredIndex && desiredRow.nextSibling !== nextRow) box.insertBefore(desiredRow, nextRow);
+        nextRow = desiredRow;
+      }
+      rosterReorderPending = false;
     }
     refreshSyncPill(); renderSlots(); renderCommanderMarchEditor(); if (rosterActionsPid) renderRosterActionsMenu();
     updateFireControl();
@@ -2153,7 +2185,7 @@
   function fireDouble() {
     var commandKingdom = fireKingdom, commandLead = lead;
     if (!rallyModeWritable(commandKingdom)) { window.toast(tk("mode_unavailable")); return; }
-    if (pendingStageMutation || queuedStageByK[commandKingdom] || pendingRallyMode) { window.toast(tk("mode_saving")); return; }
+    if (stageIntentBlocksFire(commandKingdom) || pendingRallyMode) { window.toast(tk("mode_saving")); return; }
     var cur = pickedByK[commandKingdom]; if (cur.length < 2) { window.toast(tk("need2")); return; }
     var weakPick = cur.filter(function (x) { return x.role === "weak"; })[0], mainPick = cur.filter(function (x) { return x.role === "main"; })[0];
     var weak = weakPick && canonicalPick(weakPick.pid, "weak", room && room.players), main = mainPick && canonicalPick(mainPick.pid, "main", room && room.players);
@@ -2163,7 +2195,7 @@
     gateSync(function () {
       var latestWeak = canonicalPick(weak.pid, "weak", room && room.players), latestMain = canonicalPick(main.pid, "main", room && room.players);
       if (fireKingdom !== commandKingdom || lead !== commandLead || fireConfirmationKey() !== expectedConfirmation ||
-          !rallyModeWritable(commandKingdom) || pendingStageMutation || queuedStageByK[commandKingdom] || pendingRallyMode ||
+          !rallyModeWritable(commandKingdom) || stageIntentBlocksFire(commandKingdom) || pendingRallyMode ||
           !latestWeak || !latestMain || latestWeak.march !== weak.march || latestMain.march !== main.march ||
           latestWeak.marchRevision !== weak.marchRevision || latestMain.marchRevision !== main.marchRevision) {
         window.toast(tk("mode_changed_elsewhere")); return;
@@ -2182,7 +2214,7 @@
   function fireTriple() {
     var commandKingdom = fireKingdom, record = rallyModeRecord(commandKingdom), commandLead = lead;
     if (record.mode !== "triple" || !rallyModeWritable(commandKingdom)) { window.toast(tk("mode_unavailable")); return; }
-    if (pendingStageMutation || queuedStageByK[commandKingdom] || pendingRallyMode || pendingRallyFire) { window.toast(tk("mode_saving")); return; }
+    if (stageIntentBlocksFire(commandKingdom) || pendingRallyMode || pendingRallyFire) { window.toast(tk("mode_saving")); return; }
     var cur = rallyApi.reconcilePicks(pickedByK[commandKingdom], "triple");
     var roles = rallyApi.rolesForMode("triple");
     if (cur.length !== 3 || !roles.every(function (role) { return cur.some(function (pick) { return pick.role === role; }); })) {
@@ -2194,7 +2226,7 @@
     gateSync(function () {
       var latestRecord = rallyModeRecord(commandKingdom);
       if (latestRecord.mode !== "triple" || latestRecord.revision !== record.revision || !rallyModeWritable(commandKingdom) ||
-          pendingStageMutation || queuedStageByK[commandKingdom] || pendingRallyMode ||
+          stageIntentBlocksFire(commandKingdom) || pendingRallyMode ||
           pickSignature(pickedByK[commandKingdom]) !== expectedSignature) {
         window.toast(tk("mode_changed_elsewhere")); return;
       }
@@ -2228,7 +2260,7 @@
 
   function fireCurrentRally() {
     if (!rallyModeWritable(fireKingdom)) { window.toast(tk("mode_unavailable")); return; }
-    if (pendingStageMutation || queuedStageByK[fireKingdom] || pendingRallyMode || pendingRallyFire) { window.toast(tk("mode_saving")); return; }
+    if (stageIntentBlocksFire(fireKingdom) || pendingRallyMode || pendingRallyFire) { window.toast(tk("mode_saving")); return; }
     if (rallyMode(fireKingdom) === "triple") fireTriple();
     else fireDouble();
   }
@@ -2338,6 +2370,13 @@
     var bytes = crypto.getRandomValues(new Uint8Array(11));
     return "n_" + Array.from(bytes, function (byte) { return byte.toString(16).padStart(2, "0"); }).join("");
   }
+  function createProfileKey() {
+    if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+    var bytes = crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 15) | 64; bytes[8] = (bytes[8] & 63) | 128;
+    var hex = Array.from(bytes, function (byte) { return byte.toString(16).padStart(2, "0"); }).join("");
+    return hex.slice(0, 8) + "-" + hex.slice(8, 12) + "-" + hex.slice(12, 16) + "-" + hex.slice(16, 20) + "-" + hex.slice(20);
+  }
   function cancelIdentityLookup() {
     lookupSequence += 1;
     if (lookupTimer) clearTimeout(lookupTimer);
@@ -2366,10 +2405,17 @@
     nickname.setAttribute("aria-checked", nicknameSelected ? "true" : "false");
     playerId.setAttribute("tabindex", nicknameSelected ? "-1" : "0");
     nickname.setAttribute("tabindex", nicknameSelected ? "0" : "-1");
-    locked = !!pendingMarchMutation;
+    var manualRegistrationRetry = !!(pendingRegistrationProfile && pendingRegistrationProfile.manualRetry);
+    locked = !!pendingMarchMutation || !!pendingRegistrationProfile || !!registrationPending;
     playerId.disabled = locked; nickname.disabled = locked;
     input.readOnly = locked;
-    if (save) save.disabled = locked;
+    if (save) {
+      save.disabled = locked && !manualRegistrationRetry;
+      save.textContent = tk(manualRegistrationRetry ? "registration_retry_action" : "save");
+    }
+    [$("marchRange"), $("marchMinus"), $("marchPlus")].forEach(function (control) {
+      if (control) control.disabled = !!pendingRegistrationProfile || !!registrationPending;
+    });
     input.setAttribute("inputmode", nicknameSelected ? "text" : "numeric");
     input.placeholder = tk(nicknameSelected ? "nicknameph" : "pidph");
     var label = $("identityLabel"); if (label) label.textContent = tk(nicknameSelected ? "identity_nickname" : "identity_player_id");
@@ -2477,38 +2523,68 @@
     else delete profile.playerId;
     saveProfile(profile);
   }
-  function registerStoredProfile() {
-    if (!myProfile || registrationPending || !sock) return;
-    var message = {
-      t: "registerPlayer", pid: myProfile.pid, name: myProfile.name,
-      march: myProfile.march, identityMode: myProfile.identityMode || "playerId", alliance: ""
-    };
-    var playerId = myProfile.playerId || (/^\d{1,16}$/.test(String(myProfile.pid)) ? myProfile.pid : "");
-    if (message.identityMode === "playerId" && playerId) message.playerId = playerId;
-    registrationPending = sock.send(message);
+  function armPendingRegistrationRetry() {
+    var pending = pendingRegistrationProfile;
+    if (!pending) return false;
+    var alreadyArmed = pending.manualRetry === true;
+    pending.ackSeen = false; pending.stateSeen = false; pending.canonicalPlayer = null; pending.editable = null;
+    pending.manualRetry = true; registrationPending = false; draftActive = true;
+    syncIdentityControls(false); restoreResolvedPlayerName(pending);
+    if (!alreadyArmed) window.toast(tk("registration_retry"));
+    return true;
   }
-  function registerPendingProfile() {
+  function resetPendingRegistrationConnectionEvidence() {
+    var pending = pendingRegistrationProfile;
+    if (!pending) return false;
+    pending.ackSeen = false; pending.stateSeen = false; pending.canonicalPlayer = null;
+    pending.editable = null;
+    return true;
+  }
+  function registerPendingProfile(recoverOnly) {
     if (!pendingRegistrationProfile || registrationPending || !sock) return registrationPending;
+    var pending = pendingRegistrationProfile, wasManualRetry = pending.manualRetry === true;
     var message = {
-      t: "registerPlayer", pid: pendingRegistrationProfile.pid, name: pendingRegistrationProfile.name,
-      march: pendingRegistrationProfile.march, identityMode: pendingRegistrationProfile.identityMode || "playerId", alliance: ""
+      t: "registerPlayer", pid: pending.pid, name: pending.name,
+      march: pending.march, identityMode: pending.identityMode || "playerId", alliance: "",
+      profileKey: pending.profileKey, registrationId: pending.registrationId
     };
-    if (message.identityMode === "playerId") message.playerId = pendingRegistrationProfile.playerId;
+    if (message.identityMode === "playerId") message.playerId = pending.playerId;
+    if (recoverOnly === true) message.recoverOnly = true;
+    else pending.manualRetry = false;
     registrationPending = sock.send(message);
-    if (!registrationPending) { draftActive = true; window.toast(tk("notconn")); }
+    if (registrationPending && recoverOnly !== true) pending.everSent = true;
+    syncIdentityControls(true);
+    if (!registrationPending) {
+      if (wasManualRetry) pending.manualRetry = true;
+      draftActive = true; syncIdentityControls(false); window.toast(tk("notconn"));
+    }
     return registrationPending;
+  }
+  function reconcileMissingPendingRegistration(firstSnapshot) {
+    var pending = pendingRegistrationProfile;
+    if (!pending || registrationPending || (!firstSnapshot && !pending.stateSeen)) return false;
+    if (pending.everSent) return armPendingRegistrationRetry();
+    return registerPendingProfile(false);
   }
   function acceptPendingRegistration(player) {
     var pending = pendingRegistrationProfile;
-    if (!pending) return;
+    if (!pending) return false;
+    if (player) {
+      pending.stateSeen = true; pending.everSent = true; pending.manualRetry = false;
+      pending.canonicalPlayer = Object.assign({}, player);
+    }
+    if (!pending.ackSeen || !pending.stateSeen || !pending.canonicalPlayer || typeof pending.editable !== "boolean") return false;
+    player = pending.canonicalPlayer;
     var settleUI = pending.draftVersion === draftVersion;
     var profile = {
       pid: pending.pid,
       name: player.name || pending.pid,
       march: player.march,
       marchRevision: Number.isInteger(player.marchRevision) ? player.marchRevision : 0,
-      identityMode: player.identityMode || pending.identityMode || "playerId"
+      identityMode: player.identityMode || pending.identityMode || "playerId",
+      editable: pending.editable
     };
+    if (pending.editable) profile.profileKey = pending.profileKey;
     if (profile.identityMode === "playerId") profile.playerId = player.playerId || pending.playerId || (/^\d{1,16}$/.test(String(pending.pid)) ? pending.pid : "");
     else delete profile.playerId;
     saveProfile(profile);
@@ -2517,9 +2593,23 @@
     pendingRegistrationProfile = null; registrationPending = false; ownPlayerSeen = true;
     sendDeviceStatus();
     if (settleUI) {
-      draftActive = false; showInCard(myProfile); window.toast(tk("updated") + " · " + window.mmss(myProfile.march));
+      draftActive = false; showInCard(myProfile);
+      window.toast(myProfile.editable ? tk("updated") + " · " + window.mmss(myProfile.march) : tk("profile_delivery_only"));
       if (viewMode === "defense") renderDefense();
     } else { draftActive = true; showExistingIdentity(myProfile); }
+    return true;
+  }
+  function handlePlayerRegistrationAck(message) {
+    if (!message || message.t !== "playerRegistered" || typeof message.editable !== "boolean" || typeof message.created !== "boolean") return false;
+    var pending = pendingRegistrationProfile;
+    if (pending) {
+      if (message.registrationId !== pending.registrationId || message.pid !== pending.pid) return false;
+      pending.ackSeen = true; pending.editable = message.editable; registrationPending = false;
+      acceptPendingRegistration();
+      return true;
+    }
+    if (myProfile && message.pid === myProfile.pid) { registrationPending = false; return true; }
+    return false;
   }
   function settlePendingMarchMutation() {
     if (!pendingMarchMutation || !pendingMarchMutation.ackSeen || !pendingMarchMutation.stateSeen) return;
@@ -2560,6 +2650,7 @@
     return true;
   }
   function handleSocketMessage(message) {
+    if (handlePlayerRegistrationAck(message)) return;
     if (handleRallyModeMessage(message)) return;
     if (handleStageSuperseded(message)) return;
     if (handleDeviceStatusSaved(message)) return;
@@ -2609,9 +2700,14 @@
   function handlePlayerProtocolError(message) {
     var error = message && message.error;
     if (["invalid_march", "player_missing", "player_conflict", "core_identity_mismatch", "invalid_pid",
-         "invalid_player_id", "invalid_nickname", "player_id_conflict", "profile_persist_failed"].indexOf(error) < 0) return false;
-    if (error === "player_missing" && !message.mutationId) return false;
+         "invalid_player_id", "invalid_nickname", "player_id_conflict", "profile_persist_failed",
+         "invalid_profile_key", "profile_owner_mismatch", "registration_persist_failed", "roster_full"].indexOf(error) < 0) return false;
+    if (error === "player_missing" && !message.mutationId && !message.registrationId) return false;
+    if (message.registrationId && (!pendingRegistrationProfile || message.registrationId !== pendingRegistrationProfile.registrationId)) return false;
     if (message.mutationId && (!pendingMarchMutation || message.mutationId !== pendingMarchMutation.mutationId)) return false;
+    if (error === "player_missing" && message.registrationId && pendingRegistrationProfile) {
+      return armPendingRegistrationRetry();
+    }
     var retryProfile = null;
     if (pendingMarchMutation && message.mutationId === pendingMarchMutation.mutationId) {
       retryProfile = pendingMarchMutation;
@@ -2620,11 +2716,18 @@
       }
       pendingMarchMutation = null; draftActive = true;
     } else if (pendingRegistrationProfile || registrationPending) {
+      if (pendingRegistrationProfile && message.pid && message.pid !== pendingRegistrationProfile.pid) return false;
       retryProfile = pendingRegistrationProfile;
       pendingRegistrationProfile = null; registrationPending = false; draftActive = true;
     } else return false;
     if (error === "invalid_pid") nicknameDraftRoutingKey = "";
     cancelIdentityLookup();
+    if (error === "profile_owner_mismatch" && myProfile && myProfile.pid) {
+      var deliveryOnlyProfile = Object.assign({}, myProfile, { editable: false });
+      delete deliveryOnlyProfile.profileKey;
+      saveProfile(deliveryOnlyProfile); draftActive = false; syncIdentityControls(false); showInCard(myProfile);
+      window.toast(tk("profile_delivery_only")); return true;
+    }
     if (error === "core_identity_mismatch" && myProfile && myProfile.pid) showExistingIdentity(myProfile);
     else syncIdentityControls(false);
     restoreResolvedPlayerName(retryProfile);
@@ -2634,7 +2737,10 @@
     else if (error === "invalid_nickname") window.toast(tk("invalid_nickname"));
     else if (error === "player_id_conflict") window.toast(tk("player_id_taken"));
     else if (error === "player_conflict") window.toast(tk("profile_conflict"));
-    else if (error === "profile_persist_failed") window.toast(tk("notconn"));
+    else if (error === "profile_owner_mismatch") window.toast(tk("profile_owner_mismatch"));
+    else if (error === "roster_full") window.toast(tk("roster_full"));
+    else if (error === "profile_persist_failed" || error === "registration_persist_failed") window.toast(tk("notconn"));
+    else if (error === "invalid_profile_key") window.toast(tk("notconn"));
     else if (error === "player_missing") window.toast(tk("player_missing"));
     else if (error === "core_identity_mismatch") {
       window.toast(tk("identity_rebinding"));
@@ -2661,7 +2767,7 @@
           Number(deliveryShadowSocket.connectionGeneration || 0) !== deliveryShadowGeneration) return;
       handleDeliveryShadowMessage(message);
     };
-    sock.onOpen = function () { var g = Number(sock.connectionGeneration || 0); if (pendingMarchMutation && pendingMarchMutation.connectionGeneration !== g) pendingMarchMutation.awaitingReconnect = true, pendingMarchMutation.reconnectAfterSnapshot = roomSnapshotSequence, pendingMarchMutation.connectionGeneration = g; deliveryShadowConnectionOpened(); initialStateSeen = false; safeUpdateCheck(); registrationPending = false; setNet(true); sendDeviceStatus(); retryPendingDeliveryAcks(true); beginClockSync().then(deliveryShadowClockCallback()); };
+    sock.onOpen = function () { var g = Number(sock.connectionGeneration || 0); if (pendingMarchMutation && pendingMarchMutation.connectionGeneration !== g) pendingMarchMutation.awaitingReconnect = true, pendingMarchMutation.reconnectAfterSnapshot = roomSnapshotSequence, pendingMarchMutation.connectionGeneration = g; resetPendingRegistrationConnectionEvidence(); deliveryShadowConnectionOpened(); initialStateSeen = false; safeUpdateCheck(); registrationPending = false; setNet(true); sendDeviceStatus(); retryPendingDeliveryAcks(true); beginClockSync().then(deliveryShadowClockCallback()); };
     sock.onClose = function () {
       initialStateSeen = false; registrationPending = false;
       clearPendingRallyFire();
@@ -2776,8 +2882,11 @@
       clearOwnProfile();
       if (!acknowledgedOwnRemoval) window.toast(tkf("removed", { n: ownRemovedName }));
     } else if (pendingRegistrationProfile) {
-      if (Object.prototype.hasOwnProperty.call(nextPlayers, pendingRegistrationProfile.pid)) acceptPendingRegistration(nextPlayers[pendingRegistrationProfile.pid]);
-      else if (firstSnapshot && !registrationPending) registerPendingProfile();
+      if (Object.prototype.hasOwnProperty.call(nextPlayers, pendingRegistrationProfile.pid)) {
+        acceptPendingRegistration(nextPlayers[pendingRegistrationProfile.pid]);
+        if (pendingRegistrationProfile && !pendingRegistrationProfile.ackSeen && !registrationPending) registerPendingProfile(true);
+      }
+      else reconcileMissingPendingRegistration(firstSnapshot);
     } else if (myProfile) {
       var canonical = nextPlayers[myProfile.pid];
       if (canonical) {
@@ -2804,7 +2913,10 @@
         }
         if (!draftActive && !pendingRegistrationProfile && !pendingMarchMutation) showInCard(myProfile);
         settlePendingMarchMutation();
-      } else if (firstSnapshot && !ownPlayerSeen) registerStoredProfile();
+      } else if (firstSnapshot && !ownPlayerSeen) {
+        var missingProfileName = myProfile.name || myProfile.pid;
+        clearOwnProfile(); window.toast(tkf("removed", { n: missingProfileName }));
+      }
     }
     // a live order that vanishes BEFORE its click moment = cancelled → everyone gets a positive audible+visual cue
     // (the pre-booked countdown beeps are killed by reconcileCues inside scheduleAllCues)
@@ -2835,7 +2947,13 @@
   /* ---------- fill ---------- */
   function setMarchUI(s) { s = Math.max(5, Math.min(180, Math.round(s || 90))); $("marchRange").value = s; $("marchBig").textContent = marchTouched ? window.mmss(s) : "—:—"; var sb = $("saveBtn"); if (sb) sb.classList.toggle("dim", !marchTouched); }   // dim, NOT disabled: a native-disabled button swallows the tap and the stuck user gets zero feedback
   function showProfileDraft(me) { marchTouched = true; $("fillCard").classList.remove("hide"); $("youChip").classList.add("hide"); showExistingIdentity(me); setMarchUI(me.march); }
-  function showInCard(me) { draftActive = false; marchTouched = true; $("fillCard").classList.add("hide"); $("youChip").classList.remove("hide"); $("youName").textContent = tk("you") + " · " + me.name; $("youMarch").textContent = window.mmss(me.march); showExistingIdentity(me); setMarchUI(me.march); }
+  function paintProfileAccess(me) {
+    var button = $("editBtn"); if (!button) return;
+    var editable = !!(me && me.editable !== false && me.profileKey);
+    button.textContent = tk(editable ? "edit" : "change_player");
+    button.title = editable ? "" : tk("profile_delivery_only");
+  }
+  function showInCard(me) { draftActive = false; marchTouched = true; $("fillCard").classList.add("hide"); $("youChip").classList.remove("hide"); $("youName").textContent = tk("you") + " · " + me.name; $("youMarch").textContent = window.mmss(me.march); paintProfileAccess(me); showExistingIdentity(me); setMarchUI(me.march); }
   function isFilled() { return !!myPid; }
 
   /* ---------- commander unlock ---------- */
@@ -2855,7 +2973,7 @@
   function renderStatics() {
     var set = function (id, k) { var e = $(id); if (e) e.textContent = tk(k); };
     set("t_join", "join"); set("t_ornew", "ornew"); set("t_joinhint", "joinhint"); set("t_room", "room"); set("joinBtn", "enter");
-    set("t_fill", "fill"); set("t_fillsub", "fillsub"); set("t_march", "marchlab"); set("saveBtn", "save"); set("editBtn", "edit");
+    set("t_fill", "fill"); set("t_fillsub", "fillsub"); set("t_march", "marchlab"); set("saveBtn", "save"); paintProfileAccess(myProfile);
     set("t_cmd", "cmd"); set("t_kdhint", "kdhint"); set("t_leadhint", "leadhint"); set("t_defsethint", "defsethint"); set("idleWait", "idle_wait");
     syncIdentityControls(!!pendingMarchMutation);
     set("t_pwtitle", "pwtitle"); set("pwCancel", "pwcancel"); set("pwGo", "pwgo"); set("cmdUnlock", "cmdlink");
@@ -2885,6 +3003,12 @@
     wireIdentityControls();
     wireRallyMode();
     $("rosterSearch").addEventListener("input", function () { rosterQuery = this.value.toLowerCase().trim(); if (room) renderRoster(); });
+    $("roster").addEventListener("pointerdown", function (event) {
+      var target = event.target;
+      if (target && target.closest && target.closest("#roster button")) beginRosterPointerFreeze(event);
+    });
+    document.addEventListener("pointerup", endRosterPointerFreeze);
+    document.addEventListener("pointercancel", endRosterPointerFreeze);
     $("replaceWeak").onclick = function () { applyReplacement(pendingReplacementPid, "weak"); };
     $("replaceWeak2").onclick = function () { applyReplacement(pendingReplacementPid, "weak2"); };
     $("replaceMain").onclick = function () { applyReplacement(pendingReplacementPid, "main"); };
@@ -2964,6 +3088,9 @@
       event.preventDefault(); if (!pendingCommanderMarchMutation && !commanderMarchStale) closeCommanderMarchEditor(true);
     });
     $("saveBtn").onclick = function () {
+      if (pendingRegistrationProfile && pendingRegistrationProfile.manualRetry) {
+        registerPendingProfile(false); return;
+      }
       var identityValue = $("pid").value, resolvedName = $("nameOut").dataset.name || "";
       var existingIdentity = !!(myProfile && myProfile.pid), mode = identityMode;
       var pid = existingIdentity ? myProfile.pid : "", playerId = "", name = "";
@@ -2983,6 +3110,7 @@
       var march = +$("marchRange").value, ok;
       draftActive = true;
       if (myProfile && myProfile.pid && ownPlayerSeen) {
+        if (!myProfile.profileKey || myProfile.editable === false) { window.toast(tk("profile_delivery_only")); return; }
         if (pendingMarchMutation) return;
         pendingMarchMutation = {
           mutationId: crypto.randomUUID(), pid: myProfile.pid, identityMode: mode, name: name, requestedMarch: march,
@@ -2994,7 +3122,7 @@
         var mutation = {
           t: "updateOwnProfile", mutationId: pendingMarchMutation.mutationId, pid: pendingMarchMutation.pid,
           identityMode: mode, name: name, march: pendingMarchMutation.requestedMarch,
-          baseRevision: pendingMarchMutation.baseRevision
+          baseRevision: pendingMarchMutation.baseRevision, profileKey: myProfile.profileKey
         };
         if (mode === "playerId") mutation.playerId = playerId;
         syncIdentityControls(true);
@@ -3007,13 +3135,21 @@
       }
       if (registrationPending && myProfile && !ownPlayerSeen) return;
       if (pendingRegistrationProfile) return;
-      pendingRegistrationProfile = { pid: pid, name: name, march: march, marchRevision: 0, identityMode: mode, draftVersion: draftVersion };
+      pendingRegistrationProfile = {
+        pid: pid, name: name, march: march, marchRevision: 0, identityMode: mode,
+        draftVersion: draftVersion, profileKey: createProfileKey(), registrationId: createProfileKey(),
+        ackSeen: false, stateSeen: false, canonicalPlayer: null, editable: null,
+        everSent: false, manualRetry: false
+      };
       if (mode === "playerId") pendingRegistrationProfile.playerId = playerId;
-      ok = registerPendingProfile();
+      ok = registerPendingProfile(false);
       if (!ok) return;
       if (room && room.players && room.players[pid]) acceptPendingRegistration(room.players[pid]);
     };
-    $("editBtn").onclick = function () { markDraft(); if (myProfile) showExistingIdentity(myProfile); $("youChip").classList.add("hide"); $("fillCard").classList.remove("hide"); };
+    $("editBtn").onclick = function () {
+      if (myProfile && (!myProfile.profileKey || myProfile.editable === false)) { window.toast(tk("profile_delivery_only")); clearOwnProfile(); return; }
+      markDraft(); if (myProfile) showExistingIdentity(myProfile); $("youChip").classList.add("hide"); $("fillCard").classList.remove("hide");
+    };
     $("marchRange").addEventListener("input", function () { markDraft(); marchTouched = true; setMarchUI(+this.value); });
     $("marchMinus").onclick = function () { markDraft(); marchTouched = true; setMarchUI(+$("marchRange").value - 1); };
     $("marchPlus").onclick = function () { markDraft(); marchTouched = true; setMarchUI(+$("marchRange").value + 1); };

@@ -17,10 +17,11 @@ const longAckHoldRoom = makeQaRoom('classic-long-ack-hold');
 const expiredReconnectRoom = makeQaRoom('classic-expired-reconnect');
 const staleAudioRoom = makeQaRoom('classic-stale-audio');
 const password = 'classic-delivery-password';
+const profileKey = '60000000-0000-4000-8000-000000000001';
 const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 
 function profile(pid, name, march = 60) {
-  return { pid, name, march, marchRevision: 0, identityMode: 'playerId' };
+  return { pid, name, march, marchRevision: 0, identityMode: 'playerId', profileKey };
 }
 
 function packetGate(options = {}) {
@@ -104,6 +105,7 @@ async function seedRoom(browser, room, players) {
         name: record.name,
         march: record.march,
         identityMode: record.identityMode,
+        profileKey: record.profileKey,
         alliance: ''
       })));
       socket.onmessage = event => {
@@ -924,6 +926,7 @@ async function openStageRaceCommander(browser, room, gate, errors) {
     const returningPeerProfile = profile('950000002', 'Returning Peer');
     const emptySnapshot = await readHttpSnapshot(returningRoom);
     assert.deepEqual(Object.keys(emptySnapshot.room.players), [], 'returning-profile QA room starts with an empty canonical roster');
+    await seedRoom(browser, returningRoom, [returningProfile]);
     const returningStartedAt = Date.now();
     const returningGate = packetGate({ holdClientAcks: true });
     const returningCaptain = await openClient(browser, {
@@ -934,7 +937,7 @@ async function openStageRaceCommander(browser, room, gate, errors) {
       errors
     });
     openContexts.push(returningCaptain.context);
-    assert.match(await returningCaptain.page.locator('#youName').textContent(), /Returning Captain/, 'stored profile automatically re-registers into the empty room');
+    assert.match(await returningCaptain.page.locator('#youName').textContent(), /Returning Captain/, 'stored profile binds to its existing canonical player');
 
     await seedRoom(browser, returningRoom, [returningPeerProfile]);
     const returningPeer = await openClient(browser, {
@@ -958,7 +961,7 @@ async function openStageRaceCommander(browser, room, gate, errors) {
     const preAckSnapshot = await readSnapshot(returningCommander.page, returningRoom);
     const preAckCommand = Object.values(preAckSnapshot.room.live.commands).find(Boolean);
     const preAckDelivery = preAckCommand.delivery.find(value => value.pid === returningProfile.pid);
-    assert.equal(preAckDelivery.expected, 1, 'automatic re-registration publishes the ready device before immediate Fire');
+    assert.equal(preAckDelivery.expected, 1, 'returning canonical identity publishes the ready device before immediate Fire');
     assert.equal(preAckDelivery.received, 0, 'held ACK proves expected=1 came from pre-Fire device registration, not ACK backfill');
     assert.equal(returningGate.heartbeats.length, 0, 'returning captain needed no 25-second heartbeat before being counted');
 
@@ -1069,7 +1072,7 @@ async function openStageRaceCommander(browser, room, gate, errors) {
     console.log('✓ lost client/server ACK packets retry idempotently and stop after persistence confirmation');
     console.log('✓ fired slots are read-only and old snapshots without delivery remain compatible');
     console.log('✓ an unschedulable AudioContext never produces a green delivery status');
-    console.log('✓ returning profile re-registers and reaches expected=1 + Received before heartbeat');
+    console.log('✓ returning profile binds existing canonical player and reaches expected=1 + Received before heartbeat');
     console.log('✓ delayed stage snapshots cannot resurrect editable picks after Fire');
     if (core11Failures.length > 0) {
       throw new AggregateError(

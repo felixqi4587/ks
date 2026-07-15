@@ -38,8 +38,9 @@ test('one dynamic Fire control keeps Triple out of the Double timing body', () =
   assert.doesNotMatch(double, /triple_rally|weak2/);
   assert.match(double, /!rallyModeWritable\(commandKingdom\)/,
     'the original Double entry point must retain its own fail-closed mode guard');
-  assert.match(double, /pendingStageMutation[\s\S]*queuedStageByK\[commandKingdom\][\s\S]*pendingRallyMode/,
-    'the original Double entry point must retain its own pending-mutation guard');
+  assert.match(double, /stageIntentBlocksFire\(commandKingdom\)[\s\S]*pendingRallyMode/,
+    'Double must block only foreign stage intent while allowing its own complete local queue');
+  assert.match(source, /function stageIntentBlocksFire\(/);
   assert.match(source, /function requiredCaptains\(/);
   assert.match(source, /function updateFireControl\(/);
 });

@@ -12,7 +12,7 @@ const ok = (c, label) => { (c ? pass++ : fail++); console.log((c ? "✓" : "✗ 
 (async () => {
   const a = await open(), b = await open(); await wait(600);
   ok(last(a)?.t === "state", "initial snapshot on connect");
-  a.send(JSON.stringify({ t: "setMarch", pid: "p1", name: "Alice", march: 90, alliance: "A" })); await wait(700);
+  a.send(JSON.stringify({ t: "setMarch", pid: "p1", name: "Alice", march: 90, alliance: "A", profileKey: "70000000-0000-4000-8000-000000000001" })); await wait(700);
   ok(last(b)?.room.players.p1?.name === "Alice", "setMarch broadcasts to OTHER client");
   ok(last(b)?.room.presence === 2, "presence = 2");
   a.send(JSON.stringify({ t: "setConfig", password: "pw123", config: { castleName: "KC", enemyWhales: [{ name: "W1", mm: 1, ss: 10 }] }, by: "cmd" })); await wait(700);

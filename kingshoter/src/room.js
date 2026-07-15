@@ -8,9 +8,11 @@ import {
   applyOwnProfileUpdate,
   applyPlayerMarchUpdate,
   freezeDoubleRally,
+  normalizeMarchRevision,
   normalizeMutationId,
   normalizePlayerRecords,
   normalizeRoutingKey,
+  profilePlayerId,
   registerPlayer,
   removePlayerAtomic
 } from "./room-player.js";
@@ -76,6 +78,53 @@ function defaultRoom() {
 async function sha256(s) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(s)));
   return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+const PROFILE_OWNERS_STORAGE_KEY = "profileOwners";
+
+function normalizeProfileOwners(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const owners = Object.create(null);
+  for (const rawPid of Object.keys(source)) {
+    const pid = normalizeRoutingKey(rawPid);
+    const hash = String(source[rawPid] || "").trim().toLowerCase();
+    if (pid && /^[0-9a-f]{64}$/.test(hash)) owners[pid] = hash;
+  }
+  return owners;
+}
+
+async function profileOwnerMatches(readProfileOwners, pid, profileKey) {
+  const key = normalizeDeviceId(profileKey);
+  if (!key) return false;
+  const presented = await sha256(key);
+  const profileOwners = typeof readProfileOwners === "function"
+    ? readProfileOwners() : readProfileOwners;
+  const expected = profileOwners && profileOwners[pid];
+  return typeof expected === "string" && expected.length === 64 && presented === expected;
+}
+
+function playerRegisteredMessage(registrationId, pid, player, created, editable) {
+  const identityMode = player && player.identityMode === "nickname" ? "nickname" : "playerId";
+  const message = {
+    t: "playerRegistered",
+    registrationId,
+    pid,
+    created: created === true,
+    editable: editable === true,
+    identityMode,
+    name: player && player.name || pid,
+    march: player && player.march,
+    revision: normalizeMarchRevision(player && player.marchRevision)
+  };
+  const playerId = identityMode === "playerId" ? profilePlayerId(pid, player) : "";
+  if (playerId) message.playerId = playerId;
+  return message;
+}
+
+function registrationError(error, registrationId, pid = "") {
+  const message = { t: "error", error, registrationId };
+  if (pid) message.pid = pid;
+  return message;
 }
 
 function clampStr(s, n) { return (s == null ? "" : String(s)).slice(0, n); }
@@ -378,16 +427,26 @@ export class Room {
   }
   async persist() { await this.state.storage.put("room", this.room); }
   async persistAll() {
-    await this.state.storage.put({ room: this.room, devices: this.devices, deliveryAcks: this.deliveryAcks });
+    this.profileOwners = normalizeProfileOwners(this.profileOwners);
+    await this.state.storage.put({
+      room: this.room,
+      devices: this.devices,
+      deliveryAcks: this.deliveryAcks,
+      [PROFILE_OWNERS_STORAGE_KEY]: this.profileOwners
+    });
   }
   async ensureDeliveryLoaded() {
+    this.profileOwners = normalizeProfileOwners(this.profileOwners);
     if (this._deliveryLoaded) return;
     if (!this.state || !this.state.storage) { this._deliveryLoaded = true; return; }
     if (!this._deliveryLoadPromise) {
       this._deliveryLoadPromise = (async () => {
-        const stored = await this.state.storage.get(["devices", "deliveryAcks"]);
+        const stored = await this.state.storage.get(["devices", "deliveryAcks", PROFILE_OWNERS_STORAGE_KEY]);
         this.devices = (stored && typeof stored.get === "function" && Array.isArray(stored.get("devices"))) ? stored.get("devices") : [];
         this.deliveryAcks = (stored && typeof stored.get === "function" && Array.isArray(stored.get("deliveryAcks"))) ? stored.get("deliveryAcks") : [];
+        this.profileOwners = normalizeProfileOwners(
+          stored && typeof stored.get === "function" ? stored.get(PROFILE_OWNERS_STORAGE_KEY) : null
+        );
         this._deliveryLoaded = true;
       })();
     }
@@ -812,29 +871,51 @@ export class Room {
 
     if (m.t === "setMarch" || m.t === "registerPlayer") {
       const pid = normalizeRoutingKey(m.pid);
-      if (pid && Object.prototype.hasOwnProperty.call(this.room.players, pid)) return;
-      const result = registerPlayer(this.room.players, m, this.now());
-      if (!result.ok) return ws.send(JSON.stringify(Object.assign({ t: "error" }, result)));
-      // cap roster so a long-running room can't grow unbounded over a season — evict oldest lastSeen, but NEVER an active/staged captain
-      const total = Object.keys(this.room.players).length;
-      let privateDeliveryChanged = false;
-      if (total > 150) {
-        const protect = activeCommandPids(this.room.live, Math.floor(this.nowMs() / 1000));
-        for (const k of [1, 2]) {
-          const staged = this.room.live.staged[k];
-          if (staged && Array.isArray(staged.pairs)) staged.pairs.forEach(pair => protect.add(pair && pair.pid));
-        }
-        const evicted = Object.keys(this.room.players).filter(k => !protect.has(k))
-          .sort((a, b) => (this.room.players[a].lastSeen || "") < (this.room.players[b].lastSeen || "") ? -1 : 1)
-          .slice(0, total - 150);
-        evicted.forEach(k => {
-          delete this.room.players[k];
-          const privateState = removePlayerDelivery(this.devices, this.deliveryAcks, k);
-          if (privateState.devices.length !== this.devices.length || privateState.ackRecords.length !== this.deliveryAcks.length) privateDeliveryChanged = true;
-          this.devices = privateState.devices; this.deliveryAcks = privateState.ackRecords;
-        });
+      const registrationId = normalizeMutationId(m.registrationId);
+      const recoverOnly = m.recoverOnly === true;
+      if (recoverOnly && (!pid || !Object.prototype.hasOwnProperty.call(this.room.players, pid))) {
+        return ws.send(JSON.stringify(registrationError("player_missing", registrationId, pid)));
       }
-      if (privateDeliveryChanged) await this.persistAll(); else await this.persist();
+      const profileKey = normalizeDeviceId(m.profileKey);
+      const ownerHash = profileKey ? await sha256(profileKey) : "";
+      if (pid && Object.prototype.hasOwnProperty.call(this.room.players, pid)) {
+        const expectedOwner = this.profileOwners && this.profileOwners[pid];
+        const editable = !!ownerHash && typeof expectedOwner === "string" &&
+          expectedOwner.length === 64 && expectedOwner === ownerHash;
+        return ws.send(JSON.stringify(playerRegisteredMessage(
+          registrationId, pid, this.room.players[pid], false, editable
+        )));
+      }
+      if (recoverOnly) {
+        return ws.send(JSON.stringify(registrationError("player_missing", registrationId, pid)));
+      }
+      if (!profileKey) return ws.send(JSON.stringify(registrationError("invalid_profile_key", registrationId)));
+      const nextPlayers = normalizePlayerRecords(this.room.players);
+      const result = registerPlayer(nextPlayers, m, this.now());
+      if (!result.ok) return ws.send(JSON.stringify(Object.assign({ t: "error", registrationId }, result)));
+      if (Object.keys(nextPlayers).length > 150) {
+        return ws.send(JSON.stringify(registrationError("roster_full", registrationId)));
+      }
+      const nextOwners = normalizeProfileOwners(this.profileOwners);
+      nextOwners[result.pid] = ownerHash;
+      const previousPlayers = this.room.players;
+      const previousOwners = this.profileOwners;
+      this.room.players = nextPlayers;
+      this.profileOwners = nextOwners;
+      try {
+        await this.persistAll();
+      } catch (error) {
+        this.room.players = previousPlayers;
+        this.profileOwners = previousOwners;
+        return ws.send(JSON.stringify(registrationError(
+          "registration_persist_failed", registrationId, result.pid
+        )));
+      }
+      try {
+        ws.send(JSON.stringify(playerRegisteredMessage(
+          registrationId, result.pid, result.player, true, true
+        )));
+      } catch (error) {}
       this.broadcast(); return;
     }
 
@@ -844,6 +925,9 @@ export class Room {
       const attachment = this.readSocketAttachment(ws);
       if (!attachment.pid || attachment.pid !== pid) {
         return ws.send(JSON.stringify({ t: "error", error: "core_identity_mismatch", mutationId, pid }));
+      }
+      if (!(await profileOwnerMatches(() => this.profileOwners, pid, m.profileKey))) {
+        return ws.send(JSON.stringify({ t: "error", error: "profile_owner_mismatch", mutationId, pid }));
       }
       const previousPlayer = this.room.players[pid];
       const result = applyOwnProfileUpdate(this.room.players, m, { touchLastSeen: true, nowISO: this.now() });
@@ -871,9 +955,20 @@ export class Room {
       if (!attachment.pid || attachment.pid !== pid) {
         return ws.send(JSON.stringify({ t: "error", error: "core_identity_mismatch", mutationId, pid }));
       }
+      if (!(await profileOwnerMatches(() => this.profileOwners, pid, m.profileKey))) {
+        return ws.send(JSON.stringify({ t: "error", error: "profile_owner_mismatch", mutationId, pid }));
+      }
+      const previousPlayer = this.room.players[pid] && { ...this.room.players[pid] };
       const result = applyPlayerMarchUpdate(this.room.players, m, { touchLastSeen: true, nowISO: this.now() });
       if (!result.ok) return ws.send(JSON.stringify(Object.assign({ t: "error" }, result)));
-      await this.persist();
+      try {
+        await this.persist();
+      } catch (error) {
+        if (previousPlayer) this.room.players[pid] = previousPlayer;
+        return ws.send(JSON.stringify({
+          t: "error", error: "profile_persist_failed", mutationId: result.mutationId, pid: result.pid
+        }));
+      }
       ws.send(JSON.stringify({
         t: "playerMarchSaved", mutationId: result.mutationId, pid: result.pid, march: result.march, revision: result.revision
       }));
@@ -883,9 +978,18 @@ export class Room {
     if (m.t === "setPlayerMarch") {
       const mutationId = normalizeMutationId(m.mutationId);
       if (!(await this.authOK(m.password))) return ws.send(JSON.stringify({ t: "error", error: "bad_password", mutationId }));
+      const pid = normalizeRoutingKey(m.pid);
+      const previousPlayer = this.room.players[pid] && { ...this.room.players[pid] };
       const result = applyPlayerMarchUpdate(this.room.players, m);
       if (!result.ok) return ws.send(JSON.stringify(Object.assign({ t: "error" }, result)));
-      await this.persist();
+      try {
+        await this.persist();
+      } catch (error) {
+        if (previousPlayer) this.room.players[pid] = previousPlayer;
+        return ws.send(JSON.stringify({
+          t: "error", error: "profile_persist_failed", mutationId: result.mutationId, pid: result.pid
+        }));
+      }
       try {
         ws.send(JSON.stringify({
           t: "playerMarchSaved", mutationId: result.mutationId, pid: result.pid, march: result.march, revision: result.revision
@@ -897,14 +1001,38 @@ export class Room {
     if (m.t === "removePlayer") {
       // Authenticate before checking whether the pid exists, so the roster cannot be probed through errors.
       if (!(await this.authOK(m.password))) return ws.send(JSON.stringify({ t: "error", error: "bad_password" }));
+      const previousRoom = this.room;
+      this.room = {
+        ...previousRoom,
+        players: normalizePlayerRecords(previousRoom.players),
+        live: {
+          ...previousRoom.live,
+          staged: { ...previousRoom.live.staged }
+        }
+      };
       const result = removePlayerAtomic(this.room, m.pid, Math.floor(this.nowMs() / 1000));
       if (!result.ok) {
+        this.room = previousRoom;
         if (result.error === "player_missing") return;   // idempotent cleanup: another commander may have removed it already
         return ws.send(JSON.stringify({ t: "error", error: result.error, pid: result.pid }));
       }
+      const previousDevices = this.devices;
+      const previousDeliveryAcks = this.deliveryAcks;
+      const previousOwners = this.profileOwners;
       const privateState = removePlayerDelivery(this.devices, this.deliveryAcks, result.pid);
       this.devices = privateState.devices; this.deliveryAcks = privateState.ackRecords;
-      await this.persistAll(); this.broadcast(); return;
+      this.profileOwners = normalizeProfileOwners(this.profileOwners);
+      delete this.profileOwners[result.pid];
+      try {
+        await this.persistAll();
+      } catch (error) {
+        this.room = previousRoom;
+        this.devices = previousDevices;
+        this.deliveryAcks = previousDeliveryAcks;
+        this.profileOwners = previousOwners;
+        return ws.send(JSON.stringify({ t: "error", error: "remove_persist_failed", pid: result.pid }));
+      }
+      this.broadcast(); return;
     }
 
     if (m.t === "setConfig") {
