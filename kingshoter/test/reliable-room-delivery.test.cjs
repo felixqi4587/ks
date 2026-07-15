@@ -1133,6 +1133,69 @@ test('Core saved confirmation precedes canonical mirror and an idempotent retry 
   ]);
 });
 
+test('a Core ACK saved before reconnect probing is backfilled after the exact probe ACK', async () => {
+  const { Room } = await loadRoom();
+  const h = installDispatchRoom(createRoomHarness(Room, {
+    roomName: 'qa-kvk-reconnect-classic-backfill', nowMs: DISPATCH_NOW_MS
+  }));
+  reliableSocket(h, {
+    pid: '700001', deviceId: DISPATCH_IDS.canonical
+  });
+  const command = canonicalDoubleRally('reconnect-classic-backfill');
+  command.delivery = [
+    { pid: '700001', expected: 1, received: 0, expired: 0 },
+    { pid: '700002', expected: 0, received: 0, expired: 0 }
+  ];
+  h.room.persistAll = async () => {};
+  h.room.persistDelivery = async () => {};
+  h.room.scheduleExpiry = async () => {};
+  await h.room.dispatchDeliveryForCommand(command, DISPATCH_NOW_MS);
+  h.room.room.live.commands[1] = command;
+  h.room.room.live.mode = 'live';
+  h.room.devices = [{
+    pid: '700001', deviceId: DISPATCH_IDS.canonical,
+    soundReady: true, lastSeenMs: DISPATCH_NOW_MS
+  }];
+
+  const reconnect = reliableSocket(h, {
+    pid: '700001', deviceId: DISPATCH_IDS.canonical,
+    shadow: false, audioArmed: false, armedUntilMs: 0
+  });
+  h.room.state.getWebSockets = () => [reconnect.ws];
+  const coreAck = {
+    t: 'deliveryAck', commandId: command.id,
+    pid: '700001', deviceId: DISPATCH_IDS.canonical,
+    outcome: 'scheduled', targetUTC: 1010,
+    scheduledAtMs: DISPATCH_NOW_MS + 100
+  };
+
+  await h.room.webSocketMessage(reconnect.ws, JSON.stringify(coreAck));
+
+  assert.equal(command.delivery[0].received, 1);
+  assert.equal(h.room.deliveryAcks.length, 1);
+  assert.equal(h.room.delivery.commands[0].targets[0].classicAck, null);
+  assert.equal(h.room.snapshot().deliveryShadow.commands[0].classicScheduled, 0);
+
+  reconnect.raw.length = 0;
+  await h.room.webSocketMessage(reconnect.ws, JSON.stringify({
+    t: 'deliveryShadowHello', v: 1, shadow: true, view: 'player',
+    pid: '700001', deviceId: DISPATCH_IDS.canonical
+  }));
+  const probe = reconnect.messages().find(message => message.t === 'deliveryShadowProbe');
+  assert.ok(probe);
+  assert.equal(h.room.snapshot().deliveryShadow.commands[0].classicScheduled, 0);
+
+  await h.room.webSocketMessage(reconnect.ws, JSON.stringify({
+    t: 'deliveryShadowProbeAck', v: 1,
+    probeId: probe.probeId, audioArmed: true
+  }));
+
+  assert.deepEqual(h.room.delivery.commands[0].targets[0].classicAck, {
+    result: 'scheduled', futureCueCount: 1, atMs: DISPATCH_NOW_MS
+  });
+  assert.equal(h.room.snapshot().deliveryShadow.commands[0].classicScheduled, 1);
+});
+
 test('dispatch persistence failure leaves the already persisted and broadcast Core command intact while rolling private state back', async () => {
   const { Room } = await loadRoom();
   const h = installDispatchRoom(createRoomHarness(Room, {

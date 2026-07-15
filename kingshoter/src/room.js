@@ -558,6 +558,12 @@ export class Room {
             this.delivery, record.commandId, armed, nowMs
           ) || deliveryChanged;
         }
+        for (const ack of Array.isArray(this.deliveryAcks) ? this.deliveryAcks : []) {
+          if (!ack || ack.pid !== armed.pid || ack.deviceId !== armed.deviceId) continue;
+          deliveryChanged = recordClassicAck(
+            this.delivery, armed, ack, nowMs
+          ) || deliveryChanged;
+        }
         deliveryChanged = this.flushDeliveryTargets(nowMs) || deliveryChanged;
         deliveryChanged = pruneDeliveryState(this.delivery, nowMs) || deliveryChanged;
       }
