@@ -186,12 +186,14 @@ test('Triple role labels are never collapsed into the first sacrifice label', ()
 test('Triple selection cannot accidentally invoke the unchanged Double Fire path', () => {
   const roster = extractFunction('renderRoster');
   assert.match(roster, /rallyMode\(fireKingdom\)/);
-  assert.match(roster, /required\s*=\s*mode\s*===\s*["']triple["']\s*\?\s*3\s*:\s*2/);
-  assert.match(roster, /fd\.disabled\s*=\s*mode\s*===\s*["']triple["']/);
+  assert.match(roster, /requiredCaptains\(fireKingdom\)/);
+  assert.match(roster, /updateFireControl\(\)/);
+  const control = extractFunction('updateFireControl');
+  assert.match(control, /button\.disabled\s*=\s*!rallyModeWritable\(fireKingdom\)/);
   const fireDouble = extractFunction('fireDouble');
-  assert.match(roster, /!rallyModeWritable\(fireKingdom\)/,
-    'an incomplete or capability-false Triple client must never enable Fire');
-  assert.match(fireDouble, /!rallyModeWritable\(commandKingdom\)/,
+  const fireCurrent = extractFunction('fireCurrentRally');
+  assert.match(fireCurrent, /!rallyModeWritable\(fireKingdom\)/,
     'the direct Double path must also fail closed in a raw Triple room');
+  assert.match(fireCurrent, /rallyMode\(fireKingdom\) === ["']triple["']/);
   assert.doesNotMatch(fireDouble, /triple_rally|weak2/);
 });

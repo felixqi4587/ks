@@ -307,10 +307,12 @@ function createHarness(config = {}) {
       });
     }
     function renderCommanderMarchEditor() {}
+    function clearPendingRallyFire() {}
     function clearPendingRallyMode() {}
     function markRemovalDisconnected() {}
     function rejectPendingDeliveryAck() { return false; }
     function handleRallyModeError() { return false; }
+    function handleRallyCommandError() { return false; }
     function handleRallyStageConflict() { return false; }
     function handleCommanderMarchProtocolError() { return false; }
     function handlePlayerProtocolError() { return false; }

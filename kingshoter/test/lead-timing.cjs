@@ -161,6 +161,7 @@ const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard } = req
   }).filter(Number.isFinite);
   const cueAt = (state, seconds) => state.cues.find((cue) => cue.key.endsWith(`-me:${seconds}`));
 
+  ok(command.type === 'double_rally', 'the lead matrix still exercises the unchanged Double command path');
   ok(command.payload.leadSeconds === selectedLead,
     'the selected lead is preserved in the command payload');
   ok(earliestPress * 1000 - confirmedMs >= selectedLead * 1000 - 250

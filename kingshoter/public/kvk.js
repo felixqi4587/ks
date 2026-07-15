@@ -1,5 +1,5 @@
 /* kingshoter — KvK command room (world-class rebuild).
-   Two jobs: (1) commander fires precise, per-captain double-rally launch targets; (2) every player
+   Two jobs: (1) commander fires precise, per-captain rally launch targets; (2) every player
    gets one unmistakable personal launch or generic join cue. Defense timing remains an explicit rehearsal.
    Relies on app.js for: $ esc pad mmss hhmmss toast · lang/setLang/applyI18n/initI18n/renderLangToggle ·
    serverNow/serverNowSec/syncClock/clockOffset · startClock · RoomSocket · ksActor/ksCastle/ksTriPts. */
@@ -20,7 +20,8 @@
   var pendingRegistrationProfile = null, draftActive = false, draftVersion = 0;
   var rosterQuery = "", pendingReplacementPid = "", pendingReplacementOrigin = null, pendingReplacementIncumbents = null, pendingReplacementAction = "";
   var pendingStageMutation = null, queuedStageByK = { 1: null, 2: null }, stageFocusByK = { 1: "", 2: "" };
-  var pendingRallyMode = null;
+  var pendingRallyMode = null, pendingRallyFire = null;
+  var syncFireConfirmation = function () {};
   var editingPlayerPid = "", commanderMarchDraft = "", commanderMarchDirty = false, commanderMarchLatest = null;
   var commanderMarchStatus = "", commanderMarchStatusTone = "", commanderMarchOriginPid = "";
   var pendingCommanderMarchMutation = null, commanderMarchStale = false, commanderMarchRefreshAfterSnapshot = -1, roomSnapshotSequence = 0;
@@ -696,10 +697,44 @@
     if (sock && typeof sock.refresh === "function") sock.refresh();
     return true;
   }
+  function rallyCommandSignature(command) {
+    var pairs = command && command.payload && Array.isArray(command.payload.pairs) ? command.payload.pairs : [];
+    return pickSignature(pairs.map(function (pair) { return { pid: pair.pid, role: pair.role }; }));
+  }
+  function clearPendingRallyFire() {
+    if (pendingRallyFire && pendingRallyFire.timeoutId) window.clearTimeout(pendingRallyFire.timeoutId);
+    pendingRallyFire = null;
+    updateFireControl();
+  }
+  function settlePendingRallyFire(sourceRoom) {
+    if (!pendingRallyFire) return false;
+    var live = sourceRoom && sourceRoom.live && sourceRoom.live.commands;
+    var command = live && live[pendingRallyFire.kingdom];
+    if (!command || command.type !== "triple_rally" || !command.id || command.id === pendingRallyFire.previousCommandId ||
+        !command.payload || command.payload.leadSeconds !== pendingRallyFire.leadSeconds ||
+        rallyCommandSignature(command) !== pendingRallyFire.signature) return false;
+    clearPendingRallyFire();
+    window.toast(tk("fired"));
+    return true;
+  }
+  function handleRallyCommandError(message) {
+    if (!pendingRallyFire || !message) return false;
+    if (message.mutationId) return false;
+    var error = message.error;
+    if (error === "bad_password") { clearPendingRallyFire(); return false; }
+    if (["triple_disabled", "rally_mode_conflict", "invalid_rally_roster", "invalid_march", "player_missing", "rally_live"].indexOf(error) < 0) return false;
+    clearPendingRallyFire();
+    if (error === "invalid_march") window.toast(tk("marchfirst"));
+    else if (error === "player_missing") window.toast(tk("player_missing"));
+    else if (error === "rally_live") window.toast(tk("rally_live"));
+    else window.toast(tk(error === "triple_disabled" ? "mode_unavailable" : "mode_changed_elsewhere"));
+    if (sock && typeof sock.refresh === "function") sock.refresh();
+    return true;
+  }
   function renderRallyMode() {
     var control = $("rallyModeControl"), input = $("tripleMode"), scope = $("rallyModeScope");
     var status = $("rallyModeStatus"), label = $("tripleModeLabel");
-    if (!control || !input || !scope || !status || !label) return;
+    if (!control || !input || !scope || !status || !label) { updateFireControl(); return; }
     var current = rallyModeRecord(fireKingdom);
     var allowed = !!(tripleClientAvailable && room && room.capabilities && room.capabilities.tripleRally);
     control.hidden = !allowed;
@@ -708,6 +743,7 @@
     input.checked = current.mode === "triple";
     input.disabled = !!pendingRallyMode || !!pendingStageMutation || !!queuedStageByK[fireKingdom] || !roomPw || !allowed;
     status.textContent = pendingRallyMode ? tk("mode_saving") : tk(current.mode === "triple" ? "mode_triple" : "mode_double");
+    updateFireControl();
   }
   function requestRallyMode(mode) {
     if (mode !== "double" && mode !== "triple") return false;
@@ -1070,12 +1106,27 @@
   function stagedForMe() { var st = room && room.live && room.live.staged; if (!st) return null; for (var k = 1; k <= 2; k++) { var s = st[k]; if (s && s.pairs) { var f = s.pairs.filter(function (x) { return x.pid === myPid; })[0]; if (f) return { kingdom: k, role: f.role }; } } return null; }
   // auto-ready: a captain is ready when joined+filled AND present (a fresh heartbeat ⇒ also clock-synced, since the same path re-runs syncClock). No tap, decays in ~70s if they drop.
   function isReady(p) { return !!(p && p.march && p.lastSeen && (window.serverNow() - Date.parse(p.lastSeen)) < 70000); }
+  function requiredCaptains(kingdom) { return rallyMode(kingdom) === "triple" ? 3 : 2; }
+  function updateFireControl() {
+    var button = $("fireDouble"), label = $("t_firedbl"), count = $("pickCnt");
+    if (!button || !label) return;
+    var mode = rallyMode(fireKingdom), required = requiredCaptains(fireKingdom), valid;
+    try { valid = rallyApi.reconcilePicks(pickedByK[fireKingdom], mode); }
+    catch (e) { valid = fallbackRallyApi.reconcilePicks(pickedByK[fireKingdom], mode); }
+    var roles = rallyApi.rolesForMode(mode), complete = valid.length === required && roles.every(function (role) {
+      return valid.some(function (pick) { return pick.role === role; });
+    });
+    button.disabled = !rallyModeWritable(fireKingdom) || !complete || !!pendingStageMutation || !!queuedStageByK[fireKingdom] || !!pendingRallyMode || !!pendingRallyFire;
+    label.textContent = tk(required === 3 ? "firetri" : "firedbl");
+    if (count) count.textContent = valid.length + "/" + required;
+    syncFireConfirmation();
+  }
   function refreshSyncPill() {
     var el = $("syncPill"); if (!el) return;
-    var cur = pickedByK[fireKingdom], required = rallyMode(fireKingdom) === "triple" ? 3 : 2;
+    var cur = pickedByK[fireKingdom], required = requiredCaptains(fireKingdom);
     var n = cur.length, rn = cur.filter(function (x) { return isReady(room && room.players && room.players[x.pid]); }).length;
     if (!n) { el.textContent = tkf("syncp_pick", { n: required }); el.className = "syncpill"; return; }
-    el.textContent = tkf("syncp", { n: rn, m: n }); el.className = "syncpill" + (n === required && rn === required ? " allgo" : "");
+    el.textContent = tkf("syncp", { n: rn, m: required }); el.className = "syncpill" + (n === required && rn === required ? " allgo" : "");
   }
   function paintHero() {
     var ph = $("phero"), c = room ? activeCommand(room) : null;
@@ -1442,7 +1493,7 @@
 
   /* ---------- commander ---------- */
   function renderKingdomPick() { var b = $("kingdomPick"); if (!b) return; b.innerHTML = [1, 2].map(function (n) { return '<button class="chipbtn ' + (fireKingdom === n ? "kon" : "") + '" data-k="' + n + '">🌍 ' + tk("kw" + n) + '</button>'; }).join(""); b.querySelectorAll("button").forEach(function (x) { x.onclick = function () { fireKingdom = +x.getAttribute("data-k"); closeReplacement(false); renderKingdomPick(); renderRallyMode(); if (room) renderRoster(); setCancelLabel(); }; }); renderRallyMode(); }
-  function renderLead() { var b = $("lead"); if (!b) return; b.innerHTML = [10, 15, 30, 60].map(function (v) { return '<button class="chipbtn ' + (v === lead ? "on" : "") + '" data-v="' + v + '">' + (L() ? "in " + v + "s" : v + "秒后") + '</button>'; }).join(""); b.querySelectorAll("button").forEach(function (x) { x.onclick = function () { lead = +x.getAttribute("data-v"); renderLead(); }; }); }
+  function renderLead() { var b = $("lead"); if (!b) return; b.innerHTML = [10, 15, 30, 60].map(function (v) { return '<button class="chipbtn ' + (v === lead ? "on" : "") + '" data-v="' + v + '">' + (L() ? "in " + v + "s" : v + "秒后") + '</button>'; }).join(""); b.querySelectorAll("button").forEach(function (x) { x.onclick = function () { lead = +x.getAttribute("data-v"); renderLead(); syncFireConfirmation(); }; }); }
 
   function canonicalPick(pid, role, players) {
     var player = players && players[pid];
@@ -1892,7 +1943,7 @@
   function renderRoster() {
     var box = $("roster"); if (!box || !room) return;
     var players = Object.keys(room.players || {}).map(function (pid) { return Object.assign({ pid: pid }, room.players[pid]); });
-    var mode = rallyMode(fireKingdom), required = mode === "triple" ? 3 : 2;
+    var mode = rallyMode(fireKingdom), required = requiredCaptains(fireKingdom);
     var cur = pickedByK[fireKingdom], otherK = fireKingdom === 1 ? 2 : 1, other = pickedByK[otherK].concat(serverStagedByK[otherK] || []);
     $("pickCnt").textContent = cur.length + "/" + required;
     box.innerHTML = "";
@@ -1904,7 +1955,7 @@
       if ($("duplicateHint")) { $("duplicateHint").classList.add("hide"); $("duplicateHint").textContent = ""; }
       box.innerHTML = '<span class="hint">' + tk("mapempty") + '</span>';
       refreshSyncPill(); renderSlots(); renderCommanderMarchEditor();
-      var emptyFire = $("fireDouble"); if (emptyFire) emptyFire.disabled = true;
+      updateFireControl();
       return;
     }
     var counts = duplicateNameCounts(room.players), duplicateExists = Object.keys(counts).some(function (name) { return counts[name] > 1; });
@@ -1944,9 +1995,7 @@
       wrap.appendChild(el); wrap.appendChild(roleButton); wrap.appendChild(timeButton); wrap.appendChild(del); box.appendChild(wrap);
     });
     refreshSyncPill(); renderSlots(); renderCommanderMarchEditor(); if (rosterActionsPid) renderRosterActionsMenu();
-    var roles = rallyApi.rolesForMode(mode), ready = cur.length === required && roles.every(function (role) { return cur.some(function (pick) { return pick.role === role; }); });
-    var fd = $("fireDouble"); if (fd) fd.disabled = mode === "triple" || !rallyModeWritable(fireKingdom) || !ready || !!pendingStageMutation || !!queuedStageByK[fireKingdom] || !!pendingRallyMode;
-    var fireLabel = $("t_firedbl"); if (fireLabel) fireLabel.textContent = tk(mode === "triple" ? "firetri" : "firedbl");
+    updateFireControl();
   }
   function deliveryForPlayer(command, pid) {
     if (!command || !Array.isArray(command.delivery)) return null;
@@ -2011,6 +2060,7 @@
   }
   function renderSlots(kingdom) {
     var box = $("pickSlots"); if (!box) return;
+    updateFireControl();
     var selectedKingdom = kingdom || fireKingdom;
     var selectedCommand = room && room.live && room.live.commands && room.live.commands[selectedKingdom];
     var selectedPairs = selectedCommand && selectedCommand.payload && Array.isArray(selectedCommand.payload.pairs) ? selectedCommand.payload.pairs : [];
@@ -2067,6 +2117,67 @@
     });
   }
 
+  function fireTriple() {
+    var commandKingdom = fireKingdom, record = rallyModeRecord(commandKingdom), commandLead = lead;
+    if (record.mode !== "triple" || !rallyModeWritable(commandKingdom)) { window.toast(tk("mode_unavailable")); return; }
+    if (pendingStageMutation || queuedStageByK[commandKingdom] || pendingRallyMode || pendingRallyFire) { window.toast(tk("mode_saving")); return; }
+    var cur = rallyApi.reconcilePicks(pickedByK[commandKingdom], "triple");
+    var roles = rallyApi.rolesForMode("triple");
+    if (cur.length !== 3 || !roles.every(function (role) { return cur.some(function (pick) { return pick.role === role; }); })) {
+      window.toast(tk("need3")); return;
+    }
+    var canonical = cur.map(function (pick) { return canonicalPick(pick.pid, pick.role, room && room.players); });
+    if (canonical.some(function (pick) { return !pick || !pick.march; })) { window.toast(tk("nomarch")); return; }
+    var expectedSignature = pickSignature(cur);
+    gateSync(function () {
+      var latestRecord = rallyModeRecord(commandKingdom);
+      if (latestRecord.mode !== "triple" || latestRecord.revision !== record.revision || !rallyModeWritable(commandKingdom) ||
+          pendingStageMutation || queuedStageByK[commandKingdom] || pendingRallyMode ||
+          pickSignature(pickedByK[commandKingdom]) !== expectedSignature) {
+        window.toast(tk("mode_changed_elsewhere")); return;
+      }
+      if (canonical.some(function (pick) { return !isReady(room && room.players && room.players[pick.pid]); })) window.toast(tk("cap_absent"));
+      var previousCommand = room && room.live && room.live.commands && room.live.commands[commandKingdom];
+      var pendingFire = {
+        kingdom: commandKingdom, modeRevision: record.revision, leadSeconds: commandLead,
+        signature: expectedSignature, previousCommandId: previousCommand && previousCommand.id || ""
+      };
+      pendingRallyFire = pendingFire;
+      pendingFire.timeoutId = window.setTimeout(function () {
+        if (pendingRallyFire !== pendingFire) return;
+        clearPendingRallyFire(); window.toast(tk("notconn"));
+        if (sock && typeof sock.refresh === "function") sock.refresh();
+      }, 8000);
+      updateFireControl();
+      var ok = sock.send({
+        t: "cmd", password: roomPw,
+        cmd: {
+          type: "triple_rally", kingdom: commandKingdom, modeRevision: record.revision,
+          payload: {
+            leadSeconds: commandLead,
+            pairs: canonical.map(function (pick) { return { pid: pick.pid, role: pick.role }; })
+          }
+        }
+      });
+      if (ok) consumeStageForFire(commandKingdom);
+      else { clearPendingRallyFire(); window.toast(tk("notconn")); }
+    });
+  }
+
+  function fireCurrentRally() {
+    if (!rallyModeWritable(fireKingdom)) { window.toast(tk("mode_unavailable")); return; }
+    if (pendingStageMutation || queuedStageByK[fireKingdom] || pendingRallyMode || pendingRallyFire) { window.toast(tk("mode_saving")); return; }
+    if (rallyMode(fireKingdom) === "triple") fireTriple();
+    else fireDouble();
+  }
+
+  function fireConfirmationKey() {
+    var record = rallyModeRecord(fireKingdom), mode = rallyMode(fireKingdom), picks;
+    try { picks = rallyApi.reconcilePicks(pickedByK[fireKingdom], mode); }
+    catch (e) { picks = fallbackRallyApi.reconcilePicks(pickedByK[fireKingdom], mode); }
+    return [fireKingdom, record.mode, record.revision, lead, pickSignature(picks)].join("|");
+  }
+
   function consumeStageForFire(kingdom) {
     queuedStageByK[kingdom] = null;
     if (pendingStageMutation && pendingStageMutation.kingdom === kingdom) pendingStageMutation = null;
@@ -2092,6 +2203,7 @@
     queuedStageByK[fireKingdom] = {
       picks: clonePicks(pickedByK[fireKingdom]), mode: record.mode, modeRevision: record.revision
     };
+    renderRallyMode();
     return pumpStageQueue();
   }
   function pumpStageQueue() {
@@ -2122,13 +2234,36 @@
     if (!ok) rollbackStageSelection(tk("notconn"), true);
     return ok;
   }
-  function tapFire(btn, labelEl, labelKey, fn) {   // double-TAP to confirm — no long-press, so iOS never pops the text-selection/copy callout
-    var armed = 0;
+  function tapFire(btn, labelEl, labelKey, commandKey, fn) {   // double-TAP to confirm — no long-press, so iOS never pops the text-selection/copy callout
+    var armedAt = 0, armedLabelKey = "", armedCommandKey = "", armToken = 0;
+    function currentLabelKey() { return typeof labelKey === "function" ? labelKey() : labelKey; }
+    function currentCommandKey() { try { return String(commandKey()); } catch (e) { return ""; } }
+    function disarm() {
+      armedAt = 0; armedLabelKey = ""; armedCommandKey = ""; armToken += 1;
+      labelEl.textContent = tk(currentLabelKey()); btn.classList.remove("armed");
+    }
+    function syncArm() {
+      if (!armedAt) return;
+      if (btn.disabled || currentLabelKey() !== armedLabelKey || currentCommandKey() !== armedCommandKey) disarm();
+      else { labelEl.textContent = tk("tapagain"); btn.classList.add("armed"); }
+    }
     btn.onclick = function () {
-      var n = Date.now();
-      if (armed && n - armed < 3000) { armed = 0; labelEl.textContent = tk(labelKey); btn.classList.remove("armed"); try { navigator.vibrate && navigator.vibrate(40); } catch (e) {} fn(); }
-      else { armed = n; var a = n; labelEl.textContent = tk("tapagain"); btn.classList.add("armed"); setTimeout(function () { if (armed === a) { armed = 0; labelEl.textContent = tk(labelKey); btn.classList.remove("armed"); } }, 3000); }
+      updateFireControl(); syncArm();
+      if (btn.disabled) { disarm(); return; }
+      var n = Date.now(), key = currentLabelKey(), snapshot = currentCommandKey();
+      if (!snapshot) { disarm(); return; }
+      if (armedAt && n - armedAt < 3000 && armedLabelKey === key && armedCommandKey === snapshot) {
+        disarm();
+        try { navigator.vibrate && navigator.vibrate(40); } catch (e) {}
+        fn(); return;
+      }
+      armedAt = n; armedLabelKey = key; armedCommandKey = snapshot; var token = ++armToken;
+      labelEl.textContent = tk("tapagain"); btn.classList.add("armed");
+      setTimeout(function () {
+        if (armToken === token) disarm();
+      }, 3000);
     };
+    return syncArm;
   }
 
   /* ---------- player identity ---------- */
@@ -2406,6 +2541,7 @@
     sock.onOpen = function () { deliveryShadowConnectionOpened(); initialStateSeen = false; safeUpdateCheck(); registrationPending = false; setNet(true); sendDeviceStatus(); retryPendingDeliveryAcks(true); beginClockSync().then(deliveryShadowClockCallback()); };
     sock.onClose = function () {
       initialStateSeen = false; registrationPending = false;
+      clearPendingRallyFire();
       clearPendingRallyMode();
       if (pendingMarchMutation && !pendingMarchMutation.ackSeen) pendingMarchMutation = null;
       if (pendingCommanderMarchMutation && !pendingCommanderMarchMutation.ackSeen) { pendingCommanderMarchMutation = null; commanderMarchStatus = "unsaved"; commanderMarchStatusTone = "err"; commanderMarchDirty = true; renderCommanderMarchEditor(); }
@@ -2418,6 +2554,7 @@
       if (rejectPendingDeliveryAck(m)) return;
       if (m && m.source === "deviceStatus" && ["invalid_device_identity", "socket_identity_locked", "device_owned_by_other_pid"].indexOf(m.error) >= 0) return;
       if (handleRallyModeError(m)) return;
+      if (handleRallyCommandError(m)) return;
       if (handleRallyStageConflict(m)) return;
       if (handleCommanderMarchProtocolError(m)) return;
       if (handlePlayerProtocolError(m)) return;
@@ -2542,8 +2679,8 @@
       var gone = liveCommands(room).filter(function (c) { return myTarget(c).anchor > nowS - 1 && newIds.indexOf(c.id) < 0; });
       if (gone.some(function (c) { return myTarget(c).mine; })) { beepCancelled(); window.toast(tk("order_cancelled")); }
     }
-    room = r; settleRallyModeMutation(); renderRallyMode();
-    if (firstSnapshot) sendDeviceStatus(); if (!pendingStageMutation) pumpStageQueue(); reconcileCommanderMarchState(nextPlayers); setNet(true); if (pendingUnlock && r.updatedBy && r.updatedBy === pendingTok) unlockedOK(); presenceN = r.presence || 1; paintChrome(); paintHero(); syncMap(); renderRoster(); if (settledStageFocusPid) restoreRosterFocus(settledStageFocusPid); scheduleAllCues(); paintAudioStatus();
+    room = r; settlePendingRallyFire(r); settleRallyModeMutation(); renderRallyMode();
+    if (firstSnapshot) sendDeviceStatus(); if (!pendingStageMutation) pumpStageQueue(); reconcileCommanderMarchState(nextPlayers); setNet(true); if (pendingUnlock && r.updatedBy && r.updatedBy === pendingTok) unlockedOK(); presenceN = r.presence || 1; paintChrome(); paintHero(); syncMap(); renderRoster(); updateFireControl(); if (settledStageFocusPid) restoreRosterFocus(settledStageFocusPid); scheduleAllCues(); paintAudioStatus();
     var ew = (r.config && r.config.enemyWhales) || [], key = JSON.stringify(ew);
     if (key !== lastWhalesKey) {
       lastWhalesKey = key; enemyWhales = ew; setBadge(); if (viewMode === "defense") renderDefense();   // only re-render (resets the radar) when the whale list actually changed, not on every heartbeat
@@ -2592,7 +2729,7 @@
     set("t_tab_atk", "tab_atk"); set("t_tab_def", "tab_def"); set("t_dpanel", "dpanel"); set("t_dpanelhint", "dpanelhint"); set("t_addenemy", "addenemy"); set("t_pubwhales", "pubwhales");
     var cd = $("cstep_def"); if (cd) cd.textContent = L() ? "🛡️ Set incoming whales → publish" : "🛡️ 设敌鲸 → 发布";
     var dl = $("dleg"); if (dl) dl.innerHTML = L() ? "🔴 incoming<br>🛡️ your refill<br>🏰 castle shield" : "🔴 敌鲸来袭<br>🛡️ 你的补兵<br>🏰 王城护盾";
-    $("t_firedbl").textContent = tk("firedbl"); setCancelLabel();
+    $("t_firedbl").textContent = tk("firedbl"); updateFireControl(); setCancelLabel();
     paintAudioStatus();
     var mt = $("marchTip"); if (mt) mt.textContent = tk("marchtip2");
     var sg = $("soundGate"); if (sg) sg.textContent = tk("soundgate");
@@ -2755,7 +2892,7 @@
     $("pwCancel").onclick = function () { $("pwOvl").classList.remove("show"); };
     $("pwGo").onclick = doUnlock; $("pwInput").addEventListener("keydown", function (e) { if (e.key === "Enter") doUnlock(); });
     try { var sp = localStorage.getItem(LS("pw")); if (sp) { roomPw = sp; openCmd(); } } catch (e) {}
-    tapFire($("fireDouble"), $("t_firedbl"), "firedbl", fireDouble);
+    syncFireConfirmation = tapFire($("fireDouble"), $("t_firedbl"), function () { return requiredCaptains(fireKingdom) === 3 ? "firetri" : "firedbl"; }, fireConfirmationKey, fireCurrentRally);
     var cancelArmed = 0;
     $("cancelBtn").onclick = function () { var n = Date.now(); if (cancelArmed && n - cancelArmed < 3000) { cancelArmed = 0; var ok = sock.send({ t: "cmd", password: roomPw, cmd: { type: "cancel", kingdom: fireKingdom } }); window.toast(ok ? tk("cancelled") : tk("notconn")); } else { cancelArmed = n; window.toast(tk("cancelq")); } };
     $("soundGate").onclick = function () { enableSound(false); };

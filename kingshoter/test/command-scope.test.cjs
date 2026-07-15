@@ -50,6 +50,9 @@ test('the default command room keeps its normal controls and does not add the re
 test('personal staggered launch timing remains the default command model', () => {
   const js = read('public/kvk.js');
 
+  assert.match(js, /type:\s*["']double_rally["']/);
+  assert.match(js, /type:\s*["']triple_rally["']/,
+    'Triple is an additional launch type inside the same command console');
   assert.match(js, /off\s*=\s*\(main\.march\s*-\s*weak\.march\)\s*-\s*1/);
   assert.match(js, /pressUTC:\s*ps/);
   assert.match(js, /pressUTC:\s*pm/);
