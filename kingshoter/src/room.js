@@ -5,6 +5,7 @@
 
 import {
   activeCommandPids,
+  applyOwnProfileUpdate,
   applyPlayerMarchUpdate,
   freezeDoubleRally,
   normalizeMutationId,
@@ -834,6 +835,32 @@ export class Room {
         });
       }
       if (privateDeliveryChanged) await this.persistAll(); else await this.persist();
+      this.broadcast(); return;
+    }
+
+    if (m.t === "updateOwnProfile") {
+      const mutationId = normalizeMutationId(m.mutationId);
+      const pid = normalizeRoutingKey(m.pid);
+      const attachment = this.readSocketAttachment(ws);
+      if (!attachment.pid || attachment.pid !== pid) {
+        return ws.send(JSON.stringify({ t: "error", error: "core_identity_mismatch", mutationId, pid }));
+      }
+      const previousPlayer = this.room.players[pid];
+      const result = applyOwnProfileUpdate(this.room.players, m, { touchLastSeen: true, nowISO: this.now() });
+      if (!result.ok) return ws.send(JSON.stringify(Object.assign({ t: "error" }, result)));
+      try {
+        await this.persist();
+      } catch (error) {
+        this.room.players[pid] = previousPlayer;
+        return ws.send(JSON.stringify({
+          t: "error", error: "profile_persist_failed", mutationId: result.mutationId, pid: result.pid
+        }));
+      }
+      try {
+        ws.send(JSON.stringify(Object.assign({
+          t: "playerProfileSaved", mutationId: result.mutationId
+        }, result.profile)));
+      } catch (e) {}
       this.broadcast(); return;
     }
 

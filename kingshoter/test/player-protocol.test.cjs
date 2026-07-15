@@ -113,6 +113,183 @@ test('player and commander updates acknowledge mutationId and broadcast canonica
   assert.equal(h.room.room.updatedBy, configAuthor);
 });
 
+test('socket-bound profile updates switch identity modes without changing routing attachment', async () => {
+  const { Room } = await loadRoom();
+  const h = createRoomHarness(Room, {
+    players: {
+      '001': {
+        name: 'Old Nick', march: 32, marchRevision: 0, identityMode: 'nickname',
+        alliance: '', ready: false, lastSeen: '2026-07-15T00:00:00.000Z'
+      }
+    }
+  });
+  const deviceId = '00000000-0000-4000-8000-000000000102';
+  await bindPlayerSocket(h, '001', deviceId);
+
+  await h.room.webSocketMessage(h.ws, JSON.stringify({
+    t: 'updateOwnProfile', mutationId: 'profile-to-id', pid: '001',
+    identityMode: 'playerId', playerId: '900000001', name: 'Resolved Alpha',
+    march: 33, baseRevision: 0
+  }));
+
+  assert.deepEqual(h.sent, [{
+    t: 'playerProfileSaved', mutationId: 'profile-to-id', pid: '001',
+    identityMode: 'playerId', playerId: '900000001', name: 'Resolved Alpha',
+    march: 33, revision: 1
+  }]);
+  assert.deepEqual(h.calls, ['persist', 'broadcast']);
+  assert.equal(h.room.room.players['001'].playerId, '900000001');
+  assert.equal(h.room.room.players['900000001'], undefined);
+  assert.equal(h.room.readSocketAttachment(h.ws).pid, '001');
+  assert.equal(h.room.readSocketAttachment(h.ws).deviceId, deviceId);
+
+  h.reset();
+  await h.room.webSocketMessage(h.ws, JSON.stringify({
+    t: 'updateOwnProfile', mutationId: 'profile-to-nick', pid: '001',
+    identityMode: 'nickname', playerId: '900000001', name: 'New Nick',
+    march: 34, baseRevision: 1
+  }));
+
+  assert.deepEqual(h.sent, [{
+    t: 'playerProfileSaved', mutationId: 'profile-to-nick', pid: '001',
+    identityMode: 'nickname', name: 'New Nick', march: 34, revision: 2
+  }]);
+  assert.deepEqual(h.calls, ['persist', 'broadcast']);
+  assert.equal(Object.hasOwn(h.room.room.players['001'], 'playerId'), false);
+  assert.equal(h.room.readSocketAttachment(h.ws).pid, '001');
+  assert.equal(h.room.readSocketAttachment(h.ws).deviceId, deviceId);
+});
+
+test('profile updates authorize the socket attachment before accepting the requested pid', async () => {
+  const { Room } = await loadRoom();
+  const h = createRoomHarness(Room);
+  await bindPlayerSocket(h, '001');
+  const before = structuredClone(h.room.room.players.kimchi);
+
+  await h.room.webSocketMessage(h.ws, JSON.stringify({
+    t: 'updateOwnProfile', mutationId: 'profile-spoof', pid: 'kimchi',
+    identityMode: 'nickname', name: 'Spoofed', march: 41, baseRevision: 0
+  }));
+
+  assert.deepEqual(h.sent, [{
+    t: 'error', error: 'core_identity_mismatch', mutationId: 'profile-spoof', pid: 'kimchi'
+  }]);
+  assert.deepEqual(h.room.room.players.kimchi, before);
+  assert.deepEqual(h.calls, []);
+});
+
+test('profile updates reject duplicate player ids without persistence or broadcast', async () => {
+  const { Room } = await loadRoom();
+  const h = createRoomHarness(Room, {
+    players: {
+      kimchi: {
+        name: 'Kimchi', march: 40, marchRevision: 0, identityMode: 'playerId',
+        playerId: '900000002', alliance: '', ready: false,
+        lastSeen: '2026-07-15T00:00:00.000Z'
+      }
+    }
+  });
+  await bindPlayerSocket(h, '001');
+  const before = structuredClone(h.room.room.players['001']);
+
+  await h.room.webSocketMessage(h.ws, JSON.stringify({
+    t: 'updateOwnProfile', mutationId: 'profile-duplicate', pid: '001',
+    identityMode: 'playerId', playerId: '900000002', name: 'Alpha',
+    march: 33, baseRevision: 0
+  }));
+
+  assert.equal(h.sent.length, 1);
+  assert.equal(h.sent[0].t, 'error');
+  assert.equal(h.sent[0].error, 'player_id_conflict');
+  assert.equal(h.sent[0].mutationId, 'profile-duplicate');
+  assert.equal(h.sent[0].pid, '001');
+  assert.deepEqual(h.room.room.players['001'], before);
+  assert.deepEqual(h.calls, []);
+});
+
+test('stale profile updates return the canonical profile without persistence or broadcast', async () => {
+  const { Room } = await loadRoom();
+  const h = createRoomHarness(Room, {
+    players: {
+      '001': {
+        name: 'Canonical', march: 35, marchRevision: 2, identityMode: 'playerId',
+        playerId: '900000001', alliance: '', ready: false,
+        lastSeen: '2026-07-15T00:00:00.000Z'
+      }
+    }
+  });
+  await bindPlayerSocket(h, '001');
+  const before = structuredClone(h.room.room.players['001']);
+
+  await h.room.webSocketMessage(h.ws, JSON.stringify({
+    t: 'updateOwnProfile', mutationId: 'profile-stale', pid: '001',
+    identityMode: 'nickname', name: 'Stale', march: 34, baseRevision: 1
+  }));
+
+  assert.equal(h.sent.length, 1);
+  assert.equal(h.sent[0].t, 'error');
+  assert.equal(h.sent[0].error, 'player_conflict');
+  assert.equal(h.sent[0].mutationId, 'profile-stale');
+  assert.equal(h.sent[0].pid, '001');
+  assert.deepEqual(h.sent[0].profile, {
+    pid: '001', identityMode: 'playerId', playerId: '900000001',
+    name: 'Canonical', march: 35, revision: 2
+  });
+  assert.deepEqual(h.room.room.players['001'], before);
+  assert.deepEqual(h.calls, []);
+});
+
+test('profile persistence failure restores the original record and does not broadcast', async () => {
+  const { Room } = await loadRoom();
+  const h = createRoomHarness(Room);
+  await bindPlayerSocket(h, '001');
+  const original = h.room.room.players['001'];
+  const before = structuredClone(original);
+  h.room.persist = async () => {
+    h.calls.push('persist');
+    throw new Error('storage unavailable');
+  };
+
+  await h.room.webSocketMessage(h.ws, JSON.stringify({
+    t: 'updateOwnProfile', mutationId: 'profile-persist-fail', pid: '001',
+    identityMode: 'nickname', name: 'Not Saved', march: 33, baseRevision: 0
+  }));
+
+  assert.deepEqual(h.sent, [{
+    t: 'error', error: 'profile_persist_failed',
+    mutationId: 'profile-persist-fail', pid: '001'
+  }]);
+  assert.equal(h.room.room.players['001'], original);
+  assert.deepEqual(h.room.room.players['001'], before);
+  assert.deepEqual(h.calls, ['persist']);
+});
+
+test('profile update still broadcasts persisted canonical state when the sender drops during ACK', async () => {
+  const { Room } = await loadRoom();
+  const h = createRoomHarness(Room);
+  await bindPlayerSocket(h, '001');
+  let persistedPlayer = null;
+  h.room.persist = async () => {
+    h.calls.push('persist');
+    persistedPlayer = structuredClone(h.room.room.players['001']);
+  };
+  h.ws.send = () => { throw new Error('initiator disconnected'); };
+
+  await assert.doesNotReject(() => h.room.webSocketMessage(h.ws, JSON.stringify({
+    t: 'updateOwnProfile', mutationId: 'profile-dropped', pid: '001',
+    identityMode: 'playerId', playerId: '900000001', name: 'Saved Alpha',
+    march: 36, baseRevision: 0
+  })));
+
+  assert.deepEqual(persistedPlayer, h.room.room.players['001']);
+  assert.equal(persistedPlayer.name, 'Saved Alpha');
+  assert.equal(persistedPlayer.playerId, '900000001');
+  assert.equal(persistedPlayer.march, 36);
+  assert.equal(persistedPlayer.marchRevision, 1);
+  assert.deepEqual(h.sent, []);
+  assert.deepEqual(h.calls, ['persist', 'broadcast']);
+});
+
 test('self march updates require the socket-bound player while commander override stays authenticated', async () => {
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room);
