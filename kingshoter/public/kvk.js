@@ -1988,15 +1988,16 @@
     if ($("duplicateHint")) { $("duplicateHint").classList.toggle("hide", !duplicateExists); $("duplicateHint").textContent = duplicateExists ? tk("duplicate_suffix") : ""; }
     var rank = function (p) { return (cur.some(function (x) { return x.pid === p.pid; }) ? 0 : 2) + (isReady(p) ? 0 : 1); };
     players.sort(function (a, b) { return rank(a) - rank(b) || String(a.name || a.pid).localeCompare(String(b.name || b.pid)); });
-    var present = Object.create(null), rows = Object.create(null);
+    var present = Object.create(null), rows = Object.create(null), oldIndexByPid = Object.create(null), oldRowIndex = 0;
     players.forEach(function (p) { present[p.pid] = true; });
     Array.prototype.slice.call(box.children).forEach(function (child) {
       if (child.classList.contains("hint")) { child.remove(); return; }
       if (!child.classList.contains("roster-row")) return;
       var pid = child.dataset.pid;
+      oldIndexByPid[pid] = oldRowIndex; oldRowIndex += 1;
       if (!present[pid]) child.remove(); else rows[pid] = child;
     });
-    players.forEach(function (p, index) {
+    players.forEach(function (p) {
       var sel = cur.filter(function (x) { return x.pid === p.pid; })[0], inO = other.filter(function (x) { return x.pid === p.pid; })[0];
       var parts = playerDisplayParts(p.pid, playerRecords, counts), wrap = rows[p.pid];
       if (!wrap) {
@@ -2037,8 +2038,13 @@
       del.onclick = function (event) { event.preventDefault(); event.stopPropagation(); openRosterActionsMenu(p.pid); };
       el.onclick = function () { selectOrReplacePlayer(p.pid); };
       var haystack = ((p.name || "") + " " + p.pid).toLowerCase(); wrap.hidden = !!(rosterQuery && haystack.indexOf(rosterQuery) < 0);
-      var current = box.children[index]; if (current !== wrap) box.insertBefore(wrap, current || null);
     });
+    var nextRow = null;
+    for (var desiredIndex = players.length - 1; desiredIndex >= 0; desiredIndex -= 1) {
+      var desiredPid = players[desiredIndex].pid, desiredRow = rows[desiredPid];
+      if (oldIndexByPid[desiredPid] !== desiredIndex && desiredRow.nextSibling !== nextRow) box.insertBefore(desiredRow, nextRow);
+      nextRow = desiredRow;
+    }
     refreshSyncPill(); renderSlots(); renderCommanderMarchEditor(); if (rosterActionsPid) renderRosterActionsMenu();
     updateFireControl();
   }

@@ -139,6 +139,15 @@ async function assertLayout(page, width) {
       }, { targetPid: pid, expected: staged, sequence: afterSequence });
       assert.equal(await primary(pid).getAttribute('aria-pressed'), staged ? 'true' : 'false');
     };
+    const expectCanonicalStage = async (pids, afterSequence) => {
+      const expected = pids.slice().sort();
+      await page.waitForFunction(({ targetPids, sequence }) => {
+        const canonical = Array.isArray(window.__qaRosterCanonicalK1) ? window.__qaRosterCanonicalK1.slice().sort() : [];
+        return (window.__qaRosterStateSequence || 0) > sequence && canonical.length === targetPids.length &&
+          canonical.every((pid, index) => pid === targetPids[index]);
+      }, { targetPids: expected, sequence: afterSequence });
+    };
+    const rosterOrder = () => page.locator('#roster .roster-row').evaluateAll(rows => rows.map(row => row.dataset.pid));
 
     const interruptedTarget = primary('900000004');
     await interruptedTarget.scrollIntoViewIfNeeded();
@@ -165,6 +174,65 @@ async function assertLayout(page, width) {
     const unstageSequence = await page.evaluate(() => window.__qaRosterStateSequence || 0);
     await primary('900000004').click();
     await expectStage('900000004', false, unstageSequence);
+
+    const stableA = '900000001', stableB = '900000002', stableC = '900000003', stableD = '900000004';
+    let canonicalSequence = await page.evaluate(() => window.__qaRosterStateSequence || 0);
+    await sendMessages(page, [{
+      t: 'stage', password: 'roster-password',
+      staged: { kingdom: 1, pairs: [{ pid: stableA, role: 'weak' }, { pid: stableC, role: 'main' }] }
+    }]);
+    await expectCanonicalStage([stableA, stableC], canonicalSequence);
+    const oldOrder = await rosterOrder();
+    assert.deepEqual(oldOrder.slice(0, 4), [stableA, stableC, stableB, stableD]);
+
+    const stableTarget = primary(stableB);
+    await stableTarget.scrollIntoViewIfNeeded();
+    await stableTarget.focus();
+    const stableButton = await stableTarget.elementHandle();
+    const stableRow = await page.locator(`#roster .roster-row[data-pid="${stableB}"]`).elementHandle();
+    const stableBox = await stableTarget.boundingBox();
+    assert.ok(stableButton);
+    assert.ok(stableRow);
+    assert.ok(stableBox);
+    await stableRow.evaluate(row => {
+      window.__qaStableRosterRowMutations = 0;
+      window.__qaStableRosterRowObserver = new MutationObserver(records => {
+        records.forEach(record => {
+          const moved = Array.from(record.removedNodes).concat(Array.from(record.addedNodes)).some(node => node === row);
+          if (moved) window.__qaStableRosterRowMutations += 1;
+        });
+      });
+      window.__qaStableRosterRowObserver.observe(row.parentElement, { childList: true });
+    });
+    await stableButton.evaluate(node => {
+      window.__qaStableRosterClickTrusted = null;
+      node.addEventListener('click', event => { window.__qaStableRosterClickTrusted = event.isTrusted; }, { once: true });
+    });
+    assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.matches('.rp[data-pid="900000002"]')), true);
+    await page.mouse.move(stableBox.x + stableBox.width / 2, stableBox.y + stableBox.height / 2);
+    await page.mouse.down();
+    canonicalSequence = await page.evaluate(() => window.__qaRosterStateSequence || 0);
+    await sendMessages(page, [{
+      t: 'stage', password: 'roster-password',
+      staged: { kingdom: 1, pairs: [{ pid: stableA, role: 'weak' }, { pid: stableD, role: 'main' }] }
+    }]);
+    await expectCanonicalStage([stableA, stableD], canonicalSequence);
+    const newOrder = await rosterOrder();
+    assert.deepEqual(newOrder.slice(0, 4), [stableA, stableD, stableB, stableC]);
+    assert.equal(oldOrder.indexOf(stableB), newOrder.indexOf(stableB), 'stable B keeps its final sorted index');
+    assert.equal(await page.evaluate(() => window.__qaStableRosterRowMutations), 0, 'stable B row is never removed or reinserted');
+    assert.equal(await stableRow.evaluate(row => row.isConnected), true);
+    assert.equal(await stableButton.evaluate(node => node.isConnected), true);
+    assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.matches('.rp[data-pid="900000002"]')), true, 'stable B keeps focus during surrounding reorder');
+    await page.mouse.up();
+    assert.equal(await page.evaluate(() => window.__qaStableRosterClickTrusted), true, 'stable B mouseup produces a trusted click');
+    await page.locator('#replaceOvl').waitFor({ state: 'visible' });
+    await page.locator('#replaceCancel').click();
+    await page.evaluate(() => window.__qaStableRosterRowObserver.disconnect());
+    canonicalSequence = await page.evaluate(() => window.__qaRosterStateSequence || 0);
+    await sendMessages(page, [{ t: 'stage', password: 'roster-password', staged: { kingdom: 1, pairs: [] } }]);
+    await expectCanonicalStage([], canonicalSequence);
+    assert.equal(await page.locator('#roster .rp[aria-pressed="true"]').count(), 0, 'stable-row scenario clears canonical stage');
 
     await primary('900000001').click();
     await primary('900000002').click();
