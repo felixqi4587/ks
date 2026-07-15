@@ -386,27 +386,27 @@ function sentType(state, type) {
   return state.sent.filter(message => message.t === type);
 }
 
-test('Task 6 loads one isolated controller between app v11 and KvK v40', () => {
+test('Task 6 loads one isolated controller between app v11 and KvK v41', () => {
   const appIndex = html.indexOf('<script src="app.js?v=11"></script>');
   const shadowTag = '<script src="kvk-delivery-shadow.js?v=1"></script>';
   const shadowIndex = html.indexOf(shadowTag);
-  const kvkIndex = html.indexOf('<script src="kvk.js?v=40"></script>');
+  const kvkIndex = html.indexOf('<script src="kvk.js?v=41"></script>');
 
   assert.ok(appIndex >= 0, 'shared app script remains v11');
   assert.ok(shadowIndex > appIndex, 'shadow controller loads after app.js');
-  assert.ok(kvkIndex > shadowIndex, 'KvK v40 loads after the controller');
+  assert.ok(kvkIndex > shadowIndex, 'KvK v41 loads after the controller');
   assert.equal(html.split(shadowTag).length - 1, 1, 'the controller loads exactly once');
   assert.doesNotMatch(html.replace(shadowTag, ''), /delivery(?:Qa|Shadow)/i,
     'the QA candidate adds no HTML control, copy, style, or mode selector');
 });
 
-test('Task 6 cache assertions move atomically to v40 with no v39 residue', () => {
+test('Task 6 cache assertions move atomically to v41 with no v40 residue', () => {
   const cacheSources = [html, ...CACHE_TEST_PATHS.map(read)];
-  const oldLiteral = 'kvk.js?v=' + '39';
-  const oldPattern = 'kvk\\.js\\?v=' + '39';
+  const oldLiteral = 'kvk.js?v=' + '40';
+  const oldPattern = 'kvk\\.js\\?v=' + '40';
   for (const source of cacheSources) {
     assert.equal(source.includes(oldLiteral) || source.includes(oldPattern), false);
-    assert.equal(source.includes('kvk.js?v=40') || source.includes('kvk\\.js\\?v=40'), true);
+    assert.equal(source.includes('kvk.js?v=41') || source.includes('kvk\\.js\\?v=41'), true);
   }
 });
 

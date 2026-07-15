@@ -34,6 +34,10 @@ test('returning profiles force a fresh device binding as soon as canonical regis
   assert.match(script, /becameCanonical[\s\S]{0,180}sendDeviceStatus\(["']deviceStatus["'],\s*true\)/);
 });
 
+test('AudioContext recovery immediately refreshes canonical device readiness', () => {
+  assert.match(script, /ac\.onstatechange\s*=\s*function\s*\(\)\s*\{[\s\S]{0,220}ac\.state\s*===\s*["']running["'][\s\S]{0,80}sendDeviceStatus\(["']deviceStatus["'],\s*true\)/);
+});
+
 test('every reconnect and resume closes the ACK gate until a fresh time sync succeeds', () => {
   assert.match(script, /function beginClockSync\(/);
   assert.match(script, /attempt\s*!==\s*syncAttempt/);
@@ -64,5 +68,5 @@ test('Classic commander keeps fired slots visible and reserves green for receipt
 test('KvK cache versions move atomically with the delivery client and styles', () => {
   assert.match(html, /app\.css\?v=30/);
   assert.match(html, /app\.js\?v=11/);
-  assert.match(html, /kvk\.js\?v=40/);
+  assert.match(html, /kvk\.js\?v=41/);
 });

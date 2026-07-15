@@ -283,7 +283,7 @@ const roomUrl = qaRoomUrl(base, room, { notour: 1 });
     }, null, { timeout: 5000 });
     assert.equal(await manager.locator('link[href="app.css?v=30"]').count(), 1);
     assert.equal(await manager.locator('script[src="app.js?v=11"]').count(), 1);
-    assert.equal(await manager.locator('script[src="kvk.js?v=40"]').count(), 1);
+    assert.equal(await manager.locator('script[src="kvk.js?v=41"]').count(), 1);
     assert.deepEqual(errors, []);
     console.log(`✓ removal actions, retry, reconnect, and inline synchronization (${room})`);
   } finally {

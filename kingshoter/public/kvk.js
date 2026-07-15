@@ -447,7 +447,7 @@
   function AC() { return window.AudioContext || window.webkitAudioContext; }
   function ensureAudio() {
     try {
-      if (!ac) { ac = new (AC())(); window.__ac = ac; ac.onstatechange = function () { if (ac.state !== "running") { try { ac.resume(); } catch (e) {} } paintAudioStatus(); }; }
+      if (!ac) { ac = new (AC())(); window.__ac = ac; ac.onstatechange = function () { if (ac.state !== "running") { try { ac.resume(); } catch (e) {} } if (ac.state === "running") sendDeviceStatus("deviceStatus", true); paintAudioStatus(); }; }
       if (ac.state !== "running") ac.resume();
       if (navigator.audioSession && navigator.audioSession.type !== "playback") navigator.audioSession.type = "playback";
     } catch (e) {} return ac;
