@@ -15,7 +15,7 @@
   /* ---------- state ---------- */
   var sock = null, room = null, lead = 15, roomPw = "", lastCmdId = null, myPid = "", fireKingdom = 1;
   var announcedCountdowns = {};
-  var marchTouched = false, pendingUnlock = false, pendingTok = "", rosterActionsPid = "", removalState = null;
+  var marchTouched = false, pendingUnlock = false, pendingTok = "", removalState = null;
   var initialStateSeen = false, ownPlayerSeen = false, registrationPending = false, pendingMarchMutation = null;
   var pendingRegistrationProfile = null, draftActive = false, draftVersion = 0;
   var rosterQuery = "", pendingReplacementPid = "", pendingReplacementOrigin = null, pendingReplacementIncumbents = null, pendingReplacementAction = "";
@@ -330,7 +330,7 @@
       idlesub: "指挥发令后，这里变成你的大倒计时", waitlaunch: "⏳ 等待你的 {n} 秒开车倒数", youlaunch: "🚗 你开车！", whalelaunch: "🐋 鲸鱼开车", main: "主力", weak: "消耗",
       refilltitle: "💧 现在 refill 补兵", refillsub: "敌落地后补满守军，把他弹回去", go: "出发！",
       soundon: "🔊 本页提醒已开启", soundgate: "① 开启本页提醒 · 手机系统仍可能暂停后台，开战前先测试", need2: "先选 2 个车头", wrongpw: "密码错误",
-      player_actions: "{n} 的操作", action_edit_march: "修改行军时间", action_remove: "删除玩家", remove_confirm: "从房间删除 {n}？", remove_aria: "移除 {n}", remove_description: "删除后，该玩家会立即从所有指挥端和待命位置消失。", remove_impact: "同时清除以下待命位置：", remove_impact_line: "王国 {k} · {r}", remove_no_impact: "当前没有待命位置", remove_in_use: "该玩家正在进行中的集结里；先取消集结才能删除", remove_cancel: "取消", remove_button: "删除玩家", removing: "正在等待全房间确认删除 {n}…", remove_unknown: "连接中断，结果待确认；重连后会核对，但不会自动重发。", remove_retry: "没有成功发送或确认，请手动重试。", remove_changed: "玩家状态或待命位置刚刚变化；请检查后再点一次确认。", removed: "已删除 {n}", player_missing: "有车头已被删除或不在名单，请重新选择", identity_rebinding: "身份连接已失效，正在重新连接；连接后请重试保存",
+      action_remove: "删除玩家", remove_confirm: "从房间删除 {n}？", remove_aria: "移除 {n}", remove_description: "删除后，该玩家会立即从所有指挥端和待命位置消失。", remove_impact: "同时清除以下待命位置：", remove_impact_line: "王国 {k} · {r}", remove_no_impact: "当前没有待命位置", remove_in_use: "该玩家正在进行中的集结里；先取消集结才能删除", remove_cancel: "取消", remove_button: "删除玩家", removing: "正在等待全房间确认删除 {n}…", remove_unknown: "连接中断，结果待确认；重连后会核对，但不会自动重发。", remove_retry: "没有成功发送或确认，请手动重试。", remove_changed: "玩家状态或待命位置刚刚变化；请检查后再点一次确认。", removed: "已删除 {n}", player_missing: "有车头已被删除或不在名单，请重新选择", identity_rebinding: "身份连接已失效，正在重新连接；连接后请重试保存",
       mapcastle: "王城", mapempty: "还没有人 · 把房间链接发给队友", mapstaged: "已就位 · 等指挥", kw1: "王国 ①", kw2: "王国 ②", mapnote: "⭕ 每环 = 30 秒行军 · 越外圈离王城越远",
       copylink: "📋 点我复制房间链接", copied: "✓ 已复制 · 发给队友吧", idle_wait: "✅ 都填好了 · 等指挥发令；切回游戏前先用下方按钮实测本机后台提醒",
       idle_note: "○ 每人离王城的行军时间 · 开打后变成实时进度条", legend_live: "● 主力 ○ 消耗 · 越近王城越快落地",
@@ -374,7 +374,7 @@
       idlesub: "When the commander fires, this becomes your countdown", waitlaunch: "⏳ Waiting for your {n}s launch countdown", youlaunch: "🚗 YOU launch!", whalelaunch: "🐋 Whales launch", main: "Main", weak: "Sacrifice",
       refilltitle: "💧 Refill the garrison now", refillsub: "Top up right after they land — bounce them back", go: "GO!",
       soundon: "🔊 Page alerts enabled", soundgate: "① Enable page alerts · phones may pause background audio; test before battle", need2: "Pick 2 captains first", wrongpw: "Wrong password",
-      player_actions: "Actions for {n}", action_edit_march: "Edit march time", action_remove: "Remove player", remove_confirm: "Remove {n} from this room?", remove_aria: "Remove {n}", remove_description: "This removes the player from every commander and clears their staged positions.", remove_impact: "Staged positions that will be cleared:", remove_impact_line: "Kingdom {k} · {r}", remove_no_impact: "No staged positions", remove_in_use: "This player is in an active rally — cancel it before removal", remove_cancel: "Cancel", remove_button: "Remove player", removing: "Waiting for the room to confirm removal of {n}…", remove_unknown: "Connection closed; outcome unknown. Reconnect will verify it without resending.", remove_retry: "Not sent or not confirmed. Retry manually.", remove_changed: "The player or staged impact changed. Review it, then confirm again.", removed: "Removed {n}", player_missing: "A captain was removed or is no longer in the roster — pick again", identity_rebinding: "Your player connection expired. Reconnecting now; retry the save when connected",
+      action_remove: "Remove player", remove_confirm: "Remove {n} from this room?", remove_aria: "Remove {n}", remove_description: "This removes the player from every commander and clears their staged positions.", remove_impact: "Staged positions that will be cleared:", remove_impact_line: "Kingdom {k} · {r}", remove_no_impact: "No staged positions", remove_in_use: "This player is in an active rally — cancel it before removal", remove_cancel: "Cancel", remove_button: "Remove player", removing: "Waiting for the room to confirm removal of {n}…", remove_unknown: "Connection closed; outcome unknown. Reconnect will verify it without resending.", remove_retry: "Not sent or not confirmed. Retry manually.", remove_changed: "The player or staged impact changed. Review it, then confirm again.", removed: "Removed {n}", player_missing: "A captain was removed or is no longer in the roster — pick again", identity_rebinding: "Your player connection expired. Reconnecting now; retry the save when connected",
       mapcastle: "King's Castle", mapempty: "Nobody yet · share the room link", mapstaged: "Staged · waiting for the order", kw1: "Kingdom ①", kw2: "Kingdom ②", mapnote: "⭕ each ring = 30s march · outer = farther from the castle",
       copylink: "📋 Tap to copy the room link", copied: "✓ Copied — share it with your team", idle_wait: "✅ All set · wait for the order; test this device's background alert below before switching to the game.",
       idle_note: "○ each dot = march time to the castle · turns into a live progress bar at fire", legend_live: "● main ○ sacrifice · closer = landing sooner",
@@ -1837,44 +1837,6 @@
     };
     focusBest(); setTimeout(focusBest, 0);
   }
-  function positionRosterActionsMenu() {
-    var menu = $("rosterActionsMenu"), trigger = rosterActionsPid && document.querySelector('.roster-actions[data-pid="' + window.esc(rosterActionsPid) + '"]');
-    if (!menu || !visibleControl(trigger)) return false;
-    menu.hidden = false;
-    var rect = trigger.getBoundingClientRect(), menuRect = menu.getBoundingClientRect();
-    var left = Math.max(12, Math.min(window.innerWidth - menuRect.width - 12, rect.right - menuRect.width));
-    var top = rect.bottom + 5;
-    if (top + menuRect.height > window.innerHeight - 8) top = Math.max(8, rect.top - menuRect.height - 5);
-    menu.style.left = Math.round(left) + "px"; menu.style.top = Math.round(top) + "px";
-    return true;
-  }
-  function closeRosterActionsMenu(restoreFocus) {
-    var pid = rosterActionsPid, menu = $("rosterActionsMenu"); rosterActionsPid = "";
-    if (menu) { menu.hidden = true; menu.style.left = ""; menu.style.top = ""; $("rosterActionsExplanation").textContent = ""; }
-    document.querySelectorAll('.roster-actions[aria-controls="rosterActionsMenu"]').forEach(function (trigger) { trigger.setAttribute("aria-expanded", "false"); });
-    if (restoreFocus) restorePlayerActionsFocus(pid);
-  }
-  function renderRosterActionsMenu(sourceRoom) {
-    var menu = $("rosterActionsMenu"); if (!menu || !rosterActionsPid) return;
-    var snapshot = removalSnapshot(rosterActionsPid, sourceRoom);
-    if (!snapshot.exists || !positionRosterActionsMenu()) { closeRosterActionsMenu(true); return; }
-    var trigger = document.querySelector('.roster-actions[data-pid="' + window.esc(rosterActionsPid) + '"]');
-    if (trigger) trigger.setAttribute("aria-expanded", "true");
-    menu.setAttribute("aria-label", tkf("player_actions", { n: snapshot.name }));
-    var edit = menu.querySelector('[data-action="edit-march"]'), remove = menu.querySelector('[data-action="remove"]');
-    edit.textContent = tk("action_edit_march"); remove.textContent = tk("action_remove");
-    var focusedAction = menu.contains(document.activeElement) && document.activeElement.dataset ? document.activeElement.dataset.action : "";
-    edit.tabIndex = focusedAction === "remove" ? -1 : 0; remove.tabIndex = focusedAction === "remove" ? 0 : -1;
-    var removalBusy = !!(removalState && ["pending", "unknown"].indexOf(removalState.status) >= 0 && removalState.pid !== rosterActionsPid);
-    remove.setAttribute("aria-disabled", snapshot.active || removalBusy ? "true" : "false");
-    $("rosterActionsExplanation").textContent = snapshot.active ? tk("remove_in_use") : removalBusy ? tkf("removing", { n: removalState.name }) : "";
-  }
-  function openRosterActionsMenu(pid) {
-    if (!room || !room.players || !room.players[pid] || (removalState && removalState.dialogOpen)) return;
-    if (rosterActionsPid === pid && !$("rosterActionsMenu").hidden) { closeRosterActionsMenu(true); return; }
-    closeRosterActionsMenu(false); rosterActionsPid = pid; renderRosterActionsMenu();
-    var first = $("rosterActionsMenu").querySelector('[role="menuitem"]'); if (first) first.focus();
-  }
   function setRemovalPageInert(inert) {
     var page = document.querySelector(".wrap"); if (!page) return;
     if (inert) page.inert = true; else { page.inert = false; page.removeAttribute("inert"); }
@@ -1909,12 +1871,12 @@
   }
   function openRemovalDialog(pid) {
     var snapshot = removalSnapshot(pid); if (!snapshot.exists) return;
-    if (snapshot.active) { $("rosterActionsExplanation").textContent = tk("remove_in_use"); return; }
+    if (snapshot.active) { window.toast(tk("remove_in_use")); return; }
     if (removalState && ["pending", "unknown"].indexOf(removalState.status) >= 0 && removalState.pid !== pid) {
-      $("rosterActionsExplanation").textContent = tkf("removing", { n: removalState.name }); return;
+      window.toast(tkf("removing", { n: removalState.name })); return;
     }
     var prior = removalState && removalState.pid === pid ? removalState : null;
-    closeRosterActionsMenu(false); closeReplacement(false);
+    closeReplacement(false);
     removalState = prior || { pid: pid, name: snapshot.name, originPid: pid, baselineSignature: snapshot.signature, status: "confirm", socketGeneration: 0, dialogOpen: false };
     removalState.originPid = pid; removalState.name = snapshot.name; removalState.dialogOpen = true;
     if (["pending", "unknown", "retry"].indexOf(removalState.status) < 0) { removalState.status = "confirm"; removalState.baselineSignature = snapshot.signature; }
@@ -1931,7 +1893,7 @@
     var generation = sock ? sock.connectionGeneration : 0;
     var sent = !!(sock && sock.send({ t: "removePlayer", password: roomPw, pid: removalState.pid }));
     if (!sent) { removalState.status = "retry"; removalState.socketGeneration = 0; renderRemovalDialog(); return false; }
-    removalState.status = "pending"; removalState.socketGeneration = generation; renderRemovalDialog(); return true;
+    removalState.status = "pending"; removalState.socketGeneration = generation; renderRemovalDialog(); renderRoster(); return true;
   }
   function markRemovalDisconnected() {
     if (!removalState || removalState.status !== "pending" || !sock || removalState.socketGeneration !== sock.connectionGeneration) return;
@@ -1939,7 +1901,6 @@
   }
   function finishRemoval(pid, name) {
     var focusedPid = pid;
-    if (rosterActionsPid === pid) { focusedPid = rosterActionsPid; closeRosterActionsMenu(false); }
     if (removalState && removalState.pid === pid) {
       focusedPid = removalState.originPid || focusedPid; closeRemovalDialog(false, true);
     }
@@ -1947,7 +1908,6 @@
   }
   function reconcileRemovalState(nextRoom, freshSnapshot) {
     var players = (nextRoom && nextRoom.players) || {}, acknowledged = false;
-    if (rosterActionsPid && !Object.prototype.hasOwnProperty.call(players, rosterActionsPid)) closeRosterActionsMenu(true);
     if (removalState) {
       if (!Object.prototype.hasOwnProperty.call(players, removalState.pid)) acknowledged = finishRemoval(removalState.pid, removalState.name);
       else if (["pending", "unknown"].indexOf(removalState.status) >= 0 && freshSnapshot && sock && sock.connectionGeneration > removalState.socketGeneration) {
@@ -1958,11 +1918,10 @@
         renderRemovalDialog(nextRoom);
       } else renderRemovalDialog(nextRoom);
     }
-    if (rosterActionsPid) renderRosterActionsMenu(nextRoom);
     return acknowledged;
   }
   function invalidateCommanderAccess() {
-    closeRosterActionsMenu(false); closeRemovalDialog(false, true);
+    closeRemovalDialog(false, true);
     try { localStorage.removeItem(LS("pw")); } catch (e) {}
     window.toast(tk("wrongpw")); lockCmd();
     setTimeout(function () { if ($("cmdUnlock")) $("cmdUnlock").focus(); }, 0);
@@ -2007,7 +1966,6 @@
     if (searchWrap) searchWrap.classList.toggle("hide", !showSearch);
     if (search) { search.placeholder = tk("roster_search"); search.setAttribute("aria-label", tk("roster_search")); if (!showSearch) { rosterQuery = ""; search.value = ""; } }
     if (!players.length) {
-      if (rosterActionsPid) closeRosterActionsMenu(false);
       if ($("duplicateHint")) { $("duplicateHint").classList.add("hide"); $("duplicateHint").textContent = ""; }
       while (box.firstChild) box.removeChild(box.firstChild);
       var hint = document.createElement("span"); hint.className = "hint"; hint.textContent = tk("mapempty"); box.appendChild(hint);
@@ -2064,9 +2022,12 @@
       };
       var timeButton = wrap.querySelector(".roster-time"); timeButton.className = "roster-time"; timeButton.dataset.pid = p.pid; timeButton.textContent = window.mmss(p.march || 0); timeButton.setAttribute("aria-disabled", roomPw ? "false" : "true"); timeButton.setAttribute("aria-expanded", editingPlayerPid === p.pid ? "true" : "false"); timeButton.setAttribute("aria-controls", "commanderMarchEditor"); timeButton.setAttribute("aria-label", tkf("edit_march", { n: playerDisplayText(p.pid, room.players) }) + " · " + window.mmss(p.march || 0));
       timeButton.onclick = function () { openCommanderMarchEditor(p.pid, timeButton); };
-      var del = wrap.querySelector(".roster-actions"); del.className = "roster-actions"; del.dataset.pid = p.pid; del.textContent = "⋯";
-      del.setAttribute("aria-label", tkf("player_actions", { n: playerDisplayText(p.pid, room.players) })); del.setAttribute("aria-haspopup", "menu"); del.setAttribute("aria-controls", "rosterActionsMenu"); del.setAttribute("aria-expanded", rosterActionsPid === p.pid ? "true" : "false");
-      del.onclick = function (event) { event.preventDefault(); event.stopPropagation(); openRosterActionsMenu(p.pid); };
+      var del = wrap.querySelector(".roster-actions"), snapshot = removalSnapshot(p.pid);
+      var removalBusy = !!(removalState && ["pending", "unknown"].indexOf(removalState.status) >= 0 && removalState.pid !== p.pid);
+      del.className = "roster-actions"; del.dataset.pid = p.pid; del.textContent = tk("action_remove");
+      del.setAttribute("aria-label", tkf("remove_aria", { n: playerDisplayText(p.pid, room.players) })); del.setAttribute("aria-disabled", snapshot.active || removalBusy ? "true" : "false");
+      del.removeAttribute("aria-haspopup"); del.removeAttribute("aria-controls"); del.removeAttribute("aria-expanded");
+      del.onclick = function (event) { event.preventDefault(); event.stopPropagation(); openRemovalDialog(p.pid); };
       el.onclick = function () { selectOrReplacePlayer(p.pid); };
       var haystack = ((p.name || "") + " " + (p.playerId || "") + " " + p.pid).toLowerCase(); wrap.hidden = !!(rosterQuery && haystack.indexOf(rosterQuery) < 0);
     });
@@ -2080,7 +2041,7 @@
       }
       rosterReorderPending = false;
     }
-    refreshSyncPill(); renderSlots(); renderCommanderMarchEditor(); if (rosterActionsPid) renderRosterActionsMenu();
+    refreshSyncPill(); renderSlots(); renderCommanderMarchEditor();
     updateFireControl();
   }
   function deliveryForPlayer(command, pid) {
@@ -3014,30 +2975,6 @@
     $("replaceMain").onclick = function () { applyReplacement(pendingReplacementPid, "main"); };
     $("replaceCancel").onclick = function () { closeReplacement(true); };
     $("replaceOvl").addEventListener("click", function (event) { if (event.target === $("replaceOvl")) closeReplacement(true); });
-    $("rosterActionsMenu").addEventListener("click", function (event) {
-      var item = event.target.closest('[role="menuitem"]'); if (!item) return;
-      event.preventDefault(); var pid = rosterActionsPid, origin = pid && document.querySelector('.roster-actions[data-pid="' + window.esc(pid) + '"]');
-      if (item.getAttribute("aria-disabled") === "true") { $("rosterActionsExplanation").textContent = tk("remove_in_use"); return; }
-      if (item.dataset.action === "edit-march") { closeRosterActionsMenu(false); openCommanderMarchEditor(pid, origin); }
-      else if (item.dataset.action === "remove") openRemovalDialog(pid);
-    });
-    $("rosterActionsMenu").addEventListener("keydown", function (event) {
-      var items = Array.from(this.querySelectorAll('[role="menuitem"]')); if (!items.length) return;
-      var index = Math.max(0, items.indexOf(document.activeElement)), next = index;
-      if (event.key === "Escape") { event.preventDefault(); closeRosterActionsMenu(true); return; }
-      if (event.key === "ArrowDown") next = (index + 1) % items.length;
-      else if (event.key === "ArrowUp") next = (index - 1 + items.length) % items.length;
-      else if (event.key === "Home") next = 0;
-      else if (event.key === "End") next = items.length - 1;
-      else return;
-      event.preventDefault(); items.forEach(function (item, i) { item.tabIndex = i === next ? 0 : -1; }); items[next].focus();
-    });
-    document.addEventListener("pointerdown", function (event) {
-      if (!rosterActionsPid || $("rosterActionsMenu").hidden) return;
-      if ($("rosterActionsMenu").contains(event.target) || event.target.closest('.roster-actions[data-pid="' + window.esc(rosterActionsPid) + '"]')) return;
-      closeRosterActionsMenu(true);
-    });
-    window.addEventListener("resize", positionRosterActionsMenu); window.addEventListener("scroll", positionRosterActionsMenu, true);
     $("removePlayerCancel").onclick = function () { closeRemovalDialog(true, false); };
     $("removePlayerConfirm").onclick = submitRemoval;
     $("removePlayerOvl").addEventListener("click", function (event) { if (event.target === $("removePlayerOvl")) closeRemovalDialog(true, false); });

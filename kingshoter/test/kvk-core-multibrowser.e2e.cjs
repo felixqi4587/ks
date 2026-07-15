@@ -394,7 +394,6 @@ async function cancelCommand(page, room) {
 
 async function openRemove(page, pid) {
   await page.locator(`#roster .roster-actions[data-pid="${pid}"]`).click();
-  await page.locator('#rosterActionsMenu [data-action="remove"]').click();
   await page.locator('#removePlayerOvl').waitFor({ state: 'visible', timeout: 5_000 });
 }
 
@@ -985,11 +984,15 @@ async function runCoreScenario(browser, engineName) {
     assert.deepEqual(disconnectedHistory.room.live.commands['1'].delivery, settledDeliveryHistory,
       'connection loss cannot erase or alter persisted command receipt history');
 
-    await commander.page.locator(`#roster .roster-actions[data-pid="${captainAProfile.pid}"]`).click();
-    const activeRemove = commander.page.locator('#rosterActionsMenu [data-action="remove"]');
+    const activeRemove = commander.page.locator(`#roster .roster-actions[data-pid="${captainAProfile.pid}"]`);
     assert.equal(await activeRemove.getAttribute('aria-disabled'), 'true',
       'an active captain removal remains focusable but unavailable');
-    await commander.page.keyboard.press('Escape');
+    await activeRemove.click({ force: true });
+    assert.equal(await commander.page.locator('#removePlayerOvl').isVisible(), false,
+      'an active captain cannot open removal confirmation');
+    await commander.page.locator('#toast.show').waitFor({ state: 'visible', timeout: 5_000 });
+    assert.match(await commander.page.locator('#toast').textContent(), /live|active|cancel/i,
+      'an active captain receives the localized removal explanation');
     const beforeRejectedRemoval = await readSnapshot(commander.page, room);
     const removalError = await forceLiveRemoval(commander.page, room, captainAProfile.pid);
     const afterRejectedRemoval = await readSnapshot(commander.page, room);

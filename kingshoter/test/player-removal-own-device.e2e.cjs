@@ -73,9 +73,9 @@ const profileOwnershipKey = '33333333-3333-4333-8333-333333333333';
     await manager.locator('#pwGo').click();
     await manager.locator('#console').waitFor({ state: 'visible', timeout: 5000 });
 
-    await manager.locator('#roster .roster-actions[data-pid="001"]').click();
-    assert.match(await manager.locator('#rosterActionsMenu [data-action="remove"]').textContent(), /删除玩家/);
-    await manager.locator('#rosterActionsMenu [data-action="remove"]').click();
+    const removeAction = manager.locator('#roster .roster-actions[data-pid="001"]');
+    assert.match(await removeAction.textContent(), /删除玩家/);
+    await removeAction.click();
     assert.match(await manager.locator('#removePlayerTitle').textContent(), /删除/);
     for (const id of ['removePlayerCancel', 'removePlayerConfirm']) {
       const box = await manager.locator(`#${id}`).boundingBox();

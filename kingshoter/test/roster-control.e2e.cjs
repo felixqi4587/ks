@@ -300,9 +300,12 @@ async function assertLayout(page, width) {
     assert.equal(await page.locator('#roster .rp[aria-pressed="true"]').count(), 2);
     await page.locator('#roster .roster-role[data-pid="900000001"]').click();
     await page.locator('#roster .roster-time[data-pid="900000001"]').click({ force: true });
-    page.once('dialog', dialog => dialog.dismiss());
+    await page.locator('#commanderMarchEditor').waitFor({ state: 'visible' });
+    await page.locator('#commanderMarchCancel').click();
     await page.locator('#roster .roster-actions[data-pid="900000001"]').click();
+    await page.locator('#removePlayerOvl').waitFor({ state: 'visible' });
     assert.equal(await page.locator('#roster .rp[aria-pressed="true"]').count(), 2, 'sibling controls never toggle selection');
+    await page.locator('#removePlayerCancel').click();
     await page.evaluate(() => { window.__qaFailNextStage = true; });
     await primary('900000002').click();
     await page.waitForFunction(() => document.querySelectorAll('#roster .rp[aria-pressed="true"]').length === 2);
@@ -311,7 +314,7 @@ async function assertLayout(page, width) {
     await primary('900000003').click();
     await page.locator('#replaceOvl').waitFor({ state: 'visible' });
     assert.equal(await page.locator('#roster .rp[aria-pressed="true"]').count(), 2, 'third tap does not silently shift a pick');
-    await page.locator('#replaceWeak').focus();
+    await page.waitForFunction(() => document.activeElement?.id === 'replaceWeak');
     await page.keyboard.press('Shift+Tab');
     assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.id), 'replaceCancel', 'modal wraps backward focus');
     await page.keyboard.press('Tab');

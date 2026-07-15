@@ -22,8 +22,7 @@ async function rowClick(page, pid) {
 
 async function openRemove(page, pid) {
   await page.locator(`#roster .roster-actions[data-pid="${pid}"]`).click();
-  await page.locator('#rosterActionsMenu [data-action="remove"]').click();
-  await page.locator('#removePlayerOvl').waitFor({ state: 'visible' });
+  await page.locator('#removePlayerOvl').waitFor({ state: 'visible', timeout: 5_000 });
 }
 
 (async () => {
@@ -90,12 +89,14 @@ async function openRemove(page, pid) {
     assert.equal(await b.locator('#roster .rp[data-pid="kimchi"]').count(), 1, 'Fire while the dialog is open disables confirmation without deleting');
     await b.locator('#removePlayerCancel').click();
 
-    await b.locator('#roster .roster-actions[data-pid="kimchi"]').click();
-    const removeItem = b.locator('#rosterActionsMenu [data-action="remove"]');
-    assert.equal(await removeItem.getAttribute('aria-disabled'), 'true', 'active player removal remains focusable but unavailable');
-    await removeItem.focus();
-    assert.equal(await b.evaluate(() => document.activeElement?.dataset.action), 'remove');
-    assert.match(await b.locator('#rosterActionsExplanation').textContent(), /live|active|cancel/i);
+    const removeAction = b.locator('#roster .roster-actions[data-pid="kimchi"]');
+    assert.equal(await removeAction.getAttribute('aria-disabled'), 'true', 'active player removal remains focusable but unavailable');
+    await removeAction.focus();
+    assert.equal(await b.evaluate(() => document.activeElement?.matches('.roster-actions[data-pid="kimchi"]')), true);
+    await removeAction.click({ force: true });
+    assert.equal(await b.locator('#removePlayerOvl').isVisible(), false, 'active player removal never opens confirmation');
+    await b.locator('#toast.show').waitFor({ state: 'visible', timeout: 5_000 });
+    assert.match(await b.locator('#toast').textContent(), /live|active|cancel/i);
 
     assertQaRoomName(room);
     const forced = await b.evaluate(({ roomName, password }) => new Promise((resolve, reject) => {
