@@ -130,13 +130,15 @@ const profileKey = '30000000-0000-4000-8000-000000000001';
     const dialog = manager.locator('#removePlayerOvl');
     const actionBox = await actions.boundingBox();
     assert.equal(await manager.locator('#rosterActionsMenu').count(), 0);
-    assert.match(await actions.textContent(), /Remove/i);
+    assert.equal((await actions.textContent()).trim(), 'Remove');
     assert.equal(await actions.getAttribute('aria-haspopup'), null);
     assert.equal(await actions.getAttribute('aria-controls'), null);
     assert.ok(actionBox && actionBox.width >= 44 && actionBox.height >= 44, 'direct Remove keeps a 44px mobile touch target');
 
     await actions.click();
     await dialog.waitFor({ state: 'visible' });
+    assert.equal((await manager.locator('#removePlayerTitle').textContent()).trim(), 'Remove Test 001 from this room?');
+    assert.equal((await manager.locator('#removePlayerConfirm').textContent()).trim(), 'Remove player');
     await manager.locator('#removePlayerCancel').click();
     assert.equal(await target.count(), 1, 'direct Remove still requires confirmation');
 

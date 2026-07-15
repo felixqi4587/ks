@@ -263,3 +263,38 @@ test('double-rally snapshot uses canonical values and generic target extraction 
     { pid: 'weak' }, { pid: 'main' }, { pid: 'third' }, { pid: 'weak' }
   ] } }), ['weak', 'main', 'third']);
 });
+
+test('double-rally snapshot enforces canonical five-to-120-second player marches', async () => {
+  const { freezeDoubleRally } = await domain();
+  const pairs = [
+    { pid: 'weak', role: 'weak' },
+    { pid: 'main', role: 'main' }
+  ];
+  const boundaryPlayers = {
+    weak: { name: 'Weak', march: 5 },
+    main: { name: 'Main', march: 120 }
+  };
+
+  assert.deepEqual(freezeDoubleRally(boundaryPlayers, pairs, 1000), {
+    ok: true,
+    pairs: [
+      { pid: 'weak', name: 'Weak', role: 'weak', march: 5, pressUTC: 1114 },
+      { pid: 'main', name: 'Main', role: 'main', march: 120, pressUTC: 1000 }
+    ]
+  });
+
+  for (const role of ['weak', 'main']) {
+    for (const march of [4, 121, 6.5, 'malformed']) {
+      const players = {
+        weak: { name: 'Weak', march: 40 },
+        main: { name: 'Main', march: 50 }
+      };
+      players[role].march = march;
+      assert.deepEqual(
+        freezeDoubleRally(players, pairs, 1000),
+        { ok: false, error: 'invalid_march' },
+        `${role} march ${String(march)}`
+      );
+    }
+  }
+});

@@ -237,9 +237,9 @@ export function freezeDoubleRally(players, pairsValue, firstPressValue) {
     byRole[role] = { pid, player: players[pid] };
   }
   if (!byRole.weak || !byRole.main || byRole.weak.pid === byRole.main.pid) return { ok: false, error: 'player_missing' };
-  const weakMarch = Number(byRole.weak.player.march);
-  const mainMarch = Number(byRole.main.player.march);
-  if (!Number.isFinite(weakMarch) || !Number.isFinite(mainMarch)) return { ok: false, error: 'invalid_march' };
+  const weakMarch = parseMarchSeconds(byRole.weak.player.march);
+  const mainMarch = parseMarchSeconds(byRole.main.player.march);
+  if (weakMarch == null || mainMarch == null) return { ok: false, error: 'invalid_march' };
   const offset = (mainMarch - weakMarch) - 1;
   const mainPress = offset >= 0 ? firstPress : firstPress - offset;
   const weakPress = offset >= 0 ? firstPress + offset : firstPress;

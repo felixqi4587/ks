@@ -74,9 +74,10 @@ const profileOwnershipKey = '33333333-3333-4333-8333-333333333333';
     await manager.locator('#console').waitFor({ state: 'visible', timeout: 5000 });
 
     const removeAction = manager.locator('#roster .roster-actions[data-pid="001"]');
-    assert.match(await removeAction.textContent(), /删除玩家/);
+    assert.equal((await removeAction.textContent()).trim(), '删除');
     await removeAction.click();
-    assert.match(await manager.locator('#removePlayerTitle').textContent(), /删除/);
+    assert.equal((await manager.locator('#removePlayerTitle').textContent()).trim(), '从房间删除 Test 001？');
+    assert.equal((await manager.locator('#removePlayerConfirm').textContent()).trim(), '删除玩家');
     for (const id of ['removePlayerCancel', 'removePlayerConfirm']) {
       const box = await manager.locator(`#${id}`).boundingBox();
       assert.ok(box && box.height >= 44, `${id} keeps a 44px touch target`);
