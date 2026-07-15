@@ -31,7 +31,7 @@ const settle = () => new Promise((resolve) => setImmediate(resolve));
 
 test('metadata must contain safe positive and internally consistent current/minimum builds', () => {
   const update = loadUpdate();
-  assert.equal(update.BUILD, 2026071303);
+  assert.equal(update.BUILD, 2026071401);
   assert.equal(update.shouldReload(meta(update)), true);
   assert.equal(update.shouldReload(meta(update, { minKvkBuild: update.BUILD })), false);
 
@@ -59,9 +59,18 @@ test('the deployed bootstrap generation must reload into the Triple-capable runt
   const bootstrap = loadUpdate(2026071302);
   assert.equal(bootstrap.BUILD, 2026071302);
   assert.equal(bootstrap.shouldReload({
-    currentBuild: 2026071303,
-    minKvkBuild: 2026071303,
-    minTripleBuild: 2026071303
+    currentBuild: 2026071401,
+    minKvkBuild: 2026071401,
+    minTripleBuild: 2026071401
+  }), true);
+});
+
+test('the immediately previous KvK generation must refresh into this release', () => {
+  const previous = loadUpdate(2026071303);
+  assert.equal(previous.shouldReload({
+    currentBuild: 2026071401,
+    minKvkBuild: 2026071401,
+    minTripleBuild: 2026071401
   }), true);
 });
 
