@@ -57,6 +57,29 @@ test('one immutable record holds role-specific frozen timing and two devices for
   assert.equal(state.commands[0].targets.length, 24);
 });
 
+test('Reliable shadow records all three immutable Triple audiences', async () => {
+  const { createDeliveryRecord } = await load();
+  const triple = {
+    id: 'triple-shadow', type: 'triple_rally', kingdom: 2,
+    payload: {
+      leadSeconds: 15,
+      pairs: [
+        { pid: 'a', role: 'weak', pressUTC: 1015, march: 20 },
+        { pid: 'b', role: 'weak2', pressUTC: 1035, march: 40 },
+        { pid: 'c', role: 'main', pressUTC: 1026, march: 30 }
+      ]
+    }
+  };
+  const record = createDeliveryRecord(triple, 1_000_000);
+  assert.deepEqual(record.audiences.map((item) => ({
+    pid: item.pid, role: item.role, fireAtMs: item.fireAtMs, leadSeconds: item.leadSeconds
+  })), [
+    { pid: 'a', role: 'weak', fireAtMs: 1_015_000, leadSeconds: 15 },
+    { pid: 'b', role: 'weak2', fireAtMs: 1_035_000, leadSeconds: 15 },
+    { pid: 'c', role: 'main', fireAtMs: 1_026_000, leadSeconds: 15 }
+  ]);
+});
+
 test('target admission requires current sound readiness and a live armed lease', async () => {
   const mod = await load();
   const invalidAttachments = [

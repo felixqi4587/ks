@@ -48,12 +48,23 @@ import {
   recordShadowAck,
   upsertDeliveryTarget
 } from "./delivery.js";
+import {
+  disableTripleModes,
+  isTripleAllowed,
+  newRallyModes,
+  normalizeRallyModes,
+  transitionRallyMode,
+  validateStagedPairs
+} from "./rally-mode.js";
+import { buildTripleRallyCommand } from "./rally-targets.js";
+import { MIN_TRIPLE_BUILD, parseClientBuild, projectRoomForClient } from "./client-build.js";
 
 function defaultRoom() {
   return {
     pwHash: null,
     config: { castleName: "", rallyAllies: [], enemyWhales: [] },
     players: {},
+    rallyModes: newRallyModes(),
     // per-kingdom command + staged slots so two commanders (one per kingdom) never clobber each other
     live: { mode: "idle", commands: { 1: null, 2: null }, staged: { 1: null, 2: null }, sim: null },
     updatedAt: null,
@@ -119,22 +130,25 @@ export class Room {
     delete l.command;
     l.mode = l.mode || "idle";
     if (!("sim" in l)) l.sim = null;
+    this.room.rallyModes = normalizeRallyModes(this.room.rallyModes);
   }
 
   async fetch(request) {
     await this.ensureDeliveryLoaded();
+    const url = new URL(request.url);
+    await this.applyTripleGate();
     if (request.headers.get("Upgrade") === "websocket") {
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
-      const requestedRoom = String(new URL(request.url).searchParams.get("room") || this.roomName || "").slice(0, 48);
-      if (!this.roomName) this.roomName = requestedRoom;
-      this.attachSocket(server, requestedRoom);      // Hibernation API + merge-safe identity base
+      const clientBuild = parseClientBuild(url.searchParams.get("clientBuild"));
+      this.attachSocket(server, this.roomName);      // Hibernation API + merge-safe identity base
       this.initializeReliableAttachment(server);
-      server.send(this.stateMsg());
+      this.writeSocketAttachment(server, { clientBuild });
+      server.send(this.stateMsg(clientBuild));
       return new Response(null, { status: 101, webSocket: client });
     }
     // plain GET → public read-only snapshot (handy for debugging / SSR)
-    return Response.json(JSON.parse(this.stateMsg()));
+    return Response.json(JSON.parse(this.stateMsg(MIN_TRIPLE_BUILD)));
   }
 
   snapshot() {
@@ -306,12 +320,50 @@ export class Room {
     this.broadcast();
     await this.scheduleExpiry();
   }
-  stateMsg() {
-    return JSON.stringify({ t: "state", room: this.snapshot() });
+  stateMsg(clientBuild = MIN_TRIPLE_BUILD, canonicalSnapshot = null) {
+    const snapshot = canonicalSnapshot || this.snapshot();
+    const withCapabilities = {
+      ...snapshot,
+      capabilities: {
+        ...(snapshot.capabilities || {}),
+        tripleRally: isTripleAllowed(this.env, this.roomName) &&
+          parseClientBuild(clientBuild) >= MIN_TRIPLE_BUILD
+      }
+    };
+    return JSON.stringify({
+      t: "state",
+      room: projectRoomForClient(withCapabilities, clientBuild)
+    });
   }
   broadcast() {
-    const msg = this.stateMsg();
-    for (const ws of this.state.getWebSockets()) { try { ws.send(msg); } catch (e) {} }
+    const canonicalSnapshot = this.snapshot();
+    for (const ws of this.state.getWebSockets()) {
+      try {
+        const attachment = this.readSocketAttachment(ws);
+        ws.send(this.stateMsg(attachment.clientBuild, canonicalSnapshot));
+      } catch (e) {}
+    }
+  }
+  async applyTripleGate() {
+    if (isTripleAllowed(this.env, this.roomName)) return false;
+    const result = disableTripleModes({
+      rallyModes: this.room.rallyModes,
+      staged: this.room.live.staged
+    });
+    if (!result.changed) return false;
+    const previousModes = this.room.rallyModes;
+    const previousStaged = this.room.live.staged;
+    this.room.rallyModes = result.rallyModes;
+    this.room.live.staged = result.staged;
+    try {
+      await this.persist();
+    } catch (error) {
+      this.room.rallyModes = previousModes;
+      this.room.live.staged = previousStaged;
+      throw error;
+    }
+    this.broadcast();
+    return true;
   }
   async persist() { await this.state.storage.put("room", this.room); }
   async persistAll() {
@@ -652,6 +704,51 @@ export class Room {
       return this.handleDeliveryShadowMessage(ws, m);
     }
 
+    if (m.t === "setRallyMode") {
+      const mutationId = normalizeMutationId(m.mutationId);
+      if (!(await this.authOK(m.password))) {
+        return ws.send(JSON.stringify({ t: "error", error: "bad_password", mutationId }));
+      }
+      await this.applyTripleGate();
+      if (!mutationId) return ws.send(JSON.stringify({ t: "error", error: "invalid_mutation" }));
+      if (m.mode === "triple" && !isTripleAllowed(this.env, this.roomName)) {
+        return ws.send(JSON.stringify({ t: "error", error: "triple_disabled", mutationId }));
+      }
+      const result = transitionRallyMode({
+        rallyModes: this.room.rallyModes,
+        staged: this.room.live.staged
+      }, {
+        kingdom: m.kingdom,
+        mode: m.mode,
+        baseRevision: m.baseRevision
+      });
+      if (!result.ok) {
+        return ws.send(JSON.stringify({
+          t: "error", error: result.error, mutationId,
+          kingdom: Number(m.kingdom), record: result.record || null
+        }));
+      }
+      const previousModes = this.room.rallyModes;
+      const previousStaged = this.room.live.staged;
+      this.room.rallyModes = result.rallyModes;
+      this.room.live.staged = result.staged;
+      try {
+        await this.persist();
+      } catch (error) {
+        this.room.rallyModes = previousModes;
+        this.room.live.staged = previousStaged;
+        throw error;
+      }
+      try {
+        ws.send(JSON.stringify({
+          t: "rallyModeSaved", mutationId, kingdom: Number(m.kingdom),
+          mode: result.record.mode, revision: result.record.revision
+        }));
+      } catch (e) {}
+      this.broadcast();
+      return;
+    }
+
     if (m.t === "deviceStatus") {
       const observation = this.observeDevice(ws, m);
       if (!observation.ok) return ws.send(JSON.stringify({ t: "error", source: "deviceStatus", error: observation.error }));
@@ -787,11 +884,67 @@ export class Room {
     if (m.t === "cmd") {
       if (!(await this.authOK(m.password))) return ws.send(JSON.stringify({ t: "error", error: "bad_password" }));
       const c = m.cmd || {};
-      const type = ["double_rally", "refill", "cancel", "ping"].includes(c.type) ? c.type : "refill";
+      const type = ["double_rally", "triple_rally", "refill", "cancel", "ping"].includes(c.type) ? c.type : "refill";
       const kd = clampInt(c.kingdom != null ? c.kingdom : (c.payload && c.payload.kingdom), 1, 2);
+      const incomingRally = type === "double_rally" || type === "triple_rally";
+      if (incomingRally) await this.applyTripleGate();
+      const modeRecord = this.room.rallyModes[kd];
+      const requestedMode = type === "triple_rally" ? "triple" : "double";
+      const requestRevision = Number.isInteger(c.modeRevision)
+        ? c.modeRevision
+        : (requestedMode === "double" ? modeRecord.revision : -1);
+      if (type === "triple_rally" && !isTripleAllowed(this.env, this.roomName)) {
+        return ws.send(JSON.stringify({ t: "error", error: "triple_disabled" }));
+      }
+      if (incomingRally &&
+          (requestedMode !== modeRecord.mode || requestRevision !== modeRecord.revision)) {
+        return ws.send(JSON.stringify({
+          t: "error", error: "rally_mode_conflict", kingdom: kd, record: modeRecord
+        }));
+      }
       let cancelledCommandId = "";
-      // a refill must NOT silently clobber an in-flight double_rally players are already counting down to
-      if (type === "refill") { const ex = this.room.live.commands[kd]; if (ex && ex.type === "double_rally" && Number(ex.expiresUTC) > Math.floor(this.nowMs() / 1000)) return ws.send(JSON.stringify({ t: "error", error: "rally_live" })); }
+      // Neither Refill nor another rally may silently clobber a countdown already in flight.
+      const existing = this.room.live.commands[kd];
+      const storedRally = existing && (existing.type === "double_rally" || existing.type === "triple_rally");
+      if ((type === "refill" || incomingRally) && storedRally &&
+          Number(existing.expiresUTC) > Math.floor(this.nowMs() / 1000)) {
+        return ws.send(JSON.stringify({ t: "error", error: "rally_live" }));
+      }
+      if (type === "triple_rally") {
+        const commandNowMs = this.nowMs();
+        const validated = validateStagedPairs({
+          modeRecord,
+          modeRevision: requestRevision,
+          pairs: c.payload && c.payload.pairs,
+          players: this.room.players
+        });
+        if (!validated.ok || validated.pairs.length !== 3) {
+          return ws.send(JSON.stringify({
+            t: "error", error: validated.error || "invalid_rally_roster", pid: validated.pid
+          }));
+        }
+        const built = buildTripleRallyCommand({
+          players: this.room.players,
+          pairs: validated.pairs,
+          kingdom: kd,
+          leadSeconds: c.payload && c.payload.leadSeconds,
+          serverNowSec: commandNowMs / 1000,
+          commandId: crypto.randomUUID(),
+          atISO: this.now()
+        });
+        if (!built.ok) {
+          return ws.send(JSON.stringify({ t: "error", error: built.error, pid: built.pid }));
+        }
+        built.command.delivery = startCommandDelivery(built.command, this.devices, commandNowMs);
+        this.room.live.commands[kd] = built.command;
+        this.room.live.staged[kd] = null;
+        this.room.live.mode = "live";
+        await this.persistAll();
+        await this.scheduleExpiry();
+        this.broadcast();
+        try { await this.dispatchDeliveryForCommand(built.command, commandNowMs); } catch (error) {}
+        return;
+      }
       if (type === "cancel") {
         const cancelledCommand = this.room.live.commands[kd];
         cancelledCommandId = cancelledCommand && typeof cancelledCommand.id === "string"
@@ -834,14 +987,32 @@ export class Room {
 
     if (m.t === "stage") {   // commander pre-warns the picked captains (before the actual fire) so a whale who stepped away can stand by
       if (!(await this.authOK(m.password))) return ws.send(JSON.stringify({ t: "error", error: "bad_password" }));
+      await this.applyTripleGate();
       const s = m.staged || {};
       const kd = clampInt(s.kingdom, 1, 2);
       const liveCommand = this.room.live.commands[kd];
       if (liveCommand && Number(liveCommand.expiresUTC) > Math.floor(this.nowMs() / 1000)) {
         return ws.send(JSON.stringify({ t: "stageSuperseded", kingdom: kd, commandId: liveCommand.id }));
       }
-      const pairs = (Array.isArray(s.pairs) ? s.pairs : []).slice(0, 2).map(p => ({ pid: clampStr(p && p.pid, 24), role: (p && p.role) === "main" ? "main" : "weak" }));
-      if (pairs.some(p => !p.pid || !Object.prototype.hasOwnProperty.call(this.room.players, p.pid))) return ws.send(JSON.stringify({ t: "error", error: "player_missing" }));
+      const modeRecord = this.room.rallyModes[kd];
+      const modeRevision = Number.isInteger(s.modeRevision)
+        ? s.modeRevision
+        : (modeRecord.mode === "double" ? modeRecord.revision : -1);
+      const validated = validateStagedPairs({
+        modeRecord,
+        modeRevision,
+        pairs: s.pairs,
+        players: this.room.players
+      });
+      if (!validated.ok) {
+        const error = { t: "error", error: validated.error };
+        if (validated.error === "rally_mode_conflict") {
+          error.kingdom = kd;
+          error.record = validated.record || modeRecord;
+        }
+        return ws.send(JSON.stringify(error));
+      }
+      const pairs = validated.pairs;
       const otherKingdom = kd === 1 ? 2 : 1;
       const otherPairs = ((this.room.live.staged[otherKingdom] && this.room.live.staged[otherKingdom].pairs) || []);
       const conflict = pairs.find(pair => otherPairs.some(other => other && other.pid === pair.pid));

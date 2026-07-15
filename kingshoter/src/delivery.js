@@ -13,11 +13,12 @@ const QA_ROOM_RE = /^qa-kvk-[a-z0-9](?:[a-z0-9-]{0,39}[a-z0-9])?$/;
 const RESULTS = new Set(['scheduled', 'would_schedule', 'audio_unarmed', 'expired', 'duplicate']);
 const SHADOW_RESULTS = new Set(['would_schedule', 'audio_unarmed', 'expired', 'duplicate']);
 const DELIVERY_MAX_TARGETS = 24;
+const RALLY_SIZES = { double_rally: 2, triple_rally: 3 };
 
 const text = (value, max) => String(value == null ? '' : value).slice(0, max);
 const finite = (value, fallback) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 const int = (value, fallback) => Math.trunc(finite(value, fallback));
-const role = (value) => value === 'main' ? 'main' : 'weak';
+const role = (value) => value === 'main' ? 'main' : value === 'weak2' ? 'weak2' : 'weak';
 
 export function isQaRoomName(room) {
   return typeof room === 'string' && room.length <= 48 && QA_ROOM_RE.test(room);
@@ -120,10 +121,13 @@ export function normalizeDeliveryState(raw, nowMs = Date.now()) {
 }
 
 export function createDeliveryRecord(command, nowMs) {
-  if (!command || command.type !== 'double_rally' || !text(command.id, 64)) return null;
+  const expected = command && RALLY_SIZES[command.type];
+  if (!expected || !text(command.id, 64)) return null;
   const payload = command.payload && typeof command.payload === 'object' ? command.payload : {};
   const leadSeconds = Math.max(1, Math.min(120, int(payload.leadSeconds, 10)));
-  const audiences = (Array.isArray(payload.pairs) ? payload.pairs : []).slice(0, 2).map((pair) => {
+  const sourcePairs = Array.isArray(payload.pairs) ? payload.pairs : [];
+  if (sourcePairs.length !== expected) return null;
+  const audiences = sourcePairs.map((pair) => {
     const fireAtMs = Math.round(finite(pair && pair.pressUTC, 0) * 1000);
     return normalizeAudience({
       pid: pair && pair.pid,
@@ -134,7 +138,7 @@ export function createDeliveryRecord(command, nowMs) {
       leadSeconds
     });
   }).filter(Boolean);
-  if (audiences.length !== 2 || audiences[0].pid === audiences[1].pid) return null;
+  if (audiences.length !== expected || new Set(audiences.map((item) => item.pid)).size !== expected) return null;
   return {
     commandId: text(command.id, 64),
     kingdom: command.kingdom === 2 ? 2 : 1,
