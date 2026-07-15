@@ -397,13 +397,13 @@ function sentType(state, type) {
 }
 
 test('the updater bootstrap and isolated delivery controller load in one build generation', () => {
-  const updateIndex = html.indexOf('<script src="/kvk-update.js?v=2026071503"></script>');
-  const appIndex = html.indexOf('<script src="/app.js?v=2026071503"></script>');
-  const shadowTag = '<script src="/kvk-delivery-shadow.js?v=2026071503"></script>';
+  const updateIndex = html.indexOf('<script src="/kvk-update.js?v=2026071504"></script>');
+  const appIndex = html.indexOf('<script src="/app.js?v=2026071504"></script>');
+  const shadowTag = '<script src="/kvk-delivery-shadow.js?v=2026071504"></script>';
   const shadowIndex = html.indexOf(shadowTag);
-  const rallyTag = '<script src="/kvk-rally.js?v=2026071503"></script>';
+  const rallyTag = '<script src="/kvk-rally.js?v=2026071504"></script>';
   const rallyIndex = html.indexOf(rallyTag);
-  const kvkIndex = html.indexOf('<script src="/kvk.js?v=2026071503"></script>');
+  const kvkIndex = html.indexOf('<script src="/kvk.js?v=2026071504"></script>');
 
   assert.ok(updateIndex >= 0, 'supported-build updater loads');
   assert.ok(appIndex > updateIndex, 'shared app loads after the updater');
@@ -420,7 +420,7 @@ test('KvK cache assertions move atomically to the supported build', () => {
   const cacheSources = [html, ...CACHE_TEST_PATHS.map(read)];
   for (const source of cacheSources) {
     assert.equal(source.includes('kvk.js?v=41') || source.includes('kvk\\.js\\?v=41'), false);
-    assert.equal(source.includes('kvk.js?v=2026071503') || source.includes('kvk\\.js\\?v=2026071503'), true);
+    assert.equal(source.includes('kvk.js?v=2026071504') || source.includes('kvk\\.js\\?v=2026071504'), true);
   }
 });
 
