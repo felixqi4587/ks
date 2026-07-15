@@ -1929,10 +1929,10 @@
   function handleRemovalProtocolError(message) {
     if (!removalState || !message || !sock || removalState.status !== "pending" || removalState.socketGeneration !== sock.connectionGeneration) return false;
     if (message.error === "player_in_live_command" && message.pid === removalState.pid) {
-      removalState.status = "blocked"; renderRemovalDialog(); if (typeof sock.refresh === "function") sock.refresh(); return true;
+      removalState.status = "blocked"; renderRemovalDialog(); renderRoster(); if (typeof sock.refresh === "function") sock.refresh(); return true;
     }
     if (message.error === "remove_persist_failed" && message.pid === removalState.pid) {
-      removalState.status = "retry"; renderRemovalDialog(); return true;
+      removalState.status = "retry"; renderRemovalDialog(); renderRoster(); return true;
     }
     if (message.error === "bad_password") {
       invalidateCommanderAccess(); return true;

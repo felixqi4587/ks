@@ -58,6 +58,11 @@ const profileKey = '30000000-0000-4000-8000-000000000001';
           window.__removeSendMode = '';
           throw new Error('simulated remove send failure');
         }
+        if (message && message.t === 'removePlayer' && window.__removeSendMode === 'persist') {
+          window.__removeSendMode = '';
+          window.__heldRemovalSocket = this;
+          return;
+        }
         if (message && message.t === 'removePlayer' && window.__removeSendMode === 'wrongpw') {
           window.__removeSendMode = '';
           message.password = 'definitely-wrong';
@@ -121,6 +126,7 @@ const profileKey = '30000000-0000-4000-8000-000000000001';
 
     const target = manager.locator('#roster .rp[data-pid="001"]');
     const actions = manager.locator('#roster .roster-actions[data-pid="001"]');
+    const unrelatedActions = manager.locator('#roster .roster-actions[data-pid="kimchi"]');
     const dialog = manager.locator('#removePlayerOvl');
     const actionBox = await actions.boundingBox();
     assert.equal(await manager.locator('#rosterActionsMenu').count(), 0);
@@ -196,6 +202,22 @@ const profileKey = '30000000-0000-4000-8000-000000000001';
     assert.equal(await dialog.isVisible(), true, 'false send keeps the dialog retryable');
     assert.match(await manager.locator('#removePlayerStatus').textContent(), /retry|not sent|connection/i);
 
+    await manager.evaluate(() => { window.__removeSendMode = 'persist'; });
+    await manager.locator('#removePlayerConfirm').click();
+    await manager.waitForFunction(() => document.querySelector('#roster .roster-actions[data-pid="kimchi"]')?.getAttribute('aria-disabled') === 'true');
+    await manager.evaluate(() => window.__heldRemovalSocket.dispatchEvent(new MessageEvent('message', {
+      data: JSON.stringify({ t: 'error', error: 'remove_persist_failed', pid: '001' })
+    })));
+    await manager.waitForFunction(() => /retry/i.test(document.querySelector('#removePlayerStatus')?.textContent || ''));
+    assert.equal(await unrelatedActions.getAttribute('aria-disabled'), 'false', 'persistence failure immediately restores unrelated Remove availability');
+    await manager.locator('#removePlayerCancel').click();
+    assert.equal(await unrelatedActions.getAttribute('aria-disabled'), 'false', 'Cancel preserves row availability after persistence failure');
+    assert.equal(await target.count(), 1, 'persistence failure and Cancel keep the player');
+    assert.equal(removePackets, 0, 'persistence failure never auto-resends removal');
+    assert.equal(await dialog.isVisible(), false, 'Cancel closes the retryable persistence-failure dialog');
+
+    await actions.click();
+    await dialog.waitFor({ state: 'visible' });
     await manager.evaluate(() => {
       if (!window.__nativeRoomSocketSend) {
         window.__nativeRoomSocketSend = RoomSocket.prototype.send;
@@ -220,7 +242,6 @@ const profileKey = '30000000-0000-4000-8000-000000000001';
     await manager.waitForTimeout(120);
     assert.equal(await target.count(), 1, 'an unscoped player_missing error cannot prove removal');
     assert.match(await manager.locator('#removePlayerStatus').textContent(), /waiting/i, 'unscoped errors do not settle the pending target');
-    const unrelatedActions = manager.locator('#roster .roster-actions[data-pid="kimchi"]');
     await manager.locator('#removePlayerCancel').click();
     assert.equal(await unrelatedActions.getAttribute('aria-disabled'), 'true', 'another PID cannot overwrite an unresolved removal');
     await unrelatedActions.click({ force: true });
