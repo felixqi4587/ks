@@ -15,7 +15,7 @@ const { chromium } = require("playwright");
   ok(await cmd.locator("#voicePickRow").isVisible() && await cmd.locator("#voiceGender button").count() === 2, "voice: 2 choices (female/male) shown");
   ok(await cmd.locator("#voiceTest").count() === 1, "voice test button present");
   ok(await cmd.locator("#marchPresets").count() === 0 && await cmd.locator("#marchMinus").count() === 1 && await cmd.locator("#marchPlus").count() === 1, "march: presets removed, ± buttons present");
-  ok(await cmd.locator("#marchRange").getAttribute("max") === "180" && await cmd.locator("#marchRange").getAttribute("step") === "1", "march slider: max 180, step 1");
+  ok(await cmd.locator("#marchRange").getAttribute("max") === "120" && await cmd.locator("#marchRange").getAttribute("step") === "1", "march slider: max 120, step 1");
   ok(await cmd.locator("#simStart").count() === 0, "Start-sim removed");
   // ± fine tune
   await cmd.locator("#marchRange").fill("90"); await cmd.waitForTimeout(100);

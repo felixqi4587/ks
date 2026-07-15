@@ -8,6 +8,7 @@
   var qp = new URLSearchParams(location.search);
   // rooms are addressed by ROOM NAME ONLY (kingdom number dropped; legacy ?k= is ignored)
   var ROOM = (qp.get("room") || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 48);
+  var MARCH_MIN_SECONDS = 5, MARCH_MAX_SECONDS = 120;
   var LS = function (s) { return "kingshoter_r_" + ROOM + "_" + s; };
   function rd(k, d) { try { var v = localStorage.getItem(k); return v == null ? d : v; } catch (e) { return d; } }
   function wr(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
@@ -345,7 +346,7 @@
       as_on: "🔊 后台提醒已开 · 可切回游戏", as_warn: "⚠️ 声音被系统暂停 · 点一下恢复", bgtest: "🔒 测后台", bgtest_on: "锁屏切到游戏——马上来一整套 10 秒倒数示范 🔔", 
       ready_btn: "✅ 我已就位", ready_done: "✓ 已就位", notready: "有车头还没点「就位」，仍可发", readyon: "✓ 已告诉指挥你就位", readyline: "就位 {n}/{m}", rally_live: "该王国还有进行中的集结，先取消再发 refill", cap_absent: "有车头掉线了，仍可发", syncp: "{n}/{m} 已对时·在线", syncp_pick: "先点 {n} 个车头", land_cap: "落地",
       delivery_sent: "已发送", delivery_received: "已收到 ✓", delivery_received_count: "已收到 {n}/{m}", delivery_missing: "未确认", delivery_expired: "已过期",
-      settings: "⚙️ 提醒设置", bgtest2: "🔔 实测锁屏 / 切游戏提醒", cmdlink: "🔓 我是指挥 → 解锁", marchlab: "到王城行军时间", marchtip2: "游戏里开一次集结，看那个秒数填进来",
+      settings: "⚙️ 提醒设置", bgtest2: "🔔 实测锁屏 / 切游戏提醒", cmdlink: "🔓 我是指挥 → 解锁", marchlab: "到王城行军时间", marchtip2: "实战提示：如果你会使用宠物行军速度增益，请在测量前先开启。",
       cancel_k: "✖ 取消 {k} 的集结", legend: "● 你 ○ 队友 · 每环 30 秒，越外越远", unlocking: "验证密码中…", checklist_done: "都填好了，等指挥发车就行",
       tab_atk: "进攻", tab_def: "防守", dpanel: "🛡️ 补兵时机（按你的行军算）", dpanelhint: "挑当场来袭的那条敌鲸，照大字发兵。时间线上=敌方（集结→🔴落地），下=我方（🟢发兵→行军→补满✓）。补兵约在敌落地后 1 秒到，把它弹回去。",
       addenemy: "加敌鲸", pubwhales: "📣 发布敌鲸给全队", pub_ok: "✓ 已发布给全队", pub_fail: "发布失败（密码或网络）", pub_neterr: "网络错误", publishing: "发布中…", confirm_over: "有人刚发布了新版，覆盖？", whale_ph: "敌鲸名", pubdef_none: "先加一条敌鲸",
@@ -358,7 +359,7 @@
       slot_weak: "🛡️ 消耗", slot_weak_sub: "先落地 · 挡刀吃守军", slot_main: "👑 主力", slot_main_sub: "+1秒跟进收头", slot_empty: "待选", slot_swap_tip: "已互换主力/消耗",
       mode_double: "双集结", mode_triple: "三集结", slot_weak1: "消耗 1", slot_weak2: "消耗 2", rally_mode_saved: "集结模式已同步", mode_saving: "正在同步…", confirm_drop_weak2: "切回双集结会移除 {n} 的消耗 2 位置。继续？", mode_changed_elsewhere: "另一位指挥已更改集结模式，已同步最新状态", mode_unavailable: "当前房间暂不支持三集结", firetri: "⚔️ 点两下发三集结", need3: "请选择消耗 1、消耗 2 和主力三名车头",
       roster_search: "按昵称或 Player ID 搜索", replace_choose: "选择要替换的位置", role_choose: "选择 {n} 的位置", replace_weak: "替换消耗 · {n}", replace_weak1: "替换消耗 1 · {n}", replace_weak2: "替换消耗 2 · {n}", replace_main: "替换主力 · {n}", replace_cancel: "取消", already_kingdom: "该玩家已在王国 {k}", stage_other_kingdom: "该玩家刚被另一王国选中，已恢复你的选择",
-      edit_march: "修改 {n} 的行军时间", march_save: "保存", march_cancel: "取消", march_adjust: "调整行军时间", march_decrease: "减少 {n} 秒", march_increase: "增加 {n} 秒", march_latest: "房间当前值：{x}", march_active_unchanged: "已发出的倒数不会被这次修改影响", march_invalid: "请输入 0:05–3:00（5–180 秒）", march_conflict: "另一位指挥已更新；保留了你的草稿", march_retry: "按最新值重试", march_adopt: "采用最新值", march_saved: "已保存并同步到全房间", march_pending: "正在等待服务器确认与房间同步…", march_unsaved: "未保存 · 连接恢复后请手动重试", march_stale: "该玩家已不存在，正在刷新房间", march_locked: "先解锁指挥台才能修改",
+      edit_march: "修改 {n} 的行军时间", march_save: "保存", march_cancel: "取消", march_adjust: "调整行军时间", march_decrease: "减少 {n} 秒", march_increase: "增加 {n} 秒", march_latest: "房间当前值：{x}", march_active_unchanged: "已发出的倒数不会被这次修改影响", march_invalid: "请输入 0:05–2:00（5–120 秒）", march_conflict: "另一位指挥已更新；保留了你的草稿", march_retry: "按最新值重试", march_adopt: "采用最新值", march_saved: "已保存并同步到全房间", march_pending: "正在等待服务器确认与房间同步…", march_unsaved: "未保存 · 连接恢复后请手动重试", march_stale: "该玩家已不存在，正在刷新房间", march_locked: "先解锁指挥台才能修改",
       plat_ios: "🍎 iPhone：通常可在后台提醒；开战前请锁屏实测", plat_android: "🤖 安卓：保持本页亮屏最稳；系统可能暂停后台", plat_desktop: "💻 电脑：保持本标签页开启，并先做一次测试",
       atk_note: "🟡 集结 5:00 → 🟢 行军 → 到点落地", order_cancelled: "✖ 指令已取消", defense_demo: "演练动画 · 非实时战况"
     },
@@ -389,7 +390,7 @@
       as_on: "🔊 Alerts on — you can switch to the game", as_warn: "⚠️ Sound paused by the OS — tap to resume", bgtest: "🔒 Test bg", bgtest_on: "Lock & switch to the game — a full 10s countdown demo starts now 🔔", 
       ready_btn: "✅ I'm ready", ready_done: "✓ Ready", notready: "A captain hasn't tapped Ready — firing anyway", readyon: "✓ Told the commander you're ready", readyline: "Ready {n}/{m}", rally_live: "A rally is still live in this kingdom — cancel it before a refill", cap_absent: "A captain went offline — firing anyway", syncp: "{n}/{m} synced & present", syncp_pick: "Pick {n} captains", land_cap: "LAND",
       delivery_sent: "Sent", delivery_received: "Received ✓", delivery_received_count: "Received {n}/{m}", delivery_missing: "No confirmation", delivery_expired: "Expired",
-      settings: "⚙️ Alert settings", bgtest2: "🔔 Test lock-screen / in-game alert", cmdlink: "🔓 I'm the commander → unlock", marchlab: "March time to the castle", marchtip2: "in-game: open a rally on the castle, read that number",
+      settings: "⚙️ Alert settings", bgtest2: "🔔 Test lock-screen / in-game alert", cmdlink: "🔓 I'm the commander → unlock", marchlab: "March time to the castle", marchtip2: "Battle tip: if you will use a pet march-speed buff, activate it before measuring.",
       cancel_k: "✖ Cancel {k}'s rally", legend: "● you ○ mates · 30s per ring, outer = farther", unlocking: "checking password…", checklist_done: "All set — just wait for the commander",
       tab_atk: "Attack", tab_def: "Defense", dpanel: "🛡️ When to refill (for your march)", dpanelhint: "Pick the incoming whale and follow the big text. Above the line = enemy (gather → 🔴 hits), below = you (🟢 send → march → reinforced✓). Your reinforcement lands ~1s after they hit — bounces them back.",
       addenemy: "Add incoming", pubwhales: "📣 Publish to squad", pub_ok: "✓ Published to squad", pub_fail: "Publish failed (password or network)", pub_neterr: "Network error", publishing: "Publishing…", confirm_over: "Someone just published a newer version. Overwrite?", whale_ph: "Enemy name", pubdef_none: "Add an incoming whale first",
@@ -402,7 +403,7 @@
       slot_weak: "🛡️ SACRIFICE", slot_weak_sub: "lands first · eats the garrison", slot_main: "👑 MAIN", slot_main_sub: "lands +1s right behind", slot_empty: "—", slot_swap_tip: "Main/sacrifice swapped",
       mode_double: "Double Rally", mode_triple: "Triple Rally", slot_weak1: "Sacrifice 1", slot_weak2: "Sacrifice 2", rally_mode_saved: "Rally mode synced", mode_saving: "Syncing…", confirm_drop_weak2: "Switching to Double removes {n} from Sacrifice 2. Continue?", mode_changed_elsewhere: "Another commander changed the rally mode; latest state synced", mode_unavailable: "Triple Rally is unavailable in this room", firetri: "⚔️ Double-tap for Triple Rally", need3: "Select Sacrifice 1, Sacrifice 2, and Main",
       roster_search: "Search nickname or Player ID", replace_choose: "Choose the captain to replace", role_choose: "Choose a role for {n}", replace_weak: "Replace Sacrifice · {n}", replace_weak1: "Replace Sacrifice 1 · {n}", replace_weak2: "Replace Sacrifice 2 · {n}", replace_main: "Replace Main · {n}", replace_cancel: "Cancel", already_kingdom: "Already selected for Kingdom {k}", stage_other_kingdom: "Another kingdom just selected this player; your prior picks were restored",
-      edit_march: "Edit {n}'s march time", march_save: "Save", march_cancel: "Cancel", march_adjust: "Adjust march time", march_decrease: "Decrease {n} seconds", march_increase: "Increase {n} seconds", march_latest: "Current room value: {x}", march_active_unchanged: "An active countdown will not change", march_invalid: "Enter 0:05–3:00 (5–180 seconds)", march_conflict: "Another commander updated this player; your draft is preserved", march_retry: "Retry on latest", march_adopt: "Adopt latest", march_saved: "Saved and synchronized to the room", march_pending: "Waiting for server confirmation and room sync…", march_unsaved: "Not saved · retry manually after reconnect", march_stale: "This player is gone; refreshing the room", march_locked: "Unlock the commander console to edit",
+      edit_march: "Edit {n}'s march time", march_save: "Save", march_cancel: "Cancel", march_adjust: "Adjust march time", march_decrease: "Decrease {n} seconds", march_increase: "Increase {n} seconds", march_latest: "Current room value: {x}", march_active_unchanged: "An active countdown will not change", march_invalid: "Enter 0:05–2:00 (5–120 seconds)", march_conflict: "Another commander updated this player; your draft is preserved", march_retry: "Retry on latest", march_adopt: "Adopt latest", march_saved: "Saved and synchronized to the room", march_pending: "Waiting for server confirmation and room sync…", march_unsaved: "Not saved · retry manually after reconnect", march_stale: "This player is gone; refreshing the room", march_locked: "Unlock the commander console to edit",
       plat_ios: "🍎 iPhone: background alerts usually work; lock-screen test before battle", plat_android: "🤖 Android: keeping this page visible is safest; the OS may pause it", plat_desktop: "💻 Desktop: keep this tab open and run one test first",
       atk_note: "🟡 gather 5:00 → 🟢 march → lands", order_cancelled: "✖ Order cancelled", defense_demo: "Timing rehearsal · not live battle state"
     }
@@ -1259,11 +1260,15 @@
       var t0 = Math.min.apply(null, pairs.map(function (p) { return p.press; })), maxLand = Math.max.apply(null, pairs.map(function (p) { return p.land; }));
       return { live: true, id: c.id, kingdom: (c.payload.kingdom) || 1, actors: pairs, t0: t0, span: Math.max(8, maxLand - t0) };
     }
-    var ps = Object.keys(room.players || {}).map(function (pid) { var p = room.players[pid]; return { pid: pid, name: p.name || pid, role: "joiner", march: Math.max(5, Math.min(180, p.march || 60)), mine: pid === myPid }; });
+    var ps = Object.keys(room.players || {}).map(function (pid) { var p = room.players[pid]; return { pid: pid, name: p.name || pid, role: "joiner", march: Math.max(MARCH_MIN_SECONDS, Math.min(MARCH_MAX_SECONDS, p.march || 60)), mine: pid === myPid }; });
     ps.sort(function (a, b) { return a.march - b.march; });
     return { live: false, actors: ps };
   }
-  function domainFor(ms) { var mx = ms.length ? Math.max.apply(null, ms) : 60; return Math.max(30, Math.ceil(mx / 30) * 30); }   // round up to a 30s multiple so ring/axis ticks land clean
+  function domainFor(ms, live) {
+    if (!live) return MARCH_MAX_SECONDS;
+    var mx = ms.length ? Math.max.apply(null, ms) : 60;
+    return Math.max(30, Math.ceil(mx / 30) * 30);
+  }
   function ringR(s, dom) { return 12 + Math.min(s, dom) / dom * 52; }   // radar (viewBox 150 tall): glance-only, no numbers — the timeline carries the times
   function clockAt(utc) { var d = new Date(utc * 1000); return window.pad(d.getHours()) + ":" + window.pad(d.getMinutes()) + ":" + window.pad(d.getSeconds()); }   // absolute landing clock time
   function renderRadar(d) {
@@ -1324,7 +1329,7 @@
     var d = mapData();
     var key = d.live ? "live-" + d.id : ("idle-" + d.actors.map(function (a) { return a.pid + a.march; }).join(","));
     if (mapS.mode === key) return;
-    mapS.mode = key; mapS.live = d.live; mapS.t0 = d.t0 || 0; mapS.span = d.span || 1; mapS.domain = domainFor(d.actors.map(function (a) { return a.march; }));
+    mapS.mode = key; mapS.live = d.live; mapS.t0 = d.t0 || 0; mapS.span = d.span || 1; mapS.domain = domainFor(d.actors.map(function (a) { return a.march; }), d.live);
     stopRaf(); renderRadar(d); renderLanes(d);
     if (d.live) mapFrame();
   }
@@ -1665,7 +1670,7 @@
     var secondsPart = Number(match[2]);
     if (secondsPart >= 60) return null;
     var seconds = Number(match[1]) * 60 + secondsPart;
-    return Number.isInteger(seconds) && seconds >= 5 && seconds <= 180 ? seconds : null;
+    return Number.isInteger(seconds) && seconds >= MARCH_MIN_SECONDS && seconds <= MARCH_MAX_SECONDS ? seconds : null;
   }
   function canonicalMarchRecord(pid, players) {
     var player = players && players[pid];
@@ -1752,7 +1757,7 @@
     }
     if (editingPlayerPid && editingPlayerPid !== pid) closeCommanderMarchEditor(false);
     editingPlayerPid = pid; commanderMarchOriginPid = origin && origin.dataset ? origin.dataset.pid : pid;
-    commanderMarchDraft = window.mmss(Math.max(5, Math.min(180, canonical.march))); commanderMarchDirty = false; commanderMarchLatest = canonical;
+    commanderMarchDraft = window.mmss(Math.max(MARCH_MIN_SECONDS, Math.min(MARCH_MAX_SECONDS, canonical.march))); commanderMarchDirty = false; commanderMarchLatest = canonical;
     commanderMarchStatus = ""; commanderMarchStatusTone = ""; commanderMarchStale = false; commanderMarchRefreshAfterSnapshot = -1;
     renderRoster(); renderCommanderMarchEditor();
     var input = $("commanderMarchInput"); if (input) { input.focus(); input.select(); }
@@ -1804,7 +1809,7 @@
       settleCommanderMarchMutation();
     } else if (commanderMarchDirty && prior && (record.revision > prior.revision || (record.revision === prior.revision && record.march !== prior.march))) {
       markCommanderMarchConflict(record);
-    } else if (!commanderMarchDirty) commanderMarchDraft = window.mmss(Math.max(5, Math.min(180, record.march)));
+    } else if (!commanderMarchDirty) commanderMarchDraft = window.mmss(Math.max(MARCH_MIN_SECONDS, Math.min(MARCH_MAX_SECONDS, record.march)));
   }
   function removalSnapshot(pid, sourceRoom) {
     var currentRoom = sourceRoom || room, players = (currentRoom && currentRoom.players) || {};
@@ -2906,7 +2911,7 @@
   }
 
   /* ---------- fill ---------- */
-  function setMarchUI(s) { s = Math.max(5, Math.min(180, Math.round(s || 90))); $("marchRange").value = s; $("marchBig").textContent = marchTouched ? window.mmss(s) : "—:—"; var sb = $("saveBtn"); if (sb) sb.classList.toggle("dim", !marchTouched); }   // dim, NOT disabled: a native-disabled button swallows the tap and the stuck user gets zero feedback
+  function setMarchUI(s) { s = Math.max(MARCH_MIN_SECONDS, Math.min(MARCH_MAX_SECONDS, Math.round(s || 90))); $("marchRange").value = s; $("marchBig").textContent = marchTouched ? window.mmss(s) : "—:—"; var sb = $("saveBtn"); if (sb) sb.classList.toggle("dim", !marchTouched); }   // dim, NOT disabled: a native-disabled button swallows the tap and the stuck user gets zero feedback
   function showProfileDraft(me) { marchTouched = true; $("fillCard").classList.remove("hide"); $("youChip").classList.add("hide"); showExistingIdentity(me); setMarchUI(me.march); }
   function paintProfileAccess(me) {
     var button = $("editBtn"); if (!button) return;
@@ -3008,7 +3013,7 @@
       button.onclick = function () {
         if (pendingCommanderMarchMutation || commanderMarchStale) return;
         var current = parseMMSS(commanderMarchDraft), latest = commanderMarchLatest;
-        var next = Math.max(5, Math.min(180, (current == null ? (latest ? latest.march : 90) : current) + Number(button.dataset.marchDelta || 0)));
+        var next = Math.max(MARCH_MIN_SECONDS, Math.min(MARCH_MAX_SECONDS, (current == null ? (latest ? latest.march : 90) : current) + Number(button.dataset.marchDelta || 0)));
         commanderMarchDraft = window.mmss(next); commanderMarchDirty = true;
         if (commanderMarchStatus === "invalid" || commanderMarchStatus === "unsaved") { commanderMarchStatus = ""; commanderMarchStatusTone = ""; }
         renderCommanderMarchEditor(); $("commanderMarchInput").focus(); $("commanderMarchInput").select();

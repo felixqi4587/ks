@@ -173,9 +173,9 @@ async function enableAndUnlock(page, pageUrl = url) {
       player.goto(url)
     ]);
 
-    assert.equal(await commanderA.locator('link[href="app.css?v=2026071502"]').count(), 1);
-    assert.equal(await commanderA.locator('script[src="/app.js?v=2026071502"]').count(), 1);
-    assert.equal(await commanderA.locator('script[src="/kvk.js?v=2026071502"]').count(), 1);
+    assert.equal(await commanderA.locator('link[href="app.css?v=2026071503"]').count(), 1);
+    assert.equal(await commanderA.locator('script[src="/app.js?v=2026071503"]').count(), 1);
+    assert.equal(await commanderA.locator('script[src="/kvk.js?v=2026071503"]').count(), 1);
 
     const canonicalBeforeLegacy = await readRoom(bootstrap);
     const legacyRoom = structuredClone(canonicalBeforeLegacy);
@@ -184,7 +184,7 @@ async function enableAndUnlock(page, pageUrl = url) {
     await commanderA.locator(`#roster .roster-time[data-pid="${legacyPid}"]`).click();
     await injectPacket(commanderA, JSON.stringify({ t: 'state', room: legacyRoom }));
     assert.equal(await commanderA.locator('#commanderMarchEditor').isVisible(), true, 'legacy out-of-range march remains repairable');
-    assert.equal(await commanderA.locator('#commanderMarchInput').inputValue(), '3:00', 'legacy repair draft starts inside the accepted range');
+    assert.equal(await commanderA.locator('#commanderMarchInput').inputValue(), '2:00', 'legacy repair draft starts inside the accepted range');
     assert.match(await commanderA.locator('#commanderMarchLatest').textContent(), /4:00/, 'legacy canonical value remains visible');
     await commanderA.locator('#commanderMarchCancel').click();
     await injectPacket(commanderA, JSON.stringify({ t: 'state', room: canonicalBeforeLegacy }));
@@ -389,7 +389,7 @@ async function enableAndUnlock(page, pageUrl = url) {
     for (const invalid of ['0:04', '0:99', '1:60', '2:60', '3:01']) {
       await commanderA.locator('#commanderMarchInput').fill(invalid);
       await commanderA.locator('#commanderMarchSave').click();
-      await commanderA.locator('#commanderMarchStatus').filter({ hasText: /5–180/ }).waitFor();
+      await commanderA.locator('#commanderMarchStatus').filter({ hasText: /5–120/ }).waitFor();
       assert.equal(await commanderA.locator('#commanderMarchInput').getAttribute('aria-invalid'), 'true');
     }
     assert.equal(gateA.clientMutations.length, beforeInvalid);
