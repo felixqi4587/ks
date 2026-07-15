@@ -23,10 +23,16 @@ function harness() {
     removalState: {
       pid: '001', status: 'pending', socketGeneration: 7
     },
-    sock: { connectionGeneration: 7 },
+    sock: {
+      connectionGeneration: 7,
+      refresh() { sandbox.refreshes += 1; }
+    },
     renders: 0,
+    rosterRenders: 0,
+    refreshes: 0,
     invalidations: 0,
     renderRemovalDialog() { sandbox.renders += 1; },
+    renderRoster() { sandbox.rosterRenders += 1; },
     invalidateCommanderAccess() { sandbox.invalidations += 1; }
   };
   vm.runInNewContext(
@@ -44,15 +50,35 @@ test('remove persistence failure keeps the player pending locally and exposes a 
   }), true);
   assert.equal(h.removalState.status, 'retry');
   assert.equal(h.renders, 1);
+  assert.equal(h.rosterRenders, 1);
+  assert.equal(h.refreshes, 0);
   assert.equal(h.invalidations, 0);
 });
 
-test('remove persistence failure for another player cannot disturb this pending removal', () => {
+test('active-player rejection blocks removal, repaints roster availability, and refreshes state', () => {
   const h = harness();
 
   assert.equal(h.handleRemovalProtocolError({
-    t: 'error', error: 'remove_persist_failed', pid: 'kimchi'
-  }), false);
-  assert.equal(h.removalState.status, 'pending');
-  assert.equal(h.renders, 0);
+    t: 'error', error: 'player_in_live_command', pid: '001'
+  }), true);
+  assert.equal(h.removalState.status, 'blocked');
+  assert.equal(h.renders, 1);
+  assert.equal(h.rosterRenders, 1);
+  assert.equal(h.refreshes, 1);
+  assert.equal(h.invalidations, 0);
+});
+
+test('scoped removal errors for another player cannot repaint or disturb this pending removal', () => {
+  for (const error of ['remove_persist_failed', 'player_in_live_command']) {
+    const h = harness();
+
+    assert.equal(h.handleRemovalProtocolError({
+      t: 'error', error, pid: 'kimchi'
+    }), false, error);
+    assert.equal(h.removalState.status, 'pending', error);
+    assert.equal(h.renders, 0, error);
+    assert.equal(h.rosterRenders, 0, error);
+    assert.equal(h.refreshes, 0, error);
+    assert.equal(h.invalidations, 0, error);
+  }
 });
