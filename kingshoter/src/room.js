@@ -11,6 +11,7 @@ import {
   normalizeMarchRevision,
   normalizeMutationId,
   normalizePlayerRecords,
+  normalizePlayerRecordsWithMigration,
   normalizeRoutingKey,
   profilePlayerId,
   registerPlayer,
@@ -172,10 +173,12 @@ export class Room {
     this._deliveryLoadPromise = null;
     state.blockConcurrencyWhile(async () => {
       this.room = (await state.storage.get("room")) || defaultRoom();
-      this.room.players = normalizePlayerRecords(this.room.players);
+      const playerMigration = normalizePlayerRecordsWithMigration(this.room.players);
+      this.room.players = playerMigration.players;
       this.normalizeLive();
       delete this.room.delivery;
       delete this.room.deliveryShadow;
+      if (playerMigration.changed) await state.storage.put("room", this.room);
       let storedDelivery = null;
       try { storedDelivery = await state.storage.get(DELIVERY_STORAGE_KEY); } catch (error) {}
       this.delivery = normalizeDeliveryState(storedDelivery || this.delivery, this.nowMs());

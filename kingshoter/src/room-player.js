@@ -1,5 +1,5 @@
 export const MARCH_MIN = 5;
-export const MARCH_MAX = 180;
+export const MARCH_MAX = 120;
 
 const own = (object, key) => Object.prototype.hasOwnProperty.call(object || {}, key);
 
@@ -34,14 +34,25 @@ export function normalizeMarchRevision(value) {
   return Number.isInteger(value) && value >= 0 ? value : 0;
 }
 
-export function normalizePlayerRecords(players) {
+export function normalizePlayerRecordsWithMigration(players) {
   const source = players && typeof players === 'object' ? players : {};
   const result = Object.create(null);
+  let changed = false;
   for (const pid of Object.keys(source)) {
     const player = source[pid] && typeof source[pid] === 'object' ? source[pid] : {};
-    result[pid] = Object.assign({}, player, { marchRevision: normalizeMarchRevision(player.marchRevision) });
+    const revision = normalizeMarchRevision(player.marchRevision);
+    const legacyOverMax = Number.isInteger(player.march) && player.march > MARCH_MAX;
+    result[pid] = Object.assign({}, player, {
+      march: legacyOverMax ? MARCH_MAX : player.march,
+      marchRevision: revision + (legacyOverMax ? 1 : 0)
+    });
+    if (legacyOverMax || revision !== player.marchRevision) changed = true;
   }
-  return result;
+  return { players: result, changed };
+}
+
+export function normalizePlayerRecords(players) {
+  return normalizePlayerRecordsWithMigration(players).players;
 }
 
 function cleanName(value) {

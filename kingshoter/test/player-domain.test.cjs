@@ -9,18 +9,43 @@ async function domain() {
   return import(url.href);
 }
 
-test('march parser is strict and revisions migrate without data loss', async () => {
-  const { parseMarchSeconds, normalizeMarchRevision, normalizePlayerRecords } = await domain();
+test('march parser enforces the exact five-to-120-second domain', async () => {
+  const { parseMarchSeconds } = await domain();
   assert.equal(parseMarchSeconds(5), 5);
-  assert.equal(parseMarchSeconds('180'), 180);
-  for (const value of [4, 181, 6.5, '6.5', 'abc', '', null, Infinity, NaN]) assert.equal(parseMarchSeconds(value), null);
+  assert.equal(parseMarchSeconds('120'), 120);
+  for (const value of [4, 121, 180, 6.5, '6.5', 'abc', '', null, Infinity, NaN]) {
+    assert.equal(parseMarchSeconds(value), null);
+  }
+});
+
+test('player records migrate legacy marches once without losing record data', async () => {
+  const {
+    normalizeMarchRevision,
+    normalizePlayerRecords,
+    normalizePlayerRecordsWithMigration
+  } = await domain();
   assert.equal(normalizeMarchRevision(undefined), 0);
   assert.equal(normalizeMarchRevision(-1), 0);
   assert.equal(normalizeMarchRevision(8), 8);
+
+  const first = normalizePlayerRecordsWithMigration({
+    legacy: { name: 'Legacy', march: 180, marchRevision: 7, identityMode: 'nickname', ready: true },
+    current: { name: 'Current', march: 120, marchRevision: 4, identityMode: 'playerId' }
+  });
+  assert.equal(first.changed, true);
+  assert.equal(first.players.legacy.march, 120);
+  assert.equal(first.players.legacy.marchRevision, 8);
+  assert.equal(first.players.legacy.ready, true);
+  assert.equal(first.players.current.marchRevision, 4);
+  const second = normalizePlayerRecordsWithMigration(first.players);
+  assert.equal(second.changed, false);
+  assert.equal(second.players.legacy.marchRevision, 8);
+
   const inherited = Object.create({ ghost: { name: 'Inherited', march: 30 } });
-  inherited.p1 = { name: 'One', march: 240 };
+  inherited.p1 = { name: 'One', march: 30 };
   const players = normalizePlayerRecords(inherited);
-  assert.equal(players.p1.march, 240, 'migration must not clamp an existing record');
+  assert.equal(Object.getPrototypeOf(players), null);
+  assert.equal(players.p1.march, 30);
   assert.equal(players.p1.marchRevision, 0);
   assert.equal(players.ghost, undefined);
 });

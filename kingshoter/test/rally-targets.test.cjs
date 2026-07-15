@@ -28,7 +28,7 @@ test('two sacrifices land together and Main lands one second later', async () =>
 
 test('all supported leads preserve exact personal lead and invalid rosters fail', async () => {
   const { buildTripleRallyCommand } = await load();
-  const players = { a: { march: 5 }, b: { march: 180 }, c: { march: 90 } };
+  const players = { a: { march: 5 }, b: { march: 120 }, c: { march: 90 } };
   for (const leadSeconds of [10, 15, 30, 60]) {
     const result = buildTripleRallyCommand({
       players, pairs: [{ pid: 'a', role: 'weak' }, { pid: 'b', role: 'weak2' }, { pid: 'c', role: 'main' }],
@@ -90,7 +90,7 @@ test('player lookup requires an own canonical record', async () => {
 
 test('march validation rejects values below, above, and outside the numeric domain', async () => {
   const { buildTripleRallyCommand } = await load();
-  for (const [label, march] of [['below', 4], ['above', 181], ['non-number', 'fast']]) {
+  for (const [label, march] of [['below', 4], ['above', 121], ['non-number', 'fast']]) {
     const result = buildTripleRallyCommand({
       players: { a: { march }, b: { march: 30 }, c: { march: 40 } },
       pairs: [{ pid: 'a', role: 'weak' }, { pid: 'b', role: 'weak2' }, { pid: 'c', role: 'main' }],
@@ -126,7 +126,7 @@ test('unsupported lead and kingdom values are rejected', async () => {
 
 test('unequal march permutations preserve both landing offsets', async () => {
   const { buildTripleRallyCommand } = await load();
-  const players = { a: { march: 5 }, b: { march: 180 }, c: { march: 90 } };
+  const players = { a: { march: 5 }, b: { march: 120 }, c: { march: 90 } };
   const permutations = [
     [{ pid: 'a', role: 'weak' }, { pid: 'b', role: 'weak2' }, { pid: 'c', role: 'main' }],
     [{ pid: 'c', role: 'main' }, { pid: 'a', role: 'weak2' }, { pid: 'b', role: 'weak' }]

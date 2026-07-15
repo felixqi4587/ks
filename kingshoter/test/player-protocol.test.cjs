@@ -65,22 +65,41 @@ async function bindPlayerSocket(
   harness.reset();
 }
 
-test('constructor migrates legacy stored players to revision zero without clamping march', async () => {
+test('constructor durably migrates stored players without changing frozen command marches', async () => {
   const { Room } = await loadRoom();
   let initialized;
+  const writes = [];
   const storedRoom = {
     pwHash: null,
     config: { castleName: '', rallyAllies: [], enemyWhales: [] },
-    players: { legacy: { name: 'Legacy', march: 240, lastSeen: '2026-07-13T00:00:00.000Z' } },
-    live: { mode: 'idle', command: null, staged: null, sim: null },
+    players: {
+      legacy: {
+        name: 'Legacy', march: 180, marchRevision: 7, identityMode: 'nickname', ready: true,
+        lastSeen: '2026-07-13T00:00:00.000Z'
+      }
+    },
+    live: {
+      mode: 'live',
+      commands: {
+        1: {
+          id: 'already-fired', type: 'double_rally', kingdom: 1, expiresUTC: 2_000_000_000,
+          payload: { pairs: [{ pid: 'legacy', name: 'Legacy', role: 'main', march: 180, pressUTC: 1_999_999_900 }] }
+        },
+        2: null
+      },
+      staged: { 1: null, 2: null },
+      sim: null
+    },
     updatedAt: null,
     updatedBy: null
   };
   const state = {
     storage: {
       async get(key) {
-        assert.equal(key, 'room');
-        return storedRoom;
+        return key === 'room' ? storedRoom : null;
+      },
+      async put(key, value) {
+        writes.push([key, structuredClone(value)]);
       }
     },
     blockConcurrencyWhile(callback) {
@@ -92,8 +111,15 @@ test('constructor migrates legacy stored players to revision zero without clampi
   const room = new Room(state, { MASTER: 'separate-master-override' });
   await initialized;
 
-  assert.equal(room.room.players.legacy.march, 240);
-  assert.equal(room.room.players.legacy.marchRevision, 0);
+  assert.equal(room.room.players.legacy.march, 120);
+  assert.equal(room.room.players.legacy.marchRevision, 8);
+  assert.equal(room.room.players.legacy.ready, true);
+  assert.equal(room.room.live.commands[1].payload.pairs[0].march, 180);
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0][0], 'room');
+  assert.equal(writes[0][1].players.legacy.march, 120);
+  assert.equal(writes[0][1].players.legacy.marchRevision, 8);
+  assert.equal(writes[0][1].live.commands[1].payload.pairs[0].march, 180);
 });
 
 test('private profile owners survive reload, reject invalid hashes, and never enter public state', async () => {
