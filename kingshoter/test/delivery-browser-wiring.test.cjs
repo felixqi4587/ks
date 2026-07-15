@@ -270,6 +270,7 @@ function createHarness(config = {}) {
     var commanderMarchStatus = '', commanderMarchStatusTone = '', commanderMarchDirty = false;
     var pendingUnlock = false, roomPw = '', pendingPubWhales = null, pendingPubTok = null, room = null;
     function onState() {}
+    function safeUpdateCheck() { return false; }
     function isCommanderDevice() { return __commander === true; }
     function audioAlive() { __state.calls.audioAlive += 1; return __state.audioArmed === true; }
     function handleStageSuperseded() { return false; }
@@ -386,27 +387,27 @@ function sentType(state, type) {
   return state.sent.filter(message => message.t === type);
 }
 
-test('Task 6 loads one isolated controller between app v11 and KvK v41', () => {
-  const appIndex = html.indexOf('<script src="app.js?v=11"></script>');
-  const shadowTag = '<script src="kvk-delivery-shadow.js?v=1"></script>';
+test('the updater bootstrap and isolated delivery controller load in one build generation', () => {
+  const updateIndex = html.indexOf('<script src="/kvk-update.js?v=2026071302"></script>');
+  const appIndex = html.indexOf('<script src="/app.js?v=2026071302"></script>');
+  const shadowTag = '<script src="/kvk-delivery-shadow.js?v=2026071302"></script>';
   const shadowIndex = html.indexOf(shadowTag);
-  const kvkIndex = html.indexOf('<script src="kvk.js?v=41"></script>');
+  const kvkIndex = html.indexOf('<script src="/kvk.js?v=2026071302"></script>');
 
-  assert.ok(appIndex >= 0, 'shared app script remains v11');
+  assert.ok(updateIndex >= 0, 'supported-build updater loads');
+  assert.ok(appIndex > updateIndex, 'shared app loads after the updater');
   assert.ok(shadowIndex > appIndex, 'shadow controller loads after app.js');
-  assert.ok(kvkIndex > shadowIndex, 'KvK v41 loads after the controller');
+  assert.ok(kvkIndex > shadowIndex, 'KvK runtime loads after the controller');
   assert.equal(html.split(shadowTag).length - 1, 1, 'the controller loads exactly once');
   assert.doesNotMatch(html.replace(shadowTag, ''), /delivery(?:Qa|Shadow)/i,
     'the QA candidate adds no HTML control, copy, style, or mode selector');
 });
 
-test('Task 6 cache assertions move atomically to v41 with no v40 residue', () => {
+test('KvK cache assertions move atomically to the supported build', () => {
   const cacheSources = [html, ...CACHE_TEST_PATHS.map(read)];
-  const oldLiteral = 'kvk.js?v=' + '40';
-  const oldPattern = 'kvk\\.js\\?v=' + '40';
   for (const source of cacheSources) {
-    assert.equal(source.includes(oldLiteral) || source.includes(oldPattern), false);
-    assert.equal(source.includes('kvk.js?v=41') || source.includes('kvk\\.js\\?v=41'), true);
+    assert.equal(source.includes('kvk.js?v=41') || source.includes('kvk\\.js\\?v=41'), false);
+    assert.equal(source.includes('kvk.js?v=2026071302') || source.includes('kvk\\.js\\?v=2026071302'), true);
   }
 });
 
@@ -925,7 +926,7 @@ test('injected boundaries use only current Core identity, live socket, strict tr
 });
 
 test('protected Core/audio/identity authorities contain no shadow wiring', () => {
-  assert.equal(digest(app), '89eab088f81e56ffb22839bbea200f968688960d3d6267d31d2dd1ada51c4dd2',
+  assert.equal(digest(app), 'a26e461c02326216824d733c71cdcb51b4267f262a0dba583079c1f0434a212e',
     'app.js, RoomSocket, and getRoomDeviceId remain byte-identical');
   for (const name of [
     'handleSocketMessage',

@@ -7,12 +7,26 @@
 export { Room } from "./room.js";
 import { lookupName } from "./ksapi.js";
 import { handleGift, giftScheduled } from "./gift.js";
+import { buildMetadata } from "./client-build.js";
 
 const json = (o, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } });
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    if (url.pathname === "/api/build") {
+      return new Response(JSON.stringify(buildMetadata(
+        env.TRIPLE_RALLY_ENABLED === "1",
+        env.TRIPLE_RALLY_QA_ENABLED === "1"
+      )), {
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          "Cache-Control": "no-store, max-age=0",
+          "Access-Control-Allow-Origin": "*"
+        }
+      });
+    }
 
     if (url.pathname === "/api/ws") {
       // rooms are keyed by ROOM NAME ONLY (kingdom number dropped 2026-07): "r:" prefix keeps the

@@ -66,7 +66,9 @@ test('Classic commander keeps fired slots visible and reserves green for receipt
 });
 
 test('KvK cache versions move atomically with the delivery client and styles', () => {
-  assert.match(html, /app\.css\?v=30/);
-  assert.match(html, /app\.js\?v=11/);
-  assert.match(html, /kvk\.js\?v=41/);
+  assert.match(html, /app\.css\?v=2026071302/);
+  assert.match(html, /kvk-update\.js\?v=2026071302/);
+  assert.match(html, /app\.js\?v=2026071302/);
+  assert.match(html, /kvk-delivery-shadow\.js\?v=2026071302/);
+  assert.match(html, /kvk\.js\?v=2026071302/);
 });

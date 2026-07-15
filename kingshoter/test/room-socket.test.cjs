@@ -81,6 +81,43 @@ function loadApp({ localStorage = createStorage(), crypto = { randomUUID }, time
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
+test('RoomSocket advertises build 0 when the optional build is omitted', () => {
+  const { sockets, window } = loadApp();
+  const roomSocket = new window.RoomSocket('qa-kvk-build-default', () => {});
+
+  assert.equal(roomSocket.clientBuild, 0);
+  assert.equal(sockets[0].url, 'wss://example.test/api/ws?room=qa-kvk-build-default&clientBuild=0');
+});
+
+test('RoomSocket preserves a safe positive client build through reconnects', () => {
+  const { sockets, timers, window } = loadApp();
+  const roomSocket = new window.RoomSocket('qa kvk/build', () => {}, { clientBuild: 2026071302 });
+
+  assert.equal(roomSocket.clientBuild, 2026071302);
+  assert.equal(Object.getOwnPropertyDescriptor(roomSocket, 'clientBuild').writable, false);
+  roomSocket.clientBuild = 1;
+  assert.equal(roomSocket.clientBuild, 2026071302);
+  assert.equal(sockets[0].url, 'wss://example.test/api/ws?room=qa%20kvk%2Fbuild&clientBuild=2026071302');
+
+  sockets[0].emitClose();
+  const reconnect = [...timers.pending.values()][0].callback;
+  reconnect();
+
+  assert.equal(sockets.length, 2);
+  assert.equal(sockets[1].url, 'wss://example.test/api/ws?room=qa%20kvk%2Fbuild&clientBuild=2026071302');
+});
+
+test('RoomSocket normalizes malformed client builds to 0', () => {
+  const { sockets, window } = loadApp();
+  const invalidBuilds = ['2026071302', -1, 1.5, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity, null];
+
+  invalidBuilds.forEach((clientBuild, index) => {
+    const roomSocket = new window.RoomSocket(`qa-kvk-invalid-${index}`, () => {}, { clientBuild });
+    assert.equal(roomSocket.clientBuild, 0);
+    assert.match(sockets[index].url, /&clientBuild=0$/);
+  });
+});
+
 test('RoomSocket preserves state and error routing while dispatching generic messages', () => {
   const { sockets, window } = loadApp();
   const states = [];

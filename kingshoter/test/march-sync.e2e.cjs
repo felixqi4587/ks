@@ -169,9 +169,9 @@ async function enableAndUnlock(page, pageUrl = url) {
       player.goto(url)
     ]);
 
-    assert.equal(await commanderA.locator('link[href="app.css?v=30"]').count(), 1);
-    assert.equal(await commanderA.locator('script[src="app.js?v=11"]').count(), 1);
-    assert.equal(await commanderA.locator('script[src="kvk.js?v=41"]').count(), 1);
+    assert.equal(await commanderA.locator('link[href="app.css?v=2026071302"]').count(), 1);
+    assert.equal(await commanderA.locator('script[src="/app.js?v=2026071302"]').count(), 1);
+    assert.equal(await commanderA.locator('script[src="/kvk.js?v=2026071302"]').count(), 1);
 
     const canonicalBeforeLegacy = await readRoom(bootstrap);
     const legacyRoom = structuredClone(canonicalBeforeLegacy);

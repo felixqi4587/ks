@@ -825,6 +825,64 @@
     }
     return { anchor: c.anchorUTC, mine: false };
   }
+  /* ---------- supported-build handoff ---------- */
+  function noUpdateController() {
+    return {
+      start: function () {},
+      check: function () { return Promise.resolve(false); },
+      flush: function () { return false; }
+    };
+  }
+  function hasActivePersonalCommandForUpdate() {
+    // Until the first canonical snapshot (and again during reconnect), assume this device may
+    // be a live captain. A build check must never win a race against their personal countdown.
+    if (ROOM && (!initialStateSeen || !syncedOK)) return true;
+    var now = window.serverNow() / 1000;
+    return liveCommands(room).some(function (command) {
+      var target = myTarget(command);
+      return target.mine && target.anchor > now - 1;
+    });
+  }
+  var updateController = noUpdateController();
+  function makeUpdateController() {
+    try {
+      var api = window.KvkUpdate;
+      if (!api || typeof api.createController !== "function") return noUpdateController();
+      var controller = api.createController({
+        fetcher: window.fetch.bind(window),
+        location: window.location,
+        document: document,
+        hasActivePersonalCommand: hasActivePersonalCommandForUpdate,
+        setIntervalFn: window.setInterval.bind(window)
+      });
+      if (!controller || typeof controller.start !== "function" ||
+          typeof controller.check !== "function" || typeof controller.flush !== "function") {
+        return noUpdateController();
+      }
+      return controller;
+    } catch (error) { return noUpdateController(); }
+  }
+  function safeUpdateStart() {
+    try {
+      updateController = makeUpdateController();
+      updateController.start();
+      return true;
+    } catch (error) {
+      updateController = noUpdateController();
+      return false;
+    }
+  }
+  function safeUpdateCheck() {
+    try {
+      var result = updateController.check();
+      if (result && typeof result.catch === "function") result.catch(function () {});
+      return true;
+    } catch (error) { return false; }
+  }
+  function safeUpdateFlush() {
+    try { return updateController.flush() === true; }
+    catch (error) { return false; }
+  }
   function announceCmd(c, tg, remaining) {
     var v = vw();
     if (c.type === "ping") return speak(v.check);
@@ -897,7 +955,7 @@
   function flashGo(id) { if (lastFlashSec === id) return; lastFlashSec = id; var f = $("goFlash"); f.classList.add("on"); setTimeout(function () { f.classList.remove("on"); }, 600); }
 
   var lastTickSec = null, pulledForCmd = "";
-  function tick() { if (!room) return; paintHero(); syncMap(); if (roomPw) refreshSyncPill();
+  function tick() { if (!room || safeUpdateFlush()) return; paintHero(); syncMap(); if (roomPw) refreshSyncPill();
     // NOBODY misses a live countdown by sitting on the defense tab: captains need their click second,
     // joiners need "tap JOIN at GO" — pull to attack ONCE per order (with a toast saying why), then let
     // people tab back freely: a 200ms re-force made the defense tab a dead button with zero explanation
@@ -905,7 +963,7 @@
   }
   setInterval(tick, 200);
   // backgrounding freezes timers → pre-queue ALL live cues on the audio clock now (survives the freeze). Returning → resume audio + reconnect + reschedule.
-  function onResume() { beginClockSync(); resumeAudio(); keepAwake(); if (sock && !sock.connected) sock.kick(); else sendDeviceStatus(); retryPendingDeliveryAcks(true); }   // re-sync the clock on return so post-suspend drift can't mis-time the GO, then reschedule on the fresh offset
+  function onResume() { if (ROOM && (!sock || !sock.connected)) initialStateSeen = false; beginClockSync(); safeUpdateCheck(); resumeAudio(); keepAwake(); if (sock && !sock.connected) sock.kick(); else sendDeviceStatus(); retryPendingDeliveryAcks(true); }   // re-sync the clock on return so post-suspend drift can't mis-time the GO, then reschedule on the fresh offset
   document.addEventListener("visibilitychange", function () {
     syncBedVol();   // raise the keep-alive bed to a faint level only now that we're backgrounded; silent again on return
     if (document.visibilityState === "hidden") { if (!room) return; ensureAudio(); scheduleAllCues(); }
@@ -2071,7 +2129,7 @@
           Number(deliveryShadowSocket.connectionGeneration || 0) !== deliveryShadowGeneration) return;
       handleDeliveryShadowMessage(message);
     };
-    sock.onOpen = function () { deliveryShadowConnectionOpened(); initialStateSeen = false; registrationPending = false; setNet(true); sendDeviceStatus(); retryPendingDeliveryAcks(true); beginClockSync().then(deliveryShadowClockCallback()); };
+    sock.onOpen = function () { deliveryShadowConnectionOpened(); initialStateSeen = false; safeUpdateCheck(); registrationPending = false; setNet(true); sendDeviceStatus(); retryPendingDeliveryAcks(true); beginClockSync().then(deliveryShadowClockCallback()); };
     sock.onClose = function () {
       initialStateSeen = false; registrationPending = false;
       if (pendingMarchMutation && !pendingMarchMutation.ackSeen) pendingMarchMutation = null;
@@ -2207,6 +2265,7 @@
     // my march changed (this device or another of mine) → defense cues recompute
     var mm = (r.players && r.players[myPid] && r.players[myPid].march) || 0;
     if (mm !== lastMyMarch) { lastMyMarch = mm; if (viewMode === "defense") renderDefense(); }
+    safeUpdateFlush();
   }
 
   /* ---------- fill ---------- */
@@ -2420,7 +2479,7 @@
   }
 
   /* ---------- bootstrap (after every definition; no fragile load-order) ---------- */
-  window.startClock(); beginClockSync(); setInterval(beginClockSync, 180000);
+  window.startClock(); beginClockSync(); setInterval(beginClockSync, 180000); safeUpdateStart();
   if (!ROOM) { window.onLangChange = function () { renderStatics(); showJoin(); }; showJoin(); window.initI18n(); return; }   // join gate re-translates on 中/EN toggle too
   try { localStorage.setItem("kingshoter_lastroom", JSON.stringify({ room: ROOM })); } catch (e) {}
   $("roomView").classList.remove("hide");

@@ -504,6 +504,10 @@ body.cmdmode .astat.on{display:none}
 body.cmdmode .toast{bottom:130px}   /* keep toasts clear of the fire dock */
 .viewtabs a{padding:9px 4px}
 .viewtabs{margin-bottom:10px}
+/* Automatic supported-build handoff. It appears only for the instant navigation begins. */
+.update-gate{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;background:rgba(251,247,236,.96)}
+.update-gate[hidden]{display:none}
+.update-card{padding:18px 24px;border:2px solid var(--ink);border-radius:16px;background:var(--cream);font-weight:800}
 /* roster = bounded vertical list; no long horizontal swipe to find a captain */
 .console .roster{display:grid;overflow-y:auto;overflow-x:hidden;padding:2px;margin:6px 0 10px}
 .console .roster .rpi,.console .roster .rp{min-width:0}

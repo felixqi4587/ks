@@ -139,12 +139,12 @@ window.getRoomDeviceId = (room) => {
 
 /* ---- RoomSocket: WebSocket client with auto-reconnect ---- */
 window.RoomSocket = class {
-  constructor(room, onState) { this.room = room; this.onState = onState; this.onError = null; this.onMessage = null; this.onOpen = null; this.onClose = null; this.dead = false; this.connectionGeneration = 0; this.reconnectTimer = null; this.connect(); }
+  constructor(room, onState, options) { this.room = room; this.onState = onState; Object.defineProperty(this, "clientBuild", { value: Number.isSafeInteger(options && options.clientBuild) && options.clientBuild > 0 ? options.clientBuild : 0, enumerable: true }); this.onError = null; this.onMessage = null; this.onOpen = null; this.onClose = null; this.dead = false; this.connectionGeneration = 0; this.reconnectTimer = null; this.connect(); }
   connect() {
     if (this.reconnectTimer !== null) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
     const generation = ++this.connectionGeneration;
     const proto = location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${location.host}/api/ws?room=${encodeURIComponent(this.room)}`);
+    const ws = new WebSocket(`${proto}://${location.host}/api/ws?room=${encodeURIComponent(this.room)}&clientBuild=${this.clientBuild}`);
     this.ws = ws;
     const isCurrent = () => this.ws === ws && this.connectionGeneration === generation;
     ws.onopen = () => { if (!isCurrent() || this.dead) return; if (this.onOpen) this.onOpen(); };
