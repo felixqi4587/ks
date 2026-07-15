@@ -139,6 +139,43 @@ async function openDevice(browser, baseURL, room, options) {
   return { key, context, page, profile, deviceId, gate };
 }
 
+async function openClassicDevice(browser, baseURL, room, options) {
+  assertQaRoomName(room);
+  const {
+    key,
+    profile,
+    deviceId,
+    gate = createFrameGate(),
+    errors,
+    viewport = { width: 390, height: 1000 }
+  } = options;
+  const context = await browser.newContext({ viewport, locale: 'en-US' });
+  await installHttpOriginGuard(context, baseURL);
+  await installQaWebSocketGuard(context, room, {
+    ...gate.guardOptions,
+    expectedOrigin: baseURL
+  });
+  await context.addInitScript(({ roomName, storedProfile, storedDeviceId }) => {
+    localStorage.setItem(`kingshoter_r_${roomName}_me`, JSON.stringify(storedProfile));
+    localStorage.setItem(`kvk:${roomName}:delivery-device:v1`, storedDeviceId);
+  }, { roomName: room, storedProfile: profile, storedDeviceId: deviceId });
+  const page = await context.newPage();
+  page.on('pageerror', error => errors.push(`${key}: ${error.message}`));
+  await page.goto(qaRoomUrl(baseURL, room, {
+    notour: '1',
+    lang: 'en'
+  }), { waitUntil: 'domcontentloaded' });
+  const url = new URL(page.url());
+  expect(url.searchParams.has('deliveryQa')).toBe(false);
+  expect(url.searchParams.has('deliveryShadow')).toBe(false);
+  expect(await page.evaluate(() => window.__kvkDeliveryQa)).toBeUndefined();
+  await page.locator('#soundGate').click();
+  await page.waitForFunction(() => window.__ac && window.__ac.state === 'running');
+  await page.locator('#youChip').waitFor({ state: 'visible' });
+  await page.locator('#youName').filter({ hasText: profile.name }).waitFor();
+  return { key, context, page, profile, deviceId, gate };
+}
+
 function automaticReadyTimeline(device, minimumSequence = 0) {
   const events = device.gate.events.filter(event => event.sequence > minimumSequence);
   const ack = events.find(event => event.direction === 'client' &&
@@ -607,6 +644,74 @@ test('a selected device reconnects before cutoff with the immutable command', as
     expect(afterReconnect.live.commands['1'].payload.pairs).toEqual(frozenPairs);
     await cancel(b.page, room, password, 1);
     await expect.poll(async () => (await futureCueEntries(a.page, command.id)).length).toBe(0);
+    expect(errors).toEqual([]);
+  } finally {
+    await Promise.all(devices.map(device => device.context.close().catch(() => {})));
+  }
+});
+
+test('omitting the shadow flags is a zero-candidate Classic rollback', async ({
+  browser, baseURL, request
+}, testInfo) => {
+  const room = assertQaRoomName(makeQaRoom(testInfo));
+  const password = PASSWORD();
+  const errors = [];
+  const profiles = {
+    a: numericProfile('950000001', 'Classic A', 31),
+    b: numericProfile('950000002', 'Classic B', 30),
+    member: numericProfile('950000003', 'Classic Member', 25)
+  };
+  const definitions = [
+    { key: 'classic-a', profile: profiles.a, deviceId: 'c1000000-0000-4000-8000-000000000001' },
+    { key: 'classic-b', profile: profiles.b, deviceId: 'c2000000-0000-4000-8000-000000000002' },
+    { key: 'classic-member', profile: profiles.member, deviceId: 'c3000000-0000-4000-8000-000000000003' }
+  ];
+  const devices = [];
+  try {
+    for (const definition of definitions) {
+      devices.push(await openClassicDevice(browser, baseURL, room, {
+        ...definition,
+        gate: createFrameGate(),
+        errors
+      }));
+    }
+    const byKey = Object.fromEntries(devices.map(device => [device.key, device]));
+    await waitForPlayerCount(request, baseURL, room, 3);
+    await unlockCommander(byKey['classic-b'].page, password);
+
+    const firstPress = Math.ceil(await serverNowSeconds(byKey['classic-b'].page)) + LEAD_SECONDS;
+    const command = await sendDouble(byKey['classic-b'].page, room, password, {
+      kingdom: 1,
+      firstPress,
+      leadSeconds: LEAD_SECONDS,
+      weakPid: profiles.a.pid,
+      mainPid: profiles.b.pid
+    });
+
+    await expect.poll(async () => {
+      const snapshot = await roomSnapshot(request, baseURL, room);
+      const live = snapshot.live.commands['1'];
+      return live && live.id === command.id ? live.delivery : null;
+    }).toEqual([
+      { pid: profiles.a.pid, expected: 1, received: 1, expired: 0 },
+      { pid: profiles.b.pid, expected: 1, received: 1, expired: 0 }
+    ]);
+    await expect.poll(async () => (await cueEntries(
+      byKey['classic-a'].page, command.id
+    )).some(entry => entry.base === `${command.id}-me` && entry.key.endsWith(':0'))).toBe(true);
+    await expect.poll(async () => (await cueEntries(
+      byKey['classic-b'].page, command.id
+    )).some(entry => entry.base === `${command.id}-me` && entry.key.endsWith(':0'))).toBe(true);
+    await expect.poll(async () => (await cueEntries(
+      byKey['classic-member'].page, command.id
+    )).some(entry => entry.base === `${command.id}-join` && entry.key.endsWith(':0'))).toBe(true);
+
+    for (const device of devices) {
+      expect(device.gate.events.filter(event => event.message &&
+        String(event.message.t || '').startsWith('deliveryShadow'))).toEqual([]);
+      expect(await device.page.evaluate(() => window.__kvkDeliveryQa)).toBeUndefined();
+    }
+    expect((await roomSnapshot(request, baseURL, room)).deliveryShadow).toBeUndefined();
     expect(errors).toEqual([]);
   } finally {
     await Promise.all(devices.map(device => device.context.close().catch(() => {})));
