@@ -4,8 +4,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-function loadUpdate() {
-  const source = fs.readFileSync(path.join(__dirname, '../public/kvk-update.js'), 'utf8');
+function loadUpdate(build) {
+  let source = fs.readFileSync(path.join(__dirname, '../public/kvk-update.js'), 'utf8');
+  if (Number.isSafeInteger(build)) source = source.replace(/var BUILD = \d+;/, `var BUILD = ${build};`);
   const module = { exports: {} };
   vm.runInNewContext(source, { module, exports: module.exports, URL, globalThis: {} });
   return module.exports;
@@ -30,7 +31,7 @@ const settle = () => new Promise((resolve) => setImmediate(resolve));
 
 test('metadata must contain safe positive and internally consistent current/minimum builds', () => {
   const update = loadUpdate();
-  assert.equal(update.BUILD, 2026071302);
+  assert.equal(update.BUILD, 2026071303);
   assert.equal(update.shouldReload(meta(update)), true);
   assert.equal(update.shouldReload(meta(update, { minKvkBuild: update.BUILD })), false);
 
@@ -52,6 +53,16 @@ test('metadata must contain safe positive and internally consistent current/mini
   const hostile = new Proxy({}, { get() { throw new Error('metadata getter failed'); } });
   assert.doesNotThrow(() => update.shouldReload(hostile));
   assert.equal(update.shouldReload(hostile), false);
+});
+
+test('the deployed bootstrap generation must reload into the Triple-capable runtime', () => {
+  const bootstrap = loadUpdate(2026071302);
+  assert.equal(bootstrap.BUILD, 2026071302);
+  assert.equal(bootstrap.shouldReload({
+    currentBuild: 2026071303,
+    minKvkBuild: 2026071303,
+    minTripleBuild: 2026071303
+  }), true);
 });
 
 test('reloadURL preserves room state while replacing one cache-busting build parameter', () => {

@@ -575,6 +575,49 @@
     if (moved) scheduleAllCues();
   }
   function liveCommands(r) { var out = []; if (r && r.live) { if (r.live.mode === "sim" && r.live.sim) { var sc = simCommand(r.live.sim); if (sc) out.push(sc); } else if (r.live.commands) { [1, 2].forEach(function (kk) { if (r.live.commands[kk]) out.push(r.live.commands[kk]); }); } } return out; }
+  var fallbackRallyApi = {
+    isRallyCommand: function (command) { return !!command && ["double_rally"].indexOf(command.type) === 0; },
+    targetFor: function (command, pid) {
+      var pairs = command && command.payload && Array.isArray(command.payload.pairs) ? command.payload.pairs : [];
+      var mine = pairs.filter(function (pair) { return pair && pair.pid === pid; })[0];
+      var anchor = command && command.payload && Number.isFinite(command.payload.firstPress)
+        ? command.payload.firstPress : command && Number.isFinite(command.anchorUTC) ? command.anchorUTC : 0;
+      var allowedRoles = command && command.payload && command.payload.rallySize === 3
+        ? ["weak", "weak2", "main"] : ["weak", "main"];
+      if (mine && typeof mine.pid === "string" && mine.pid.length > 0 &&
+          allowedRoles.indexOf(mine.role) >= 0 && Number.isFinite(mine.pressUTC)) {
+        return { anchor: mine.pressUTC, mine: true, role: mine.role };
+      }
+      return { anchor: anchor, mine: false };
+    },
+    rolesForMode: function () { return ["weak", "main"]; },
+    reconcilePicks: function (picks) {
+      var seenPid = Object.create(null), seenRole = Object.create(null);
+      return (Array.isArray(picks) ? picks : []).filter(function (pick) {
+        if (!pick || !pick.pid || (pick.role !== "weak" && pick.role !== "main") || seenPid[pick.pid] || seenRole[pick.role]) return false;
+        seenPid[pick.pid] = true; seenRole[pick.role] = true; return true;
+      }).map(function (pick) { return { pid: pick.pid, role: pick.role }; });
+    }
+  };
+  var tripleClientAvailable = false, rallyClientBuild = 0, rallyApi = fallbackRallyApi;
+  try {
+    var rallyCandidate = window.KvkRally;
+    var initialUpdateBuild = window.KvkUpdate && window.KvkUpdate.BUILD;
+    if (rallyCandidate && Number.isSafeInteger(rallyCandidate.BUILD) && rallyCandidate.BUILD > 0 &&
+        rallyCandidate.BUILD === initialUpdateBuild &&
+        typeof rallyCandidate.isRallyCommand === "function" &&
+        typeof rallyCandidate.targetFor === "function" &&
+        typeof rallyCandidate.rolesForMode === "function" &&
+        typeof rallyCandidate.reconcilePicks === "function") {
+      rallyApi = rallyCandidate;
+      rallyClientBuild = rallyCandidate.BUILD;
+      tripleClientAvailable = true;
+    }
+  } catch (e) {}
+  function isRallyCommand(command) {
+    try { return rallyApi.isRallyCommand(command) === true; }
+    catch (e) { return fallbackRallyApi.isRallyCommand(command); }
+  }
   // Captains receive their exact personal launch second. Everyone else receives ONE join countdown for the
   // active rally, fixing the old visual-only joiner path while avoiding overlapping cues from both kingdoms.
   function isCommanderDevice() {
@@ -583,10 +626,11 @@
   function shouldBookJoinAudio() {
     return !!myPid && !isCommanderDevice();
   }
-  function cancelJoinCues() {
+  function cancelJoinCues(keepBase) {
     for (var k in scheduledBeeps) {
       var cue = scheduledBeeps[k];
       if (!cue || String(cue.base || "").slice(-5) !== "-join") continue;
+      if (keepBase && cue.base === keepBase) continue;
       stopCue(cue); delete scheduledBeeps[k];
     }
   }
@@ -699,6 +743,7 @@
     return sent;
   }
   function acknowledgeClassicCommand(command, target) {
+    if (!isRallyCommand(command)) return false;
     if (!sock || !target || !target.mine || !myPid || !deviceId) return false;
     if (!syncedOK) return false;
     sendDeviceStatus();   // same socket, ordered before ACK; refreshes a context that resumed just in time
@@ -767,7 +812,7 @@
         var firstPress = Number(c.payload && c.payload.firstPress);
         var countdownLead = Number(c.payload && c.payload.leadSeconds);
         if (!Number.isFinite(countdownLead) || countdownLead < 1 || countdownLead > 120) countdownLead = 10;
-        if (c.type === "double_rally" && Number.isFinite(firstPress) && tg.anchor > firstPress) schedulePrepareCue(c.id + "-me", tg.anchor, countdownLead, win);
+        if (isRallyCommand(c) && Number.isFinite(firstPress) && tg.anchor > firstPress) schedulePrepareCue(c.id + "-me", tg.anchor, countdownLead, win);
         acknowledgeClassicCommand(c, tg);
       }
     });
@@ -775,7 +820,11 @@
     if (personal || !canJoin) cancelJoinCues();
     if (!personal && canJoin) {
       var join = activeCommand(room);
-      if (join && join.type === "double_rally") scheduleBeeps(join.id + "-join", myTarget(join).anchor, win);
+      if (join && isRallyCommand(join)) {
+        var joinKey = join.id + "-join";
+        cancelJoinCues(joinKey);
+        scheduleBeeps(joinKey, myTarget(join).anchor, win);
+      } else cancelJoinCues();
     }
   }
   function beepCancelled() { try { ensureAudio(); if (!ac || ac.state !== "running") return; var w = ac.currentTime; beep(w, 740, .16, .5); beep(w + .2, 494, .3, .5); } catch (e) {} }   // two falling tones ≠ the rising countdown
@@ -818,12 +867,13 @@
     return { id: id, type: "double_rally", anchorUTC: base + 4, payload: { pairs: pairs, firstPress: base + 4, kingdom: step.kingdom } };
   }
   function myTarget(c) {
-    if (c.type === "double_rally" && c.payload && c.payload.pairs) {
-      var mine = c.payload.pairs.filter(function (p) { return p.pid === myPid; })[0];
-      if (mine) return { anchor: mine.pressUTC, mine: true, role: mine.role };
-      return { anchor: c.payload.firstPress != null ? c.payload.firstPress : c.anchorUTC, mine: false };
-    }
-    return { anchor: c.anchorUTC, mine: false };
+    var fallback = fallbackRallyApi.targetFor(c, myPid);
+    try {
+      var target = rallyApi.targetFor(c, myPid);
+      if (!target || !Number.isFinite(target.anchor) || typeof target.mine !== "boolean" ||
+          (target.mine && ["weak", "weak2", "main"].indexOf(target.role) < 0)) return fallback;
+      return target;
+    } catch (e) { return fallback; }
   }
   /* ---------- supported-build handoff ---------- */
   function noUpdateController() {
@@ -887,7 +937,7 @@
     var v = vw();
     if (c.type === "ping") return speak(v.check);
     if (c.type === "refill") return speak(v.refill);
-    if (c.type === "double_rally") { var rem = Number.isFinite(remaining) ? Math.max(0, remaining) : Math.max(0, Math.ceil(tg.anchor - window.serverNow() / 1000)); speak(v.yours + ", " + v.launch + " " + rem + " " + v.sec); }   // only ever called with tg.mine — the old non-mine branch was dead code
+    if (isRallyCommand(c)) { var rem = Number.isFinite(remaining) ? Math.max(0, remaining) : Math.max(0, Math.ceil(tg.anchor - window.serverNow() / 1000)); speak(v.yours + ", " + v.launch + " " + rem + " " + v.sec); }   // only ever called with tg.mine — the old non-mine branch was dead code
   }
 
   /* ---------- the ONE hero + countdown engine ---------- */
@@ -930,7 +980,7 @@
     // audio / haptics / flash (once per second). Pre-schedule beeps for all live cues — survives the background freeze (voice/TTS does not)
     scheduleAllCues();
     var announceKey = c.id + ":" + tg.anchor;
-    if (c.type === "double_rally" && tg.mine && rem <= countdownLead && rem > -3 && !announcedCountdowns[announceKey]) {
+    if (isRallyCommand(c) && tg.mine && rem <= countdownLead && rem > -3 && !announcedCountdowns[announceKey]) {
       announcedCountdowns[announceKey] = true; fireAlert(); announceCmd(c, tg, Math.min(countdownLead, Math.max(0, rem)));
     }
     if (rem !== lastTickSec) {
@@ -989,7 +1039,7 @@
   function mapData() {
     if (!room) return { live: false, actors: [] };
     var c = activeCommand(room);
-    if (c && c.type === "double_rally" && c.payload && c.payload.pairs && c.payload.pairs.length) {
+    if (c && isRallyCommand(c) && c.payload && c.payload.pairs && c.payload.pairs.length) {
       // real arc: press (click) → 5:00 gather → march → land. The right-rail landing clock is the ACTUAL landing.
       var pairs = c.payload.pairs.map(function (p) { var ge = p.pressUTC + ATK_GATHER; return { pid: p.pid, name: p.name || p.pid, role: p.role, march: p.march, mine: p.pid === myPid, press: p.pressUTC, gatherEnd: ge, land: ge + p.march }; });
       pairs.sort(function (a, b) { return a.march - b.march; });
@@ -2120,7 +2170,13 @@
   /* ---------- net + sync ---------- */
   function connect() {
     initDeliveryShadow();
-    sock = new window.RoomSocket(ROOM, onState);
+    var advertisedKvkBuild = 0;
+    try {
+      var updateBuild = window.KvkUpdate && window.KvkUpdate.BUILD;
+      if (tripleClientAvailable && Number.isSafeInteger(updateBuild) && updateBuild > 0 &&
+          updateBuild === rallyClientBuild) advertisedKvkBuild = updateBuild;
+    } catch (e) {}
+    sock = new window.RoomSocket(ROOM, onState, { clientBuild: advertisedKvkBuild });
     var deliveryShadowSocket = sock;
     sock.onMessage = function (message) {
       var deliveryShadowGeneration = Number(deliveryShadowSocket.connectionGeneration || 0);
@@ -2284,7 +2340,7 @@
     setTimeout(function () { if (pendingUnlock) { pendingUnlock = false; roomPw = ""; var m2 = $("pwMsg"); if (m2) { m2.textContent = tk("notconn"); m2.className = "pwmsg err"; } } }, 4000);   // no ack in 4s → fail, don't open
   }
   function unlockedOK() { pendingUnlock = false; $("pwOvl").classList.remove("show"); openCmd(); wr(LS("pw"), roomPw); }
-  function openCmd() { document.body.classList.add("cmdmode"); $("cmdGate").classList.add("hide"); $("console").classList.remove("hide"); $("chrome").classList.add("cmd"); renderKingdomPick(); renderLead(); if (room) renderRoster(); adminDirty = false; adminEnemies = ((room && room.config && room.config.enemyWhales) || []).map(function (e) { return { name: e.name, mm: e.mm, ss: e.ss }; }); renderAdmin(); }
+  function openCmd() { document.body.classList.add("cmdmode"); cancelJoinCues(); $("cmdGate").classList.add("hide"); $("console").classList.remove("hide"); $("chrome").classList.add("cmd"); renderKingdomPick(); renderLead(); if (room) renderRoster(); adminDirty = false; adminEnemies = ((room && room.config && room.config.enemyWhales) || []).map(function (e) { return { name: e.name, mm: e.mm, ss: e.ss }; }); renderAdmin(); }
   function lockCmd() { document.body.classList.remove("cmdmode"); roomPw = ""; try { localStorage.removeItem(LS("pw")); } catch (e) {} $("cmdGate").classList.remove("hide"); $("console").classList.add("hide"); $("chrome").classList.remove("cmd"); }
 
   /* ---------- static text (one place; re-applied on lang change) ---------- */

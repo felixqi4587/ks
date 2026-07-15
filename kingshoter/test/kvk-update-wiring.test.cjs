@@ -9,7 +9,7 @@ const root = path.join(__dirname, '..');
 const html = fs.readFileSync(path.join(root, 'public', 'kvk.html'), 'utf8');
 const css = fs.readFileSync(path.join(root, 'public', 'app.css'), 'utf8');
 const kvk = fs.readFileSync(path.join(root, 'public', 'kvk.js'), 'utf8');
-const BUILD = '2026071302';
+const BUILD = '2026071303';
 
 function count(source, token) {
   return source.split(token).length - 1;
@@ -54,6 +54,7 @@ test('one build generation owns every first-party KvK asset and the blocking gat
     `kvk-update.js?v=${BUILD}`,
     `app.js?v=${BUILD}`,
     `kvk-delivery-shadow.js?v=${BUILD}`,
+    `kvk-rally.js?v=${BUILD}`,
     `kvk.js?v=${BUILD}`
   ];
   for (const asset of assets) assert.equal(count(html, asset), 1, `${asset} must load exactly once`);
@@ -61,8 +62,9 @@ test('one build generation owns every first-party KvK asset and the blocking gat
   const updater = html.indexOf(`kvk-update.js?v=${BUILD}`);
   const app = html.indexOf(`app.js?v=${BUILD}`);
   const shadow = html.indexOf(`kvk-delivery-shadow.js?v=${BUILD}`);
+  const rally = html.indexOf(`kvk-rally.js?v=${BUILD}`);
   const runtime = html.indexOf(`kvk.js?v=${BUILD}`);
-  assert.ok(updater >= 0 && updater < app && app < shadow && shadow < runtime);
+  assert.ok(updater >= 0 && updater < app && app < shadow && shadow < rally && rally < runtime);
   assert.match(html, /id="updateGate"[^>]*role="status"[^>]*aria-live="assertive"[^>]*hidden/);
   assert.match(html, /<div[^>]*class="update-card"[^>]*>Updating…<\/div>/);
   assert.doesNotMatch(html, /id="updateGate"[\s\S]{0,200}<button/i);
@@ -94,8 +96,8 @@ test('updater wiring defers until canonical personal timing is known and then se
     bootstrap.indexOf('safeUpdateStart();') < bootstrap.indexOf('if (!ROOM)') &&
     bootstrap.indexOf('connect();') > bootstrap.indexOf('if (!ROOM)'),
   'a contained updater starts on the join page and before normal room initialization');
-  assert.match(kvk, /new window\.RoomSocket\(ROOM, onState\)/,
-    'the bootstrap intentionally advertises build zero until Triple runtime loads');
+  assert.match(kvk, /new window\.RoomSocket\(ROOM, onState, \{ clientBuild: advertisedKvkBuild \}\)/,
+    'the socket advertises the build selected by the complete Triple runtime gate');
 });
 
 test('partial and throwing updater generations cannot stop the existing KvK runtime', () => {

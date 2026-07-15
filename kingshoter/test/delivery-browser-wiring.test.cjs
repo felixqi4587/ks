@@ -263,6 +263,7 @@ function createHarness(config = {}) {
   const harnessSource = `
     var qp = __qp, ROOM = __room;
     var sock = null, myPid = __pid, deviceId = __deviceId;
+    var tripleClientAvailable = false;
     var initialStateSeen = false, registrationPending = false, syncedOK = false;
     var syncAttempt = 0;
     var pendingMarchMutation = null, pendingCommanderMarchMutation = null;
@@ -388,17 +389,21 @@ function sentType(state, type) {
 }
 
 test('the updater bootstrap and isolated delivery controller load in one build generation', () => {
-  const updateIndex = html.indexOf('<script src="/kvk-update.js?v=2026071302"></script>');
-  const appIndex = html.indexOf('<script src="/app.js?v=2026071302"></script>');
-  const shadowTag = '<script src="/kvk-delivery-shadow.js?v=2026071302"></script>';
+  const updateIndex = html.indexOf('<script src="/kvk-update.js?v=2026071303"></script>');
+  const appIndex = html.indexOf('<script src="/app.js?v=2026071303"></script>');
+  const shadowTag = '<script src="/kvk-delivery-shadow.js?v=2026071303"></script>';
   const shadowIndex = html.indexOf(shadowTag);
-  const kvkIndex = html.indexOf('<script src="/kvk.js?v=2026071302"></script>');
+  const rallyTag = '<script src="/kvk-rally.js?v=2026071303"></script>';
+  const rallyIndex = html.indexOf(rallyTag);
+  const kvkIndex = html.indexOf('<script src="/kvk.js?v=2026071303"></script>');
 
   assert.ok(updateIndex >= 0, 'supported-build updater loads');
   assert.ok(appIndex > updateIndex, 'shared app loads after the updater');
   assert.ok(shadowIndex > appIndex, 'shadow controller loads after app.js');
-  assert.ok(kvkIndex > shadowIndex, 'KvK runtime loads after the controller');
+  assert.ok(rallyIndex > shadowIndex, 'shared rally semantics load after the isolated shadow');
+  assert.ok(kvkIndex > rallyIndex, 'KvK runtime loads after both optional controllers');
   assert.equal(html.split(shadowTag).length - 1, 1, 'the controller loads exactly once');
+  assert.equal(html.split(rallyTag).length - 1, 1, 'shared rally semantics load exactly once');
   assert.doesNotMatch(html.replace(shadowTag, ''), /delivery(?:Qa|Shadow)/i,
     'the QA candidate adds no HTML control, copy, style, or mode selector');
 });
@@ -407,7 +412,7 @@ test('KvK cache assertions move atomically to the supported build', () => {
   const cacheSources = [html, ...CACHE_TEST_PATHS.map(read)];
   for (const source of cacheSources) {
     assert.equal(source.includes('kvk.js?v=41') || source.includes('kvk\\.js\\?v=41'), false);
-    assert.equal(source.includes('kvk.js?v=2026071302') || source.includes('kvk\\.js\\?v=2026071302'), true);
+    assert.equal(source.includes('kvk.js?v=2026071303') || source.includes('kvk\\.js\\?v=2026071303'), true);
   }
 });
 
