@@ -123,6 +123,25 @@ test('a mirrored Core ACK must match the challenged socket identity and public o
   assert.doesNotMatch(json, /700001|dev-a1|forged|issuedAtMs|armedUntilMs/);
 });
 
+test('public delivery evidence stays absent until a real shadow target exists', async () => {
+  const mod = await load();
+  const state = mod.defaultDeliveryState('qa-kvk-model-a');
+  state.commands.push(mod.createDeliveryRecord(command, 1_000_000));
+
+  assert.deepEqual(mod.publicDeliverySummary(state, 1_000_001), {
+    v: 1,
+    commands: []
+  });
+
+  mod.upsertDeliveryTarget(
+    state,
+    'cmd-1',
+    attachment('700001', '00000000-0000-4000-8000-000000000001'),
+    1_000_002
+  );
+  assert.equal(mod.publicDeliverySummary(state, 1_000_003).commands.length, 1);
+});
+
 test('duplicate ACKs do not downgrade a success, cancel is explicit, and history is bounded', async () => {
   const mod = await load();
   const state = mod.defaultDeliveryState('qa-kvk-model-a');

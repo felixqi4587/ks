@@ -243,21 +243,24 @@ export function cancelDeliveryRecord(state, commandId, nowMs) {
 }
 
 export function publicDeliverySummary(state, nowMs) {
-  const commands = state.commands.slice(-4).map((record) => ({
-    commandId: record.commandId,
-    expectedDevices: record.targets.length,
-    classicScheduled: record.targets.filter((target) =>
-      target.classicAck && target.classicAck.result === 'scheduled').length,
-    candidateAcked: record.targets.filter((target) =>
-      target.candidateAck && (
-        target.candidateAck.result === 'would_schedule' ||
-        (target.candidateAck.result === 'duplicate' && target.candidateAck.futureCueCount > 0)
-      )).length,
-    expired: record.targets.filter((target) =>
-      (target.candidateAck && target.candidateAck.result === 'expired') ||
-      (!target.candidateAck && nowMs > target.envelope.audioExpiresAtMs)).length,
-    cancelled: record.cancelledAtMs != null
-  }));
+  const commands = state.commands
+    .filter((record) => record.targets.length > 0)
+    .slice(-4)
+    .map((record) => ({
+      commandId: record.commandId,
+      expectedDevices: record.targets.length,
+      classicScheduled: record.targets.filter((target) =>
+        target.classicAck && target.classicAck.result === 'scheduled').length,
+      candidateAcked: record.targets.filter((target) =>
+        target.candidateAck && (
+          target.candidateAck.result === 'would_schedule' ||
+          (target.candidateAck.result === 'duplicate' && target.candidateAck.futureCueCount > 0)
+        )).length,
+      expired: record.targets.filter((target) =>
+        (target.candidateAck && target.candidateAck.result === 'expired') ||
+        (!target.candidateAck && nowMs > target.envelope.audioExpiresAtMs)).length,
+      cancelled: record.cancelledAtMs != null
+    }));
   return { v: DELIVERY_VERSION, commands };
 }
 

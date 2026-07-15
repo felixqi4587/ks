@@ -668,10 +668,12 @@ test('snapshots scrub contaminated delivery keys in populated QA, empty QA, and 
     h.room.delivery = {
       v: 1,
       roomName: item.roomName,
-      commands: item.commands ? [{
-        commandId: 'bounded-command', kingdom: 1, issuedAtMs: 4_999_000,
-        cancelledAtMs: null, audiences: [], targets: []
-      }] : []
+      commands: item.commands ? [pendingDeliveryRecord({
+        commandId: 'bounded-command',
+        issuedAtMs: 4_999_000,
+        fireAtMs: 5_010_000,
+        audioExpiresAtMs: 5_010_150
+      })] : []
     };
 
     const snapshot = h.room.snapshot();
@@ -681,7 +683,7 @@ test('snapshots scrub contaminated delivery keys in populated QA, empty QA, and 
       assert.deepEqual(snapshot.deliveryShadow, {
         v: 1,
         commands: [{
-          commandId: 'bounded-command', expectedDevices: 0, classicScheduled: 0,
+          commandId: 'bounded-command', expectedDevices: 1, classicScheduled: 0,
           candidateAcked: 0, expired: 0, cancelled: false
         }]
       });
