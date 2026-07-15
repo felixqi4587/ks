@@ -9,6 +9,8 @@
     "test:delivery": "node --test test/delivery-model.test.cjs test/room-delivery.test.cjs test/reliable-room-delivery.test.cjs test/delivery-shadow-client.test.cjs test/delivery-browser-wiring.test.cjs test/qa-kvk-delivery-guard.test.cjs",
     "test:qa:delivery": "playwright test -c playwright.qa-kvk.config.cjs",
     "test:qa:delivery:chromium": "playwright test -c playwright.qa-kvk.config.cjs --project=chromium",
+    "test:triple": "node --test test/rally-mode.test.cjs test/rally-targets.test.cjs test/client-build.test.cjs test/kvk-rally-client.test.cjs test/kvk-update.test.cjs test/kvk-update-wiring.test.cjs test/triple-room.test.cjs test/triple-client-source.test.cjs test/kvk-triple-selection-ui.test.cjs test/worker-build.test.cjs",
+    "test:qa:triple": "playwright test -c playwright.qa-kvk-triple.config.cjs",
     "deploy": "wrangler deploy",
     "dev": "wrangler dev"
   },
