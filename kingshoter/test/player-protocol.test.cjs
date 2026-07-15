@@ -69,30 +69,55 @@ test('constructor durably migrates stored players without changing frozen comman
   const { Room } = await loadRoom();
   let initialized;
   const writes = [];
+  const frozenCommand = {
+    id: 'already-fired',
+    type: 'double_rally',
+    kingdom: 1,
+    anchorUTC: 1_999_999_890,
+    expiresUTC: 2_000_000_000,
+    payload: {
+      pairs: [
+        { pid: 'legacy', name: 'Legacy', role: 'weak', march: 180, pressUTC: 1_999_999_900 },
+        { pid: 'current', name: 'Current', role: 'main', march: 120, pressUTC: 1_999_999_961 }
+      ],
+      firstPress: 1_999_999_900,
+      kingdom: 1,
+      leadSeconds: 10
+    },
+    text: 'Frozen command text',
+    at: '2026-07-13T00:00:00.000Z'
+  };
   const storedRoom = {
-    pwHash: null,
-    config: { castleName: '', rallyAllies: [], enemyWhales: [] },
+    pwHash: 'stored-owner-hash',
+    config: { castleName: 'Preserve Me', rallyAllies: [{ name: 'A', caps: [] }], enemyWhales: [] },
     players: {
       legacy: {
         name: 'Legacy', march: 180, marchRevision: 7, identityMode: 'nickname', ready: true,
         lastSeen: '2026-07-13T00:00:00.000Z'
+      },
+      current: {
+        name: 'Current', march: 120, marchRevision: 4, identityMode: 'playerId',
+        playerId: '900000004', ready: false, lastSeen: '2026-07-13T00:00:01.000Z'
       }
     },
     live: {
       mode: 'live',
-      commands: {
-        1: {
-          id: 'already-fired', type: 'double_rally', kingdom: 1, expiresUTC: 2_000_000_000,
-          payload: { pairs: [{ pid: 'legacy', name: 'Legacy', role: 'main', march: 180, pressUTC: 1_999_999_900 }] }
-        },
-        2: null
+      command: frozenCommand,
+      staged: {
+        kingdom: 1,
+        pairs: [{ pid: 'legacy', role: 'weak' }, { pid: 'current', role: 'main' }]
       },
-      staged: { 1: null, 2: null },
-      sim: null
+      sim: { offsetMs: 17 }
     },
-    updatedAt: null,
-    updatedBy: null
+    rallyModes: { 1: { mode: 'triple', revision: 'legacy' }, 2: { mode: 'double', revision: 2 } },
+    delivery: { opaque: { keep: ['delivery', 1] } },
+    deliveryShadow: { opaque: { keep: ['shadow', 2] } },
+    unrelated: { nested: { values: [1, 2, 3] } },
+    updatedAt: '2026-07-13T00:00:02.000Z',
+    updatedBy: 'stored-commander'
   };
+  const originalNonPlayers = structuredClone(storedRoom);
+  delete originalNonPlayers.players;
   const state = {
     storage: {
       async get(key) {
@@ -114,12 +139,20 @@ test('constructor durably migrates stored players without changing frozen comman
   assert.equal(room.room.players.legacy.march, 120);
   assert.equal(room.room.players.legacy.marchRevision, 8);
   assert.equal(room.room.players.legacy.ready, true);
-  assert.equal(room.room.live.commands[1].payload.pairs[0].march, 180);
+  assert.equal(room.room.players.legacy.identityMode, 'nickname');
+  assert.deepEqual(room.room.live.commands, { 1: frozenCommand, 2: null });
+  assert.deepEqual(room.room.live.staged, { 1: null, 2: null });
+  assert.equal(room.room.live.command, undefined);
+  assert.equal(room.room.delivery, undefined);
+  assert.equal(room.room.deliveryShadow, undefined);
   assert.equal(writes.length, 1);
   assert.equal(writes[0][0], 'room');
   assert.equal(writes[0][1].players.legacy.march, 120);
   assert.equal(writes[0][1].players.legacy.marchRevision, 8);
-  assert.equal(writes[0][1].live.commands[1].payload.pairs[0].march, 180);
+  assert.deepEqual(writes[0][1].players.current, storedRoom.players.current);
+  const persistedNonPlayers = structuredClone(writes[0][1]);
+  delete persistedNonPlayers.players;
+  assert.deepEqual(persistedNonPlayers, originalNonPlayers);
 });
 
 test('private profile owners survive reload, reject invalid hashes, and never enter public state', async () => {

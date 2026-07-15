@@ -172,13 +172,16 @@ export class Room {
     this._deliveryLoaded = false;
     this._deliveryLoadPromise = null;
     state.blockConcurrencyWhile(async () => {
-      this.room = (await state.storage.get("room")) || defaultRoom();
-      const playerMigration = normalizePlayerRecordsWithMigration(this.room.players);
+      const storedRoom = (await state.storage.get("room")) || defaultRoom();
+      const playerMigration = normalizePlayerRecordsWithMigration(storedRoom.players);
+      if (playerMigration.changed) {
+        await state.storage.put("room", Object.assign({}, storedRoom, { players: playerMigration.players }));
+      }
+      this.room = storedRoom;
       this.room.players = playerMigration.players;
       this.normalizeLive();
       delete this.room.delivery;
       delete this.room.deliveryShadow;
-      if (playerMigration.changed) await state.storage.put("room", this.room);
       let storedDelivery = null;
       try { storedDelivery = await state.storage.get(DELIVERY_STORAGE_KEY); } catch (error) {}
       this.delivery = normalizeDeliveryState(storedDelivery || this.delivery, this.nowMs());
