@@ -55,23 +55,24 @@ test('metadata must contain safe positive and internally consistent current/mini
   assert.equal(update.shouldReload(hostile), false);
 });
 
-test('the deployed bootstrap generation must reload into the Triple-capable runtime', () => {
-  const bootstrap = loadUpdate(2026071302);
-  assert.equal(bootstrap.BUILD, 2026071302);
-  assert.equal(bootstrap.shouldReload({
+test('the updater bootstrap keeps supported older updater generations running', () => {
+  const metadata = {
     currentBuild: 2026071401,
-    minKvkBuild: 2026071401,
+    minKvkBuild: 2026071301,
     minTripleBuild: 2026071401
-  }), true);
+  };
+  assert.equal(loadUpdate(2026071302).shouldReload(metadata), false);
+  assert.equal(loadUpdate(2026071303).shouldReload(metadata), false);
 });
 
-test('the immediately previous KvK generation must refresh into this release', () => {
-  const previous = loadUpdate(2026071303);
-  assert.equal(previous.shouldReload({
+test('a later minimum-build deployment refreshes every updater-capable stale generation', () => {
+  const raisedMinimum = {
     currentBuild: 2026071401,
     minKvkBuild: 2026071401,
     minTripleBuild: 2026071401
-  }), true);
+  };
+  assert.equal(loadUpdate(2026071302).shouldReload(raisedMinimum), true);
+  assert.equal(loadUpdate(2026071303).shouldReload(raisedMinimum), true);
 });
 
 test('reloadURL preserves room state while replacing one cache-busting build parameter', () => {

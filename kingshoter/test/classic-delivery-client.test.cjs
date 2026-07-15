@@ -34,8 +34,9 @@ test('returning profiles force a fresh device binding as soon as canonical regis
   assert.match(script, /becameCanonical[\s\S]{0,180}sendDeviceStatus\(["']deviceStatus["'],\s*true\)/);
 });
 
-test('AudioContext recovery immediately refreshes canonical device readiness', () => {
-  assert.match(script, /ac\.onstatechange\s*=\s*function\s*\(\)\s*\{[\s\S]{0,220}ac\.state\s*===\s*["']running["'][\s\S]{0,80}sendDeviceStatus\(["']deviceStatus["'],\s*true\)/);
+test('every AudioContext transition immediately refreshes canonical device readiness', () => {
+  assert.match(script, /ac\.onstatechange\s*=\s*function\s*\(\)\s*\{[\s\S]{0,220}ac\.state\s*!==\s*["']running["'][\s\S]{0,160}sendDeviceStatus\(["']deviceStatus["'],\s*true\)/);
+  assert.doesNotMatch(script, /if\s*\(ac\.state\s*===\s*["']running["']\)\s*sendDeviceStatus/);
 });
 
 test('every reconnect and resume closes the ACK gate until a fresh time sync succeeds', () => {

@@ -31,6 +31,20 @@ function qaRoomUrl(baseURL, room, params = {}) {
   return url.toString();
 }
 
+function localQaBaseURL(value) {
+  let parsed;
+  try { parsed = new URL(String(value || '')); }
+  catch (error) { throw new Error('Refusing non-local QA origin'); }
+  const loopback = parsed.hostname === '127.0.0.1' ||
+    parsed.hostname === 'localhost' || parsed.hostname === '[::1]';
+  const cleanOrigin = !parsed.username && !parsed.password &&
+    parsed.pathname === '/' && !parsed.search && !parsed.hash;
+  if (!loopback || !cleanOrigin || !['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error(`Refusing non-local QA origin: ${parsed.origin}`);
+  }
+  return parsed.origin;
+}
+
 async function installQaWebSocketGuard(context, room, options = {}) {
   const safeRoom = assertQaRoomName(room);
   const dropClient = options.shouldDropClientMessage;
@@ -78,5 +92,6 @@ module.exports = {
   assertQaRoomName,
   makeQaRoom,
   qaRoomUrl,
-  installQaWebSocketGuard
+  installQaWebSocketGuard,
+  localQaBaseURL
 };

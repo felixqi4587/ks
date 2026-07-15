@@ -188,7 +188,7 @@
         message.t === 'deliveryShadowCommand' && message.v === VERSION &&
         message.shadow === true && isBoundedId(message.commandId) &&
         isPid(message.pid) && message.pid === session.pid && message.pid === identity.pid &&
-        (message.role === 'weak' || message.role === 'main') &&
+        (message.role === 'weak' || message.role === 'weak2' || message.role === 'main') &&
         (message.kingdom === 1 || message.kingdom === 2) &&
         Number.isSafeInteger(message.issuedAtMs) && message.issuedAtMs > 0 &&
         Number.isSafeInteger(message.fireAtMs) && message.fireAtMs > 0 &&

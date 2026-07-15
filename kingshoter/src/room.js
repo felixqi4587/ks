@@ -98,6 +98,16 @@ function sanitizeConfig(c) {
   return { castleName: clampStr(c.castleName, 40), rallyAllies: allies, enemyWhales: whales };
 }
 
+function crossKingdomLiveCaptain(live, kingdom, pairs, nowSec) {
+  const otherKingdom = kingdom === 1 ? 2 : 1;
+  const otherCommand = live && live.commands && live.commands[otherKingdom];
+  const activePids = activeCommandPids({ commands: { [otherKingdom]: otherCommand } }, nowSec);
+  const conflict = (Array.isArray(pairs) ? pairs : []).find(pair =>
+    activePids.has(normalizeRoutingKey(pair && pair.pid))
+  );
+  return conflict ? { pid: normalizeRoutingKey(conflict.pid), kingdom: otherKingdom } : null;
+}
+
 export class Room {
   constructor(state, env) {
     this.state = state;
@@ -828,6 +838,12 @@ export class Room {
     }
 
     if (m.t === "updateOwnMarch") {
+      const mutationId = normalizeMutationId(m.mutationId);
+      const pid = normalizeRoutingKey(m.pid);
+      const attachment = this.readSocketAttachment(ws);
+      if (!attachment.pid || attachment.pid !== pid) {
+        return ws.send(JSON.stringify({ t: "error", error: "core_identity_mismatch", mutationId, pid }));
+      }
       const result = applyPlayerMarchUpdate(this.room.players, m, { touchLastSeen: true, nowISO: this.now() });
       if (!result.ok) return ws.send(JSON.stringify(Object.assign({ t: "error" }, result)));
       await this.persist();
@@ -923,6 +939,12 @@ export class Room {
             t: "error", error: validated.error || "invalid_rally_roster", pid: validated.pid
           }));
         }
+        const liveConflict = crossKingdomLiveCaptain(
+          this.room.live, kd, validated.pairs, Math.floor(commandNowMs / 1000)
+        );
+        if (liveConflict) {
+          return ws.send(JSON.stringify({ t: "error", error: "rally_live", ...liveConflict }));
+        }
         const built = buildTripleRallyCommand({
           players: this.room.players,
           pairs: validated.pairs,
@@ -955,6 +977,12 @@ export class Room {
         if (type === "double_rally") {
           const frozen = freezeDoubleRally(this.room.players, payload.pairs, payload.firstPress != null ? payload.firstPress : c.anchorUTC);
           if (!frozen.ok) return ws.send(JSON.stringify({ t: "error", error: frozen.error }));
+          const liveConflict = crossKingdomLiveCaptain(
+            this.room.live, kd, frozen.pairs, Math.floor(this.nowMs() / 1000)
+          );
+          if (liveConflict) {
+            return ws.send(JSON.stringify({ t: "error", error: "rally_live", ...liveConflict }));
+          }
           payload = Object.assign({}, payload, {
             pairs: frozen.pairs,
             firstPress: Math.min(...frozen.pairs.map(pair => pair.pressUTC))
@@ -1014,6 +1042,14 @@ export class Room {
       }
       const pairs = validated.pairs;
       const otherKingdom = kd === 1 ? 2 : 1;
+      const liveConflict = crossKingdomLiveCaptain(
+        this.room.live, kd, pairs, Math.floor(this.nowMs() / 1000)
+      );
+      if (liveConflict) {
+        return ws.send(JSON.stringify({
+          t: "error", error: "player_staged_other_kingdom", ...liveConflict
+        }));
+      }
       const otherPairs = ((this.room.live.staged[otherKingdom] && this.room.live.staged[otherKingdom].pairs) || []);
       const conflict = pairs.find(pair => otherPairs.some(other => other && other.pid === pair.pid));
       if (conflict) return ws.send(JSON.stringify({ t: "error", error: "player_staged_other_kingdom", pid: conflict.pid, kingdom: otherKingdom }));

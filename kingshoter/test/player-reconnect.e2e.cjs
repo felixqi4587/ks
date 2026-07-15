@@ -66,6 +66,12 @@ async function seedCanonicalPlayer() {
   let start = socket.mark();
   socket.send({ t: 'registerPlayer', pid, name: 'Server Canonical', march: 40, identityMode: 'playerId', alliance: '' });
   await socket.waitFor(message => message.t === 'state' && message.room.players[pid] && message.room.players[pid].marchRevision === 0, start);
+  start = socket.mark();
+  socket.send({
+    t: 'deviceStatus', pid,
+    deviceId: '00000000-0000-4000-8000-000000000103', soundReady: false
+  });
+  await socket.waitFor(message => message.t === 'deviceStatusSaved' && message.pid === pid, start);
 
   for (const update of [
     { march: 41, baseRevision: 0, revision: 1 },
@@ -158,6 +164,12 @@ async function readSnapshot() {
     const remover = await connectRoom(room);
     let initial = await remover.waitFor(message => message.t === 'state');
     let start = remover.mark();
+    remover.send({
+      t: 'deviceStatus', pid,
+      deviceId: '00000000-0000-4000-8000-000000000104', soundReady: false
+    });
+    await remover.waitFor(message => message.t === 'deviceStatusSaved' && message.pid === pid, start);
+    start = remover.mark();
     remover.send({ t: 'updateOwnMarch', mutationId: 'remote-draft', pid, march: 45, baseRevision: 3 });
     initial = await remover.waitFor(message => message.t === 'state' && message.room.players[pid].march === 45 && message.room.players[pid].marchRevision === 4, start);
     await page.waitForFunction(({ key }) => {

@@ -145,7 +145,10 @@ async function assertLayout(page, width) {
     assert.equal(await page.locator('#pickSlots .slot.weak').getAttribute('data-pid'), '900000003');
     await page.waitForTimeout(700);
     assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.matches('.rp[data-pid="900000003"]')), true, 'Apply keeps focus after the canonical stage snapshot');
-    await sendMessages(page, [{ t: 'updateOwnMarch', mutationId: 'roster-remote-1', pid: '900000003', march: 49, baseRevision: 0 }]);
+    await sendMessages(page, [{
+      t: 'setPlayerMarch', mutationId: 'roster-remote-1', password: 'roster-password',
+      pid: '900000003', march: 49, baseRevision: 0
+    }]);
     await page.locator('#roster .roster-time[data-pid="900000003"]').filter({ hasText: '0:49' }).waitFor();
     await page.locator('#pickSlots .slot.weak small').filter({ hasText: '0:49' }).waitFor();
 

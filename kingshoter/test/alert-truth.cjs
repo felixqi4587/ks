@@ -1,9 +1,9 @@
 const { chromium } = require('playwright');
 const { basename } = require('node:path');
-const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard } = require('./support/qa-kvk.cjs');
+const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard, localQaBaseURL } = require('./support/qa-kvk.cjs');
 
 (async () => {
-  const host = process.argv[2] || 'http://127.0.0.1:8791';
+  const host = localQaBaseURL(process.argv[2] || 'http://127.0.0.1:8791');
   const room = makeQaRoom({ title: basename(__filename, '.cjs') });
   const url = qaRoomUrl(host, room, { notour: 1 });
   const browser = await chromium.launch({ headless: true, channel: 'chrome', args: ['--autoplay-policy=no-user-gesture-required'] });
@@ -16,7 +16,7 @@ const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard } = req
 
   async function player(fid, march) {
     const context = await browser.newContext({ viewport: { width: 390, height: 1000 }, locale: 'en-US' });
-    await installQaWebSocketGuard(context, room);
+    await installQaWebSocketGuard(context, room, { expectedOrigin: host });
     const page = await context.newPage();
     await page.goto(url);
     await page.waitForLoadState('networkidle');

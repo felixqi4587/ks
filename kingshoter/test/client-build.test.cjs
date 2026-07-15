@@ -32,13 +32,15 @@ test('build metadata contains monotonic numeric versions and no secrets', async 
   const mod = await load();
   assert.deepEqual(mod.buildMetadata(false, true), {
     currentBuild: 2026071401,
-    minKvkBuild: 2026071401,
+    minKvkBuild: 2026071301,
     minTripleBuild: 2026071401,
     tripleEnabled: false,
     tripleQaEnabled: true
   });
-  assert.equal(mod.MIN_KVK_BUILD, mod.CURRENT_KVK_BUILD,
-    'the post-bootstrap runtime must force every updater-capable stale page to reload');
+  assert.equal(mod.MIN_KVK_BUILD, 2026071301,
+    'the updater bootstrap must retain the pre-bootstrap minimum');
+  assert.ok(mod.MIN_KVK_BUILD < mod.CURRENT_KVK_BUILD,
+    'raising the minimum is a later deployment after updater inventory is clean');
   assert.equal(mod.MIN_TRIPLE_BUILD, mod.CURRENT_KVK_BUILD);
   assert.equal(mod.parseClientBuild('2026071401'), 2026071401);
   for (const value of ['bad', '', '0', '-1', '1.5', null, undefined, Infinity]) {

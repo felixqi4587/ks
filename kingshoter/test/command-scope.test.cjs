@@ -56,7 +56,7 @@ test('personal staggered launch timing remains the default command model', () =>
   assert.match(js, /off\s*=\s*\(main\.march\s*-\s*weak\.march\)\s*-\s*1/);
   assert.match(js, /pressUTC:\s*ps/);
   assert.match(js, /pressUTC:\s*pm/);
-  assert.match(js, /leadSeconds:\s*lead/, 'the selected lead travels with the command');
+  assert.match(js, /leadSeconds:\s*commandLead/, 'the second-tap lead snapshot travels with the command');
   assert.match(js, /window\.serverNow\(\)\s*\/\s*1000/, 'launch targets retain sub-second precision');
   assert.match(js, /p\.pid\s*===\s*myPid/);
   assert.match(js, /function schedulePrepareCue\(/, 'later-captain preparation audio is isolated from the shared countdown scheduler');

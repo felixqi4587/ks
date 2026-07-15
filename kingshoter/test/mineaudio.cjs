@@ -1,17 +1,17 @@
 // Captains book their personal launch cue; everyone else books one shared JOIN cue. Radar dots move on the linear press→land clock.
 const { chromium } = require("playwright");
 const { basename } = require('node:path');
-const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard } = require('./support/qa-kvk.cjs');
+const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard, localQaBaseURL } = require('./support/qa-kvk.cjs');
 (async () => {
-  const HOST = process.argv[2] || "http://127.0.0.1:8791";
+  const HOST = localQaBaseURL(process.argv[2] || "http://127.0.0.1:8791");
   const RM = makeQaRoom({ title: basename(__filename, '.cjs') }), base = qaRoomUrl(HOST, RM, { notour: 1 });
   const b = await chromium.launch({ headless: true, channel: "chrome", args: ["--autoplay-policy=no-user-gesture-required"] });
   let pass = 0, fail = 0; const ok = (c, l) => { (c ? pass++ : fail++); console.log((c ? "✓" : "✗ FAIL") + " " + l); };
   const errs = [];
-  const mk = async (fid, m, roomName = RM, roomBase = base) => { const context = await b.newContext({ viewport: { width: 390, height: 1200 }, locale: "en-US" }); await installQaWebSocketGuard(context, roomName); const p = await context.newPage(); p.on("pageerror", e => errs.push(fid + ":" + e.message)); await p.goto(roomBase); await p.waitForLoadState("networkidle"); await p.locator("#soundGate").click({ force: true }).catch(() => {}); await p.waitForTimeout(150); await p.locator("#pid").fill(fid); await p.waitForTimeout(1700); await p.locator("#marchRange").fill(String(m)); await p.locator("#saveBtn").click(); await p.waitForTimeout(500); return p; };
+  const mk = async (fid, m, roomName = RM, roomBase = base) => { const context = await b.newContext({ viewport: { width: 390, height: 1200 }, locale: "en-US" }); await installQaWebSocketGuard(context, roomName, { expectedOrigin: HOST }); const p = await context.newPage(); p.on("pageerror", e => errs.push(fid + ":" + e.message)); await p.goto(roomBase); await p.waitForLoadState("networkidle"); await p.locator("#soundGate").click({ force: true }).catch(() => {}); await p.waitForTimeout(150); await p.locator("#pid").fill(fid); await p.waitForTimeout(1700); await p.locator("#marchRange").fill(String(m)); await p.locator("#saveBtn").click(); await p.waitForTimeout(500); return p; };
   const p1 = await mk("900000001", "60"), p2 = await mk("900000002", "70"), p3 = await mk("900000003", "80");
   const cmdContext = await b.newContext({ viewport: { width: 390, height: 1200 }, locale: "en-US" });
-  await installQaWebSocketGuard(cmdContext, RM);
+  await installQaWebSocketGuard(cmdContext, RM, { expectedOrigin: HOST });
   const cmd = await cmdContext.newPage();
   cmd.on("pageerror", e => errs.push("cmd:" + e.message));
   await cmd.goto(base); await cmd.waitForLoadState("networkidle");

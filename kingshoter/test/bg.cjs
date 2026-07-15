@@ -1,13 +1,13 @@
 // background-audio engine: <audio> keep-alive + pre-scheduled beeps + self-test + voice-default-from-lang
 const { chromium } = require("playwright");
-const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard } = require('./support/qa-kvk.cjs');
+const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard, localQaBaseURL } = require('./support/qa-kvk.cjs');
 (async () => {
-  const HOST=process.argv[2]||"http://127.0.0.1:8791",RM=makeQaRoom('background-audio'),base=qaRoomUrl(HOST,RM,{k:"test",notour:1});
+  const HOST=localQaBaseURL(process.argv[2]||"http://127.0.0.1:8791"),RM=makeQaRoom('background-audio'),base=qaRoomUrl(HOST,RM,{k:"test",notour:1});
   const b=await chromium.launch({headless:true,channel:"chrome",args:["--autoplay-policy=no-user-gesture-required"]});
   let pass=0,fail=0; const ok=(c,l)=>{(c?pass++:fail++);console.log((c?"✓":"✗ FAIL")+" "+l);};
   const errs=[];
   const dis=async p=>{try{await p.keyboard.press("Escape");}catch(e){}try{if(await p.locator("#obGo").isVisible())await p.locator("#obGo").click();}catch(e){}};
-  const mk=async(fid,m,opts)=>{opts=opts||{};const context=await b.newContext({viewport:{width:390,height:1300},locale:opts.locale||"en-US"});await installQaWebSocketGuard(context,RM);const p=await context.newPage();p.on("pageerror",e=>errs.push(fid+":"+e.message));await p.goto(base);await p.waitForLoadState("networkidle");await dis(p);
+  const mk=async(fid,m,opts)=>{opts=opts||{};const context=await b.newContext({viewport:{width:390,height:1300},locale:opts.locale||"en-US"});await installQaWebSocketGuard(context,RM,{expectedOrigin:HOST});const p=await context.newPage();p.on("pageerror",e=>errs.push(fid+":"+e.message));await p.goto(base);await p.waitForLoadState("networkidle");await dis(p);
     await p.locator("#soundGate").click({force:true}).catch(()=>{});await p.waitForTimeout(350);
     await p.locator("#pid").fill(fid);await p.waitForTimeout(1700);await p.locator("#marchRange").fill(String(m));await p.locator("#saveBtn").click();await p.waitForTimeout(600);return p;};
   const fire2=async(p,sel)=>{await p.locator(sel).click();await p.waitForTimeout(240);await p.locator(sel).click();await p.waitForTimeout(200);};
@@ -16,7 +16,7 @@ const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard } = req
   ok(await p1.evaluate(()=>!!(window.__ac&&window.__ac.state==="running")),"AudioContext running after enable");
   ok(await p1.evaluate(()=>window.__keepAlive===true),"keep-alive <audio> bed plays (survives iOS silent switch)");
   const p2=await mk("900000002","60");
-  const cmdContext=await b.newContext({viewport:{width:390,height:1300},locale:"en-US"});await installQaWebSocketGuard(cmdContext,RM);const cmd=await cmdContext.newPage();
+  const cmdContext=await b.newContext({viewport:{width:390,height:1300},locale:"en-US"});await installQaWebSocketGuard(cmdContext,RM,{expectedOrigin:HOST});const cmd=await cmdContext.newPage();
   cmd.on("pageerror",e=>errs.push("cmd:"+e.message));
   await cmd.goto(base);await cmd.waitForLoadState("networkidle");await dis(cmd);
   await cmd.locator("#soundGate").click({force:true}).catch(()=>{});await cmd.waitForTimeout(200);await cmd.locator("#cmdUnlock").click();await cmd.locator("#pwInput").fill("666");await cmd.locator("#pwGo").click();await cmd.waitForTimeout(2500);

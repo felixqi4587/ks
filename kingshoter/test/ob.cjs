@@ -1,3 +1,4 @@
+require('./support/legacy-kvk-script-guard.cjs')(__filename);
 const { chromium } = require("playwright");
 (async () => {
   const browser = await chromium.launch({ headless: true, channel: "chrome" });

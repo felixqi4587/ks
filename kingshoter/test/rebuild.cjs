@@ -1,3 +1,4 @@
+require('./support/legacy-kvk-script-guard.cjs')(__filename);
 const { chromium } = require("playwright");
 const secs = s => { s=(s||"").trim(); if(/^\d+$/.test(s))return+s; const m=s.match(/(\d+):(\d+)/); return m?+m[1]*60+ +m[2]:999; };
 (async () => {

@@ -1,4 +1,5 @@
 // capture the defense radar exactly during the "他发车/They march" hold — dot, ring and label must be ON canvas
+require('./support/legacy-kvk-script-guard.cjs')(__filename);
 const { chromium } = require("playwright");
 (async () => {
   const HOST = process.argv[2] || "http://localhost:8788";

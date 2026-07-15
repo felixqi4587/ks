@@ -1,9 +1,9 @@
 // concurrent multi-kingdom: firing K2 must NOT wipe K1's live rally
 const { chromium } = require('playwright');
-const { makeQaRoom, qaRoomUrl, installQaWebSocketGuard } = require('./support/qa-kvk.cjs');
+const { makeQaRoom, qaRoomUrl, installQaWebSocketGuard, localQaBaseURL } = require('./support/qa-kvk.cjs');
 
 (async () => {
-  const host = process.argv[2] || 'http://127.0.0.1:8791';
+  const host = localQaBaseURL(process.argv[2] || 'http://127.0.0.1:8791');
   const room = makeQaRoom('multikingdom');
   const url = qaRoomUrl(host, room, { notour: 1 });
   const browser = await chromium.launch({ headless: true, channel: 'chrome', args: ['--autoplay-policy=no-user-gesture-required'] });
@@ -13,7 +13,7 @@ const { makeQaRoom, qaRoomUrl, installQaWebSocketGuard } = require('./support/qa
 
   const openPage = async (label) => {
     const context = await browser.newContext({ viewport: { width: 390, height: 1300 }, locale: 'en-US' });
-    await installQaWebSocketGuard(context, room);
+    await installQaWebSocketGuard(context, room, { expectedOrigin: host });
     const page = await context.newPage();
     page.on('pageerror', error => errors.push(`${label}:${error.message}`));
     await page.goto(url);

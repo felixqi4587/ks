@@ -2,6 +2,13 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { loadRoom, createRoomHarness, claimRoom } = require('./room-harness.cjs');
 
+async function bindPlayerSocket(harness, pid, deviceId = '00000000-0000-4000-8000-000000000101') {
+  await harness.room.webSocketMessage(harness.ws, JSON.stringify({
+    t: 'deviceStatus', pid, deviceId, soundReady: false
+  }));
+  harness.reset();
+}
+
 test('constructor migrates legacy stored players to revision zero without clamping march', async () => {
   const { Room } = await loadRoom();
   let initialized;
@@ -84,6 +91,7 @@ test('registration keeps the 150-player cap without evicting active or staged ca
 test('player and commander updates acknowledge mutationId and broadcast canonical revision', async () => {
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room);
+  await bindPlayerSocket(h, '001');
   await h.room.webSocketMessage(h.ws, JSON.stringify({
     t: 'updateOwnMarch', mutationId: 'own-1', pid: '001', march: 33, baseRevision: 0
   }));
@@ -103,6 +111,52 @@ test('player and commander updates acknowledge mutationId and broadcast canonica
   assert.deepEqual(h.calls, ['persist', 'broadcast']);
   assert.equal(h.room.room.updatedAt, configVersion);
   assert.equal(h.room.room.updatedBy, configAuthor);
+});
+
+test('self march updates require the socket-bound player while commander override stays authenticated', async () => {
+  const { Room } = await loadRoom();
+  const h = createRoomHarness(Room);
+
+  await h.room.webSocketMessage(h.ws, JSON.stringify({
+    t: 'updateOwnMarch', mutationId: 'unbound-forgery', pid: 'kimchi', march: 41, baseRevision: 0
+  }));
+  assert.deepEqual(h.sent, [{
+    t: 'error', error: 'core_identity_mismatch', mutationId: 'unbound-forgery', pid: 'kimchi'
+  }]);
+  assert.equal(h.room.room.players.kimchi.march, 40);
+  assert.deepEqual(h.calls, []);
+
+  h.reset();
+  await bindPlayerSocket(h, '001');
+  await h.room.webSocketMessage(h.ws, JSON.stringify({
+    t: 'updateOwnMarch', mutationId: 'bound-forgery', pid: 'kimchi', march: 41, baseRevision: 0
+  }));
+  assert.deepEqual(h.sent, [{
+    t: 'error', error: 'core_identity_mismatch', mutationId: 'bound-forgery', pid: 'kimchi'
+  }]);
+  assert.equal(h.room.room.players.kimchi.march, 40);
+  assert.deepEqual(h.calls, []);
+
+  h.reset();
+  await h.room.webSocketMessage(h.ws, JSON.stringify({
+    t: 'updateOwnMarch', mutationId: 'bound-self', pid: '001', march: 33, baseRevision: 0
+  }));
+  assert.deepEqual(h.sent, [{
+    t: 'playerMarchSaved', mutationId: 'bound-self', pid: '001', march: 33, revision: 1
+  }]);
+  assert.equal(h.room.room.players['001'].march, 33);
+  assert.deepEqual(h.calls, ['persist', 'broadcast']);
+
+  await claimRoom(h);
+  await h.room.webSocketMessage(h.ws, JSON.stringify({
+    t: 'setPlayerMarch', mutationId: 'commander-override', password: 'commander-secret',
+    pid: 'kimchi', march: 41, baseRevision: 0
+  }));
+  assert.deepEqual(h.sent, [{
+    t: 'playerMarchSaved', mutationId: 'commander-override', pid: 'kimchi', march: 41, revision: 1
+  }]);
+  assert.equal(h.room.room.players.kimchi.march, 41);
+  assert.deepEqual(h.calls, ['persist', 'broadcast']);
 });
 
 test('commander march update still broadcasts once when the initiator drops during ACK', async () => {
@@ -194,9 +248,92 @@ test('two commander sockets cannot concurrently stage one player in both kingdom
   assert.deepEqual(h.calls, ['persist', 'broadcast']);
 });
 
+test('stage rejects captains in another kingdom live command but ignores expired or cancelled commands', async () => {
+  const { Room } = await loadRoom();
+  const h = createRoomHarness(Room, { nowMs: 1_000_000 });
+  await claimRoom(h);
+  h.room.room.live.commands[1] = {
+    id: 'kingdom-one-live', type: 'double_rally', kingdom: 1, expiresUTC: 2_000,
+    payload: { pairs: [{ pid: '001', role: 'weak' }, { pid: 'kimchi', role: 'main' }] }
+  };
+
+  await h.room.webSocketMessage(h.ws, JSON.stringify({
+    t: 'stage', password: 'commander-secret',
+    staged: { kingdom: 2, pairs: [{ pid: '001', role: 'weak' }] }
+  }));
+  assert.deepEqual(h.sent, [{
+    t: 'error', error: 'player_staged_other_kingdom', pid: '001', kingdom: 1
+  }]);
+  assert.equal(h.room.room.live.staged[2], null);
+  assert.deepEqual(h.calls, []);
+
+  h.reset();
+  h.room.room.live.commands[1].expiresUTC = 1_000;
+  await h.room.webSocketMessage(h.ws, JSON.stringify({
+    t: 'stage', password: 'commander-secret',
+    staged: { kingdom: 2, pairs: [{ pid: '001', role: 'weak' }] }
+  }));
+  assert.deepEqual(h.room.room.live.staged[2], {
+    kingdom: 2, pairs: [{ pid: '001', role: 'weak' }]
+  });
+  assert.deepEqual(h.calls, ['persist', 'broadcast']);
+
+  h.reset();
+  h.room.room.live.staged[2] = null;
+  h.room.room.live.commands[1] = null;
+  await h.room.webSocketMessage(h.ws, JSON.stringify({
+    t: 'stage', password: 'commander-secret',
+    staged: { kingdom: 2, pairs: [{ pid: '001', role: 'weak' }] }
+  }));
+  assert.deepEqual(h.room.room.live.staged[2], {
+    kingdom: 2, pairs: [{ pid: '001', role: 'weak' }]
+  });
+  assert.deepEqual(h.calls, ['persist', 'broadcast']);
+});
+
+test('Double Fire rejects a captain in another live command but allows expired or cancelled commands', async () => {
+  const { Room } = await loadRoom();
+  const h = createRoomHarness(Room, { nowMs: 1_000_000 });
+  await claimRoom(h);
+  const otherCommand = {
+    id: 'kingdom-one-live', type: 'double_rally', kingdom: 1, expiresUTC: 2_000,
+    payload: { pairs: [{ pid: '001', role: 'weak' }] }
+  };
+  h.room.room.live.commands[1] = otherCommand;
+  const fire = () => h.room.webSocketMessage(h.ws, JSON.stringify({
+    t: 'cmd', password: 'commander-secret', cmd: {
+      type: 'double_rally', kingdom: 2, anchorUTC: 1_010,
+      payload: {
+        firstPress: 1_010, leadSeconds: 10,
+        pairs: [{ pid: '001', role: 'weak' }, { pid: 'kimchi', role: 'main' }]
+      }
+    }
+  }));
+
+  await fire();
+  assert.deepEqual(h.sent, [{ t: 'error', error: 'rally_live', pid: '001', kingdom: 1 }]);
+  assert.equal(h.room.room.live.commands[2], null);
+  assert.deepEqual(h.calls, []);
+
+  h.reset();
+  h.room.room.live.commands[1] = null;
+  await fire();
+  assert.equal(h.room.room.live.commands[2].type, 'double_rally');
+  assert.deepEqual(h.calls.slice(0, 3), ['persistAll', 'alarm', 'broadcast']);
+
+  h.reset();
+  h.room.room.live.commands[2] = null;
+  h.room.room.live.commands[1] = { ...otherCommand, expiresUTC: 1_000 };
+  await fire();
+  assert.equal(h.room.room.live.commands[2].type, 'double_rally');
+  assert.deepEqual(h.room.room.live.commands[2].payload.pairs.map(pair => pair.pid), ['001', 'kimchi']);
+  assert.deepEqual(h.calls.slice(0, 3), ['persistAll', 'alarm', 'broadcast']);
+});
+
 test('Fire freezes canonical march values and exact Main landing offset from stale sender snapshots', async () => {
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room);
+  await bindPlayerSocket(h, '001');
   await claimRoom(h);
   await h.room.webSocketMessage(h.ws, JSON.stringify({
     t: 'updateOwnMarch', mutationId: 'before-fire', pid: '001', march: 33, baseRevision: 0

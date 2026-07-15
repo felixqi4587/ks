@@ -1,3 +1,4 @@
+require('./support/legacy-kvk-script-guard.cjs')(__filename);
 // defense merge: commander publishes enemy whales → every defender's 🛡️ tab computes refill timing (self-serve, static)
 // Usage: node test/defense.cjs [baseURL]   (defaults to production; pass http://localhost:8788 to test a local wrangler dev)
 const { chromium } = require("playwright");

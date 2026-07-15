@@ -380,6 +380,28 @@ test('command accepts only the exact complete twelve-field envelope for the pinn
   }
 });
 
+test('Triple weak2 commands produce the same candidate ACK and observation as other captains', () => {
+  const f = fixture();
+  establish(f);
+
+  assert.equal(f.controller.handleMessage(command({
+    commandId: 'cmd-weak2',
+    role: 'weak2'
+  })), true);
+  assert.deepEqual(onlyMessage(f), {
+    t: 'deliveryShadowAck', v: 1, commandId: 'cmd-weak2',
+    result: 'would_schedule', futureCueCount: 11
+  });
+  assert.deepEqual(plain(f.controller.state()), {
+    seenCandidate: ['cmd-weak2'],
+    cancelled: [],
+    observations: [{
+      kind: 'candidate', commandId: 'cmd-weak2',
+      result: 'would_schedule', count: 11
+    }]
+  });
+});
+
 test('frozen candidate counts cover the full v1 lead range and never exceed twelve', () => {
   const cases = [
     { lead: 1, fireAtMs: 1_121_000, expected: 11 },

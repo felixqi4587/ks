@@ -1,3 +1,4 @@
+require('./support/legacy-kvk-script-guard.cjs')(__filename);
 // cold-user audit fixes: first-unlock=set-password copy, copy-link empty state, ID-lookup fail copy,
 // dead-submit feedback, idle "then what" line, labeled lead/kingdom chips, defense cold state, join note, defense-tab pull-once
 const { chromium } = require("playwright");

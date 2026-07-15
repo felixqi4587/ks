@@ -111,6 +111,43 @@ test('Triple stage and Fire require the current mode revision and freeze canonic
   assert.deepEqual(h.calls, ['persistAll', 'alarm', 'broadcast', 'delivery-persist', 'alarm']);
 });
 
+test('Triple Fire rejects a captain already live in the other kingdom without mutating either command', async () => {
+  const { Room } = await loadRoom();
+  const h = createRoomHarness(Room, {
+    env: { TRIPLE_RALLY_ENABLED: '1' },
+    roomName: 'qa-kvk-triple-cross-kingdom-live',
+    nowMs: 1_000_000,
+    players: {
+      a: { name: 'A', march: 20, marchRevision: 0 },
+      b: { name: 'B', march: 40, marchRevision: 0 },
+      c: { name: 'C', march: 30, marchRevision: 0 }
+    }
+  });
+  await claimRoom(h);
+  h.room.room.rallyModes[2] = { mode: 'triple', revision: 1 };
+  const existing = {
+    id: 'kingdom-one-live', type: 'double_rally', kingdom: 1, expiresUTC: 2_000,
+    payload: { pairs: [{ pid: 'a', role: 'weak' }] }
+  };
+  h.room.room.live.commands[1] = existing;
+  h.reset();
+
+  await h.room.webSocketMessage(h.ws, JSON.stringify({
+    t: 'cmd', password: 'commander-secret', cmd: {
+      type: 'triple_rally', kingdom: 2, modeRevision: 1,
+      payload: {
+        leadSeconds: 10,
+        pairs: [{ pid: 'a', role: 'weak' }, { pid: 'b', role: 'weak2' }, { pid: 'c', role: 'main' }]
+      }
+    }
+  }));
+
+  assert.deepEqual(h.sent, [{ t: 'error', error: 'rally_live', pid: 'a', kingdom: 1 }]);
+  assert.strictEqual(h.room.room.live.commands[1], existing);
+  assert.equal(h.room.room.live.commands[2], null);
+  assert.deepEqual(h.calls, []);
+});
+
 test('Triple disabled makes no mutation', async () => {
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room, { env: { TRIPLE_RALLY_ENABLED: '0' } });

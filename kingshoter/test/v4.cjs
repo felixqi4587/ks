@@ -1,3 +1,4 @@
+require('./support/legacy-kvk-script-guard.cjs')(__filename);
 const { chromium } = require("playwright");
 (async () => {
   const RM = "w" + Date.now(), base = "https://kingshoter.com/kvk.html?k=test&room=" + RM;

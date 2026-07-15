@@ -203,8 +203,14 @@ test('normalized double-rally ids stay canonical and immutable while their activ
   assert.deepEqual(h.room.room.live.commands[1].payload.pairs, frozenPairs);
 
   await h.room.webSocketMessage(h.ws, JSON.stringify({
+    t: 'deviceStatus', pid: normalizedPid,
+    deviceId: '00000000-0000-4000-8000-000000000102', soundReady: false
+  }));
+  h.reset();
+  await h.room.webSocketMessage(h.ws, JSON.stringify({
     t: 'updateOwnMarch', mutationId: 'long-update', pid: normalizedPid, march: 33, baseRevision: 0
   }));
+  assert.equal(h.room.room.players[normalizedPid].march, 33);
   assert.deepEqual(h.room.room.live.commands[1].payload.pairs, frozenPairs);
   h.reset();
 

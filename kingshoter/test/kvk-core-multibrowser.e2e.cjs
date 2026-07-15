@@ -5,10 +5,11 @@ const {
   assertQaRoomName,
   makeQaRoom,
   qaRoomUrl,
-  installQaWebSocketGuard
+  installQaWebSocketGuard,
+  localQaBaseURL
 } = require('./support/qa-kvk.cjs');
 
-const base = process.env.BASE || 'http://127.0.0.1:8791';
+const base = localQaBaseURL(process.env.BASE || 'http://127.0.0.1:8791');
 const suiteTitle = basename(__filename, '.cjs');
 const password = 'kvk-core-multibrowser-password';
 const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
@@ -232,7 +233,10 @@ async function openRole(browser, options) {
   } = options;
   assertQaRoomName(room);
   const context = await browser.newContext({ viewport, locale: 'en-US' });
-  await installQaWebSocketGuard(context, room, gateOptions(gate));
+  await installQaWebSocketGuard(context, room, {
+    ...gateOptions(gate),
+    expectedOrigin: base
+  });
   await context.addInitScript(({ roomName, storedProfile, seededDeviceId }) => {
     if (storedProfile) localStorage.setItem(`kingshoter_r_${roomName}_me`, JSON.stringify(storedProfile));
     if (seededDeviceId) localStorage.setItem(`kvk:${roomName}:delivery-device:v1`, seededDeviceId);

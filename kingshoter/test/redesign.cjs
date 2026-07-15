@@ -1,3 +1,4 @@
+require('./support/legacy-kvk-script-guard.cjs')(__filename);
 // the onboarding-clarity redesign: forced flow, honest hero, unset march, dual map, quiet commander link + read-only auth, room-wide confirm
 const { chromium } = require("playwright");
 (async () => {

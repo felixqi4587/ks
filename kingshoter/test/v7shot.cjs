@@ -1,4 +1,5 @@
 // v7 layout visual check: player mode + commander mode at 390x844, local dev
+require('./support/legacy-kvk-script-guard.cjs')(__filename);
 const { chromium } = require("playwright");
 (async () => {
   const HOST = process.argv[2] || "http://localhost:8788";

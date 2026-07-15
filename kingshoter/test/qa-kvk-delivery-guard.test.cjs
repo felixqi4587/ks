@@ -9,14 +9,15 @@ const {
   assertQaRoomName,
   makeQaRoom,
   qaRoomUrl,
-  installQaWebSocketGuard
+  installQaWebSocketGuard,
+  localQaBaseURL
 } = require('./support/qa-kvk.cjs');
 
 const ROOT = path.join(__dirname, '..');
 
-function inspectConfig(env = {}) {
+function inspectConfig(env = {}, configFile = 'playwright.qa-kvk.config.cjs') {
   const script = [
-    "const config = require('./playwright.qa-kvk.config.cjs');",
+    `const config = require(${JSON.stringify(`./${configFile}`)});`,
     'process.stdout.write(JSON.stringify({',
     '  baseURL: config.use.baseURL, webServer: config.webServer,',
     '  projects: config.projects.map(project => ({',
@@ -100,6 +101,22 @@ test('guard rejects the wrong WebSocket origin before connecting upstream', asyn
     () => handler(route(`ws://127.0.0.1:8799/api/ws?room=${room}`))
   );
   assert.equal(connected, 1);
+});
+
+test('core browser base accepts only a clean loopback origin', () => {
+  for (const value of [
+    'http://127.0.0.1:8791', 'http://localhost:8791', 'https://[::1]:8791/'
+  ]) assert.equal(localQaBaseURL(value), new URL(value).origin);
+
+  for (const value of [
+    'https://kingshoter.com', 'https://example.com',
+    'http://127.0.0.1:8791/path', 'http://127.0.0.1:8791/?room=qa-kvk-a',
+    'http://user:pass@127.0.0.1:8791', 'ftp://127.0.0.1:8791', 'not-a-url'
+  ]) assert.throws(() => localQaBaseURL(value), /local QA origin/i, value);
+
+  const core = fs.readFileSync(path.join(ROOT, 'test', 'kvk-core-multibrowser.e2e.cjs'), 'utf8');
+  assert.match(core, /const base = localQaBaseURL\(process\.env\.BASE \|\| ['"]http:\/\/127\.0\.0\.1:8791['"]\)/);
+  assert.match(core, /installQaWebSocketGuard\(context, room, \{[\s\S]{0,120}expectedOrigin: base/);
 });
 
 test('generated rooms and URLs are unique, bounded, and use both exact shadow gates', () => {
@@ -189,6 +206,48 @@ test('Playwright config defaults to isolated loopback and gates every remote ori
   assert.equal(allowedConfig.hasWebServer, false);
 });
 
+test('Triple Playwright config gates loopback and the exact production origin', () => {
+  const configFile = 'playwright.qa-kvk-triple.config.cjs';
+  const local = inspectConfig({}, configFile);
+  assert.equal(local.status, 0, local.stderr);
+  const config = JSON.parse(local.stdout);
+  assert.equal(config.baseURL, 'http://127.0.0.1:8799');
+  assert.equal(config.webServer.url, 'http://127.0.0.1:8799/api/time');
+  assert.equal(config.webServer.reuseExistingServer, false);
+  assert.match(config.webServer.command, /wrangler dev --local --ip 127\.0\.0\.1 --port 8799/);
+  assert.match(config.webServer.command, /--var TRIPLE_RALLY_ENABLED:0/);
+  assert.match(config.webServer.command, /--var TRIPLE_RALLY_QA_ENABLED:1/);
+
+  const loopback = inspectConfig({ QA_BASE_URL: 'http://127.0.0.1:8791' }, configFile);
+  assert.equal(loopback.status, 0, loopback.stderr);
+  assert.equal(JSON.parse(loopback.stdout).hasWebServer, false);
+
+  const unknown = inspectConfig({
+    QA_BASE_URL: 'https://example.com', ALLOW_PRODUCTION_QA: '1'
+  }, configFile);
+  assert.notEqual(unknown.status, 0);
+  assert.match(unknown.stderr, /unapproved_qa_origin/);
+
+  const production = inspectConfig({ QA_BASE_URL: 'https://kingshoter.com' }, configFile);
+  assert.notEqual(production.status, 0);
+  assert.match(production.stderr, /production_qa_requires_ALLOW_PRODUCTION_QA_1/);
+
+  const allowed = inspectConfig({
+    QA_BASE_URL: 'https://kingshoter.com', ALLOW_PRODUCTION_QA: '1'
+  }, configFile);
+  assert.equal(allowed.status, 0, allowed.stderr);
+  assert.equal(JSON.parse(allowed.stdout).baseURL, 'https://kingshoter.com');
+
+  for (const candidate of [
+    'https://kingshoter.com:444', 'https://kingshoter.com/path',
+    'https://kingshoter.com/?query=1', 'https://user:pass@kingshoter.com'
+  ]) {
+    const rejected = inspectConfig({ QA_BASE_URL: candidate, ALLOW_PRODUCTION_QA: '1' }, configFile);
+    assert.notEqual(rejected.status, 0, candidate);
+    assert.match(rejected.stderr, /unapproved_qa_origin/, candidate);
+  }
+});
+
 test('focused delivery scripts are additive and retain every existing command', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
   assert.equal(pkg.scripts.test, 'node --test test/*.test.cjs');
@@ -209,4 +268,8 @@ test('focused delivery scripts are additive and retain every existing command', 
     'playwright test -c playwright.qa-kvk.config.cjs');
   assert.equal(pkg.scripts['test:qa:delivery:chromium'],
     'playwright test -c playwright.qa-kvk.config.cjs --project=chromium');
+  assert.match(pkg.scripts['test:triple'], /test\/qa-kvk-delivery-guard\.test\.cjs/,
+    'the focused Triple gate must exercise its remote-origin guard');
+  assert.match(pkg.scripts['test:triple'], /test\/legacy-kvk-script-guard\.test\.cjs/,
+    'the focused Triple gate must keep retained production scripts disabled');
 });

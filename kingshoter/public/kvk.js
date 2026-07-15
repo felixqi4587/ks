@@ -325,7 +325,7 @@
       idlesub: "指挥发令后，这里变成你的大倒计时", waitlaunch: "⏳ 等待你的 {n} 秒开车倒数", youlaunch: "🚗 你开车！", whalelaunch: "🐋 鲸鱼开车", main: "主力", weak: "消耗",
       refilltitle: "💧 现在 refill 补兵", refillsub: "敌落地后补满守军，把他弹回去", go: "出发！",
       soundon: "🔊 本页提醒已开启", soundgate: "① 开启本页提醒 · 手机系统仍可能暂停后台，开战前先测试", need2: "先选 2 个车头", wrongpw: "密码错误",
-      player_actions: "{n} 的操作", action_edit_march: "修改行军时间", action_remove: "删除玩家", remove_confirm: "从房间删除 {n}？", remove_aria: "移除 {n}", remove_description: "删除后，该玩家会立即从所有指挥端和待命位置消失。", remove_impact: "同时清除以下待命位置：", remove_impact_line: "王国 {k} · {r}", remove_no_impact: "当前没有待命位置", remove_in_use: "该玩家正在进行中的集结里；先取消集结才能删除", remove_cancel: "取消", remove_button: "删除玩家", removing: "正在等待全房间确认删除 {n}…", remove_unknown: "连接中断，结果待确认；重连后会核对，但不会自动重发。", remove_retry: "没有成功发送或确认，请手动重试。", remove_changed: "玩家状态或待命位置刚刚变化；请检查后再点一次确认。", removed: "已删除 {n}", player_missing: "有车头已被删除或不在名单，请重新选择",
+      player_actions: "{n} 的操作", action_edit_march: "修改行军时间", action_remove: "删除玩家", remove_confirm: "从房间删除 {n}？", remove_aria: "移除 {n}", remove_description: "删除后，该玩家会立即从所有指挥端和待命位置消失。", remove_impact: "同时清除以下待命位置：", remove_impact_line: "王国 {k} · {r}", remove_no_impact: "当前没有待命位置", remove_in_use: "该玩家正在进行中的集结里；先取消集结才能删除", remove_cancel: "取消", remove_button: "删除玩家", removing: "正在等待全房间确认删除 {n}…", remove_unknown: "连接中断，结果待确认；重连后会核对，但不会自动重发。", remove_retry: "没有成功发送或确认，请手动重试。", remove_changed: "玩家状态或待命位置刚刚变化；请检查后再点一次确认。", removed: "已删除 {n}", player_missing: "有车头已被删除或不在名单，请重新选择", identity_rebinding: "身份连接已失效，正在重新连接；连接后请重试保存",
       mapcastle: "王城", mapempty: "还没有人 · 把房间链接发给队友", mapstaged: "已就位 · 等指挥", kw1: "王国 ①", kw2: "王国 ②", mapnote: "⭕ 每环 = 30 秒行军 · 越外圈离王城越远",
       copylink: "📋 点我复制房间链接", copied: "✓ 已复制 · 发给队友吧", idle_wait: "✅ 都填好了 · 等指挥发令；切回游戏前先用下方按钮实测本机后台提醒",
       idle_note: "○ 每人离王城的行军时间 · 开打后变成实时进度条", legend_live: "● 主力 ○ 消耗 · 越近王城越快落地",
@@ -369,7 +369,7 @@
       idlesub: "When the commander fires, this becomes your countdown", waitlaunch: "⏳ Waiting for your {n}s launch countdown", youlaunch: "🚗 YOU launch!", whalelaunch: "🐋 Whales launch", main: "Main", weak: "Sacrifice",
       refilltitle: "💧 Refill the garrison now", refillsub: "Top up right after they land — bounce them back", go: "GO!",
       soundon: "🔊 Page alerts enabled", soundgate: "① Enable page alerts · phones may pause background audio; test before battle", need2: "Pick 2 captains first", wrongpw: "Wrong password",
-      player_actions: "Actions for {n}", action_edit_march: "Edit march time", action_remove: "Remove player", remove_confirm: "Remove {n} from this room?", remove_aria: "Remove {n}", remove_description: "This removes the player from every commander and clears their staged positions.", remove_impact: "Staged positions that will be cleared:", remove_impact_line: "Kingdom {k} · {r}", remove_no_impact: "No staged positions", remove_in_use: "This player is in an active rally — cancel it before removal", remove_cancel: "Cancel", remove_button: "Remove player", removing: "Waiting for the room to confirm removal of {n}…", remove_unknown: "Connection closed; outcome unknown. Reconnect will verify it without resending.", remove_retry: "Not sent or not confirmed. Retry manually.", remove_changed: "The player or staged impact changed. Review it, then confirm again.", removed: "Removed {n}", player_missing: "A captain was removed or is no longer in the roster — pick again",
+      player_actions: "Actions for {n}", action_edit_march: "Edit march time", action_remove: "Remove player", remove_confirm: "Remove {n} from this room?", remove_aria: "Remove {n}", remove_description: "This removes the player from every commander and clears their staged positions.", remove_impact: "Staged positions that will be cleared:", remove_impact_line: "Kingdom {k} · {r}", remove_no_impact: "No staged positions", remove_in_use: "This player is in an active rally — cancel it before removal", remove_cancel: "Cancel", remove_button: "Remove player", removing: "Waiting for the room to confirm removal of {n}…", remove_unknown: "Connection closed; outcome unknown. Reconnect will verify it without resending.", remove_retry: "Not sent or not confirmed. Retry manually.", remove_changed: "The player or staged impact changed. Review it, then confirm again.", removed: "Removed {n}", player_missing: "A captain was removed or is no longer in the roster — pick again", identity_rebinding: "Your player connection expired. Reconnecting now; retry the save when connected",
       mapcastle: "King's Castle", mapempty: "Nobody yet · share the room link", mapstaged: "Staged · waiting for the order", kw1: "Kingdom ①", kw2: "Kingdom ②", mapnote: "⭕ each ring = 30s march · outer = farther from the castle",
       copylink: "📋 Tap to copy the room link", copied: "✓ Copied — share it with your team", idle_wait: "✅ All set · wait for the order; test this device's background alert below before switching to the game.",
       idle_note: "○ each dot = march time to the castle · turns into a live progress bar at fire", legend_live: "● main ○ sacrifice · closer = landing sooner",
@@ -451,7 +451,7 @@
   function AC() { return window.AudioContext || window.webkitAudioContext; }
   function ensureAudio() {
     try {
-      if (!ac) { ac = new (AC())(); window.__ac = ac; ac.onstatechange = function () { if (ac.state !== "running") { try { ac.resume(); } catch (e) {} } if (ac.state === "running") sendDeviceStatus("deviceStatus", true); paintAudioStatus(); }; }
+      if (!ac) { ac = new (AC())(); window.__ac = ac; ac.onstatechange = function () { if (ac.state !== "running") { try { ac.resume(); } catch (e) {} } sendDeviceStatus("deviceStatus", true); paintAudioStatus(); }; }
       if (ac.state !== "running") ac.resume();
       if (navigator.audioSession && navigator.audioSession.type !== "playback") navigator.audioSession.type = "playback";
     } catch (e) {} return ac;
@@ -476,18 +476,43 @@
   }
   function bedVol() { if (!document.hidden) return 0; return isIOS ? .04 : (isAndroid ? 1 : .3); }   // foreground always silent; hidden → loud enough for the Chrome audibility check (40Hz stays inaudible to people)
   function syncBedVol() { try { if (keepAudio) keepAudio.volume = bedVol(); } catch (e) {} }
+  function setKeepAliveState(alive) {
+    var next = !!(alive && keepAudio && keepAudio.paused === false && !keepAudio.ended), changed = next !== keepAlive;
+    keepAlive = next; try { window.__keepAlive = next; } catch (e) {}
+    if (changed && soundReady) sendDeviceStatus("deviceStatus", true);
+    paintAudioStatus();
+  }
   function startKeepAlive() {
     try {
       if (!keepAudio) {
         keepAudio = new Audio(); keepAudio.src = bedURI(isIOS ? .002 : .05); keepAudio.loop = true; keepAudio.volume = bedVol(); keepAudio.preload = "auto"; keepAudio.setAttribute("playsinline", "");
-        keepAudio.addEventListener("pause", function () { if (soundReady) setTimeout(resumeAudio, 250); });   // auto-restart if the OS pauses the bed
+        keepAudio.addEventListener("playing", function () { setKeepAliveState(true); });
+        keepAudio.addEventListener("pause", function () { setKeepAliveState(false); if (soundReady) setTimeout(resumeAudio, 250); });   // auto-restart if the OS pauses the bed
+        ["waiting", "stalled", "error", "ended"].forEach(function (eventName) {
+          keepAudio.addEventListener(eventName, function () { setKeepAliveState(false); });
+        });
       }
-      var pr = keepAudio.play(); if (pr && pr.then) pr.then(function () { keepAlive = true; window.__keepAlive = true; paintAudioStatus(); }).catch(function () { keepAlive = false; paintAudioStatus(); });
+      var pr = keepAudio.play();
+      if (pr && pr.then) pr.then(function () { setKeepAliveState(true); }).catch(function () { setKeepAliveState(false); });
+      else setKeepAliveState(!keepAudio.paused);
       if ("mediaSession" in navigator) { try { navigator.mediaSession.metadata = new window.MediaMetadata({ title: "KvK alerts on", artist: "kingshoter" }); navigator.mediaSession.setActionHandler("play", resumeAudio); navigator.mediaSession.setActionHandler("pause", function () { }); } catch (e) {} }
-    } catch (e) {}
+    } catch (e) { setKeepAliveState(false); }
   }
-  function resumeAudio() { ensureAudio(); try { if (keepAudio) { syncBedVol(); if (keepAudio.paused) { var p = keepAudio.play(); if (p && p.catch) p.catch(function () {}); } } } catch (e) {} paintAudioStatus(); }
-  function audioAlive() { return !!(soundReady && ac && ac.state === "running"); }   // cues ride the audio clock; a momentarily-paused keep-alive bed doesn't kill them, so don't cry wolf
+  function resumeAudio() {
+    ensureAudio();
+    try {
+      if (keepAudio) {
+        syncBedVol();
+        if (keepAudio.paused || !keepAlive) {
+          var p = keepAudio.play();
+          if (p && p.then) p.then(function () { setKeepAliveState(true); }).catch(function () { setKeepAliveState(false); });
+          else setKeepAliveState(!keepAudio.paused);
+        }
+      }
+    } catch (e) { setKeepAliveState(false); }
+    paintAudioStatus();
+  }
+  function audioAlive() { return !!(soundReady && ac && ac.state === "running" && keepAlive && keepAudio && !keepAudio.paused && !keepAudio.ended); }
   var astatOkAt = 0;
   function paintAudioStatus() {
     var el = $("audioStatus"); if (!el) return; if (!soundReady) { el.style.display = "none"; return; }
@@ -2097,7 +2122,7 @@
   // hard sync gate that does NOT waste the commander's confirm tap: if unsynced, resync then auto-fire on success
   function gateSync(fn) { if (syncedOK) return fn(); window.toast(tk("notsynced")); beginClockSync(function (ok) { if (ok) fn(); else window.toast(tk("notconn")); }); }
   function fireDouble() {
-    var commandKingdom = fireKingdom;
+    var commandKingdom = fireKingdom, commandLead = lead;
     if (!rallyModeWritable(commandKingdom)) { window.toast(tk("mode_unavailable")); return; }
     if (pendingStageMutation || queuedStageByK[commandKingdom] || pendingRallyMode) { window.toast(tk("mode_saving")); return; }
     var cur = pickedByK[commandKingdom]; if (cur.length < 2) { window.toast(tk("need2")); return; }
@@ -2105,13 +2130,21 @@
     var weak = weakPick && canonicalPick(weakPick.pid, "weak", room && room.players), main = mainPick && canonicalPick(mainPick.pid, "main", room && room.players);
     if (!weak || !main || weak.pid === main.pid) { window.toast(tk("need2")); return; }   // belt+braces: never fire the same player as both roles
     if (!weak.march || !main.march) { window.toast(tk("nomarch")); return; }
+    var expectedConfirmation = fireConfirmationKey();
     gateSync(function () {
-      var absent = [weak, main].some(function (c) { return !isReady(room && room.players && room.players[c.pid]); });
+      var latestWeak = canonicalPick(weak.pid, "weak", room && room.players), latestMain = canonicalPick(main.pid, "main", room && room.players);
+      if (fireKingdom !== commandKingdom || lead !== commandLead || fireConfirmationKey() !== expectedConfirmation ||
+          !rallyModeWritable(commandKingdom) || pendingStageMutation || queuedStageByK[commandKingdom] || pendingRallyMode ||
+          !latestWeak || !latestMain || latestWeak.march !== weak.march || latestMain.march !== main.march ||
+          latestWeak.marchRevision !== weak.marchRevision || latestMain.marchRevision !== main.marchRevision) {
+        window.toast(tk("mode_changed_elsewhere")); return;
+      }
+      var absent = [latestWeak, latestMain].some(function (c) { return !isReady(room && room.players && room.players[c.pid]); });
       if (absent) window.toast(tk("cap_absent"));
       var now = window.serverNow() / 1000, off = (main.march - weak.march) - 1, pm, ps;
-      if (off >= 0) { pm = now + lead; ps = pm + off; } else { ps = now + lead; pm = ps - off; }
+      if (off >= 0) { pm = now + commandLead; ps = pm + off; } else { ps = now + commandLead; pm = ps - off; }
       var pairs = [{ pid: weak.pid, name: weak.name, role: "weak", march: weak.march, pressUTC: ps }, { pid: main.pid, name: main.name, role: "main", march: main.march, pressUTC: pm }];
-      var ok = sock.send({ t: "cmd", password: roomPw, cmd: { type: "double_rally", kingdom: commandKingdom, anchorUTC: Math.min(pm, ps), payload: { pairs: pairs, firstPress: Math.min(pm, ps), kingdom: commandKingdom, leadSeconds: lead } } });
+      var ok = sock.send({ t: "cmd", password: roomPw, cmd: { type: "double_rally", kingdom: commandKingdom, anchorUTC: Math.min(pm, ps), payload: { pairs: pairs, firstPress: Math.min(pm, ps), kingdom: commandKingdom, leadSeconds: commandLead } } });
       if (ok) consumeStageForFire(commandKingdom);
       window.toast(ok ? tk("fired") : tk("notconn"));
     });
@@ -2497,7 +2530,7 @@
   }
   function handlePlayerProtocolError(message) {
     var error = message && message.error;
-    if (["invalid_march", "player_missing", "player_conflict"].indexOf(error) < 0 && error !== "invalid_pid") return false;
+    if (["invalid_march", "player_missing", "player_conflict", "core_identity_mismatch"].indexOf(error) < 0 && error !== "invalid_pid") return false;
     if (error === "player_missing" && !message.mutationId) return false;
     if (message.mutationId && (!pendingMarchMutation || message.mutationId !== pendingMarchMutation.mutationId)) return false;
     if (pendingMarchMutation && message.mutationId === pendingMarchMutation.mutationId) {
@@ -2518,6 +2551,11 @@
     if (error === "invalid_march") window.toast(tk("marchfirst"));
     else if (error === "invalid_pid") window.toast(identityMode === "nickname" ? tk("invalid_nickname") : "Player ID");
     else if (error === "player_missing") window.toast(tk("player_missing"));
+    else if (error === "core_identity_mismatch") {
+      window.toast(tk("identity_rebinding"));
+      if (sock && typeof sock.refresh === "function") sock.refresh();
+      else if (sock && typeof sock.kick === "function") sock.kick();
+    }
     return true;
   }
   /* ---------- net + sync ---------- */

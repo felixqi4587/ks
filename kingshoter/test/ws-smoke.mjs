@@ -1,3 +1,7 @@
+import stopLegacyKvkScript from './support/legacy-kvk-script-guard.cjs';
+
+stopLegacyKvkScript(import.meta.filename);
+
 const RM = "smoke" + Date.now();
 const URL = "wss://kingshoter.kingshot1406.workers.dev/api/ws?k=test&room=" + RM;
 const open = () => new Promise(res => { const ws = new WebSocket(URL); ws._m = []; ws.onmessage = e => ws._m.push(JSON.parse(e.data)); ws.onopen = () => res(ws); });
