@@ -14,6 +14,16 @@ export function normalizeMutationId(value) {
   return id && id.length <= 64 ? id : '';
 }
 
+export function normalizeProfilePlayerId(value) {
+  const playerId = String(value == null ? '' : value).trim();
+  return /^\d{1,16}$/.test(playerId) ? playerId : '';
+}
+
+export function profilePlayerId(pid, player) {
+  if (!player || player.identityMode !== 'playerId') return '';
+  return normalizeProfilePlayerId(player.playerId) || normalizeProfilePlayerId(pid);
+}
+
 export function parseMarchSeconds(value) {
   if (value === '' || value == null || typeof value === 'boolean') return null;
   const number = typeof value === 'number' ? value : Number(value);
@@ -40,15 +50,44 @@ function cleanName(value) {
     .trim().replace(/\s+/g, ' ')).slice(0, 24).join('');
 }
 
+function canonicalProfile(pid, player) {
+  const identityMode = player.identityMode === 'nickname' ? 'nickname' : 'playerId';
+  const profile = {
+    pid,
+    identityMode,
+    name: player.name,
+    march: player.march,
+    revision: normalizeMarchRevision(player.marchRevision)
+  };
+  const playerId = profilePlayerId(pid, player);
+  if (identityMode === 'playerId' && playerId) profile.playerId = playerId;
+  return profile;
+}
+
+function playerIdOwner(players, playerId, exceptPid = '') {
+  if (!playerId) return '';
+  for (const candidatePid of Object.keys(players || {})) {
+    if (candidatePid !== exceptPid && profilePlayerId(candidatePid, players[candidatePid]) === playerId) {
+      return candidatePid;
+    }
+  }
+  return '';
+}
+
 export function registerPlayer(players, input, nowISO) {
   const pid = normalizeRoutingKey(input && input.pid);
   const march = parseMarchSeconds(input && input.march);
   if (!pid) return { ok: false, error: 'invalid_pid' };
   if (march == null) return { ok: false, error: 'invalid_march' };
-  if (own(players, pid)) return { ok: true, created: false, pid, player: players[pid] };
   const mode = input && input.identityMode === 'nickname' ? 'nickname' : 'playerId';
+  const hasExplicitPlayerId = mode === 'playerId' && own(input, 'playerId');
+  const playerId = hasExplicitPlayerId ? normalizeProfilePlayerId(input.playerId) : '';
+  if (hasExplicitPlayerId && !playerId) return { ok: false, error: 'invalid_player_id' };
+  if (own(players, pid)) return { ok: true, created: false, pid, player: players[pid] };
+  const claimedPlayerId = playerId || (mode === 'playerId' ? normalizeProfilePlayerId(pid) : '');
+  if (playerIdOwner(players, claimedPlayerId)) return { ok: false, error: 'player_id_conflict' };
   const name = cleanName(input && input.name) || pid;
-  players[pid] = {
+  const player = {
     name,
     march,
     marchRevision: 0,
@@ -57,7 +96,52 @@ export function registerPlayer(players, input, nowISO) {
     ready: false,
     lastSeen: nowISO
   };
+  if (playerId) player.playerId = playerId;
+  players[pid] = player;
   return { ok: true, created: true, pid, player: players[pid] };
+}
+
+export function applyOwnProfileUpdate(players, input, options = {}) {
+  const mutationId = normalizeMutationId(input && input.mutationId);
+  const pid = normalizeRoutingKey(input && input.pid);
+  if (!mutationId) return { ok: false, error: 'invalid_mutation', mutationId: '' };
+  if (!pid || !own(players, pid)) return { ok: false, error: 'player_missing', mutationId, pid };
+
+  const player = players[pid];
+  const identityMode = input && input.identityMode;
+  const name = cleanName(input && input.name);
+  const march = parseMarchSeconds(input && input.march);
+  const playerId = identityMode === 'playerId' ? normalizeProfilePlayerId(input && input.playerId) : '';
+  if (identityMode === 'playerId' && !playerId) return { ok: false, error: 'invalid_player_id', mutationId, pid };
+  if (identityMode !== 'playerId' && identityMode !== 'nickname') {
+    return { ok: false, error: 'invalid_nickname', mutationId, pid };
+  }
+  if (!name) return { ok: false, error: 'invalid_nickname', mutationId, pid };
+  if (march == null) return { ok: false, error: 'invalid_march', mutationId, pid };
+  if (playerIdOwner(players, playerId, pid)) return { ok: false, error: 'player_id_conflict', mutationId, pid };
+
+  const currentRevision = normalizeMarchRevision(player.marchRevision);
+  if (!Number.isInteger(input.baseRevision) || input.baseRevision !== currentRevision) {
+    return {
+      ok: false,
+      error: 'player_conflict',
+      mutationId,
+      pid,
+      profile: canonicalProfile(pid, player)
+    };
+  }
+
+  const nextPlayer = Object.assign({}, player, {
+    name,
+    march,
+    marchRevision: currentRevision + 1,
+    identityMode
+  });
+  if (identityMode === 'playerId') nextPlayer.playerId = playerId;
+  else delete nextPlayer.playerId;
+  if (options.touchLastSeen) nextPlayer.lastSeen = options.nowISO;
+  players[pid] = nextPlayer;
+  return { ok: true, mutationId, pid, profile: canonicalProfile(pid, nextPlayer) };
 }
 
 export function applyPlayerMarchUpdate(players, input, options = {}) {

@@ -55,6 +55,118 @@ test('registration is create-only and explicit updates use optimistic revision',
   assert.equal(players['900000001'].march, 36);
 });
 
+test('profile player ids normalize strictly and preserve legacy numeric routing ids', async () => {
+  const { normalizeProfilePlayerId, profilePlayerId } = await domain();
+  assert.equal(normalizeProfilePlayerId('900000001'), '900000001');
+  assert.equal(normalizeProfilePlayerId('0'), '0');
+  for (const value of ['', '12a', '12345678901234567', null, undefined]) {
+    assert.equal(normalizeProfilePlayerId(value), '');
+  }
+  assert.equal(profilePlayerId('routeA', { identityMode: 'playerId', playerId: '900000001' }), '900000001');
+  assert.equal(profilePlayerId('900000002', { identityMode: 'playerId' }), '900000002');
+  assert.equal(profilePlayerId('routeA', { identityMode: 'playerId' }), '');
+  assert.equal(profilePlayerId('900000002', { identityMode: 'nickname', playerId: '900000001' }), '');
+});
+
+test('whole-profile edits are atomic, keep the routing pid, and return canonical profiles', async () => {
+  const { applyOwnProfileUpdate } = await domain();
+  const nowISO = '2026-07-15T00:00:00.000Z';
+  const players = {
+    routeA: { name: 'Alpha', march: 30, marchRevision: 0, identityMode: 'nickname', lastSeen: 'before' },
+    routeB: { name: 'Bravo', march: 40, marchRevision: 2, identityMode: 'playerId', playerId: '900000002' }
+  };
+
+  const updated = applyOwnProfileUpdate(players, {
+    mutationId: 'profile-1', pid: 'routeA', identityMode: 'playerId',
+    playerId: '900000001', name: 'Resolved Alpha', march: 31, baseRevision: 0
+  }, { touchLastSeen: true, nowISO });
+  assert.equal(updated.ok, true);
+  assert.equal(updated.mutationId, 'profile-1');
+  assert.deepEqual(updated.profile, {
+    pid: 'routeA', identityMode: 'playerId', playerId: '900000001',
+    name: 'Resolved Alpha', march: 31, revision: 1
+  });
+  assert.deepEqual(players.routeA, {
+    name: 'Resolved Alpha', march: 31, marchRevision: 1, identityMode: 'playerId',
+    lastSeen: nowISO, playerId: '900000001'
+  });
+  assert.equal(players['900000001'], undefined, 'profile identity must not replace the routing pid');
+
+  const staleSnapshot = structuredClone(players);
+  const stale = applyOwnProfileUpdate(players, {
+    mutationId: 'profile-stale', pid: 'routeA', identityMode: 'nickname',
+    name: 'Should Not Apply', march: 32, baseRevision: 0
+  }, { touchLastSeen: true, nowISO: '2026-07-15T00:01:00.000Z' });
+  assert.equal(stale.ok, false);
+  assert.equal(stale.error, 'player_conflict');
+  assert.deepEqual(stale.profile, {
+    pid: 'routeA', identityMode: 'playerId', playerId: '900000001',
+    name: 'Resolved Alpha', march: 31, revision: 1
+  });
+  assert.deepEqual(players, staleSnapshot);
+
+  const nickname = applyOwnProfileUpdate(players, {
+    mutationId: 'profile-2', pid: 'routeA', identityMode: 'nickname',
+    name: 'Alpha Nick', march: 32, baseRevision: 1
+  });
+  assert.equal(nickname.ok, true);
+  assert.deepEqual(nickname.profile, {
+    pid: 'routeA', identityMode: 'nickname', name: 'Alpha Nick', march: 32, revision: 2
+  });
+  assert.equal(Object.hasOwn(nickname.profile, 'playerId'), false);
+  assert.equal(Object.hasOwn(players.routeA, 'playerId'), false);
+});
+
+test('profile validation, identity collisions, and missing players never partially mutate', async () => {
+  const { applyOwnProfileUpdate } = await domain();
+  const players = {
+    routeA: { name: 'Alpha', march: 30, marchRevision: 0, identityMode: 'nickname' },
+    routeB: { name: 'Bravo', march: 40, marchRevision: 0, identityMode: 'playerId', playerId: '900000002' }
+  };
+  const attempts = [
+    [{ mutationId: 'bad-id', pid: 'routeA', identityMode: 'playerId', playerId: '9x', name: 'Alpha', march: 31, baseRevision: 0 }, 'invalid_player_id'],
+    [{ mutationId: 'bad-name', pid: 'routeA', identityMode: 'nickname', name: ' \u0000 ', march: 31, baseRevision: 0 }, 'invalid_nickname'],
+    [{ mutationId: 'bad-march', pid: 'routeA', identityMode: 'nickname', name: 'Alpha', march: 181, baseRevision: 0 }, 'invalid_march'],
+    [{ mutationId: 'collision', pid: 'routeA', identityMode: 'playerId', playerId: '900000002', name: 'Alpha', march: 31, baseRevision: 0 }, 'player_id_conflict'],
+    [{ mutationId: 'missing', pid: 'routeC', identityMode: 'nickname', name: 'Charlie', march: 31, baseRevision: 0 }, 'player_missing']
+  ];
+  for (const [input, error] of attempts) {
+    const before = structuredClone(players);
+    const result = applyOwnProfileUpdate(players, input, { touchLastSeen: true, nowISO: 'later' });
+    assert.equal(result.ok, false);
+    assert.equal(result.error, error);
+    assert.deepEqual(players, before, `${error} must leave every player unchanged`);
+  }
+});
+
+test('registration persists valid explicit player ids uniquely while omitted ids remain compatible', async () => {
+  const { registerPlayer } = await domain();
+  const players = {};
+  const explicit = registerPlayer(players, {
+    pid: 'routeA', identityMode: 'playerId', playerId: '900000001', name: 'Alpha', march: 35
+  }, '2026-07-15T00:00:00.000Z');
+  assert.equal(explicit.ok, true);
+  assert.equal(players.routeA.playerId, '900000001');
+
+  const beforeInvalid = structuredClone(players);
+  assert.equal(registerPlayer(players, {
+    pid: 'routeB', identityMode: 'playerId', playerId: 'invalid', name: 'Bravo', march: 36
+  }, '2026-07-15T00:01:00.000Z').error, 'invalid_player_id');
+  assert.deepEqual(players, beforeInvalid);
+
+  assert.equal(registerPlayer(players, {
+    pid: 'routeB', identityMode: 'playerId', playerId: '900000001', name: 'Bravo', march: 36
+  }, '2026-07-15T00:01:00.000Z').error, 'player_id_conflict');
+  assert.deepEqual(players, beforeInvalid);
+
+  const legacy = registerPlayer(players, {
+    pid: '900000003', identityMode: 'playerId', name: 'Legacy', march: 37
+  }, '2026-07-15T00:02:00.000Z');
+  assert.equal(legacy.ok, true);
+  assert.equal(legacy.created, true);
+  assert.equal(Object.hasOwn(players['900000003'], 'playerId'), false);
+});
+
 test('staged removal is atomic while an unexpired command blocks it', async () => {
   const { removePlayerAtomic } = await domain();
   const room = {
