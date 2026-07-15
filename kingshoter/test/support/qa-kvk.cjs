@@ -20,6 +20,9 @@ function makeQaRoom(testInfo) {
 
 function qaRoomUrl(baseURL, room, params = {}) {
   const safeRoom = assertQaRoomName(room);
+  if (Object.prototype.hasOwnProperty.call(params, 'room')) {
+    throw new Error('Refusing QA room override in URL params');
+  }
   const url = new URL('/kvk.html', baseURL);
   url.searchParams.set('room', safeRoom);
   for (const [key, value] of Object.entries(params)) {
@@ -33,15 +36,32 @@ async function installQaWebSocketGuard(context, room, options = {}) {
   const dropClient = options.shouldDropClientMessage;
   const dropServer = options.shouldDropServerMessage;
   const transformServer = options.transformServerMessage;
+  const expectedOrigin = options.expectedOrigin;
+  let expectedWebSocketOrigin = '';
   if (dropClient !== undefined && typeof dropClient !== 'function') throw new TypeError('shouldDropClientMessage must be a function');
   if (dropServer !== undefined && typeof dropServer !== 'function') throw new TypeError('shouldDropServerMessage must be a function');
   if (transformServer !== undefined && typeof transformServer !== 'function') throw new TypeError('transformServerMessage must be a function');
+  if (expectedOrigin !== undefined) {
+    if (typeof expectedOrigin !== 'string') throw new TypeError('expectedOrigin must be a string');
+    let parsed;
+    try { parsed = new URL(expectedOrigin); } catch (error) { throw new TypeError('expectedOrigin must be an absolute URL'); }
+    if (!['http:', 'https:', 'ws:', 'wss:'].includes(parsed.protocol) || parsed.username || parsed.password) {
+      throw new TypeError('expectedOrigin must be an HTTP or WebSocket origin');
+    }
+    if (parsed.protocol === 'http:') parsed.protocol = 'ws:';
+    else if (parsed.protocol === 'https:') parsed.protocol = 'wss:';
+    expectedWebSocketOrigin = parsed.origin;
+  }
 
   await context.routeWebSocket(/\/api\/ws(?:\?|$)/, route => {
     const url = route.url();
-    const actualRoom = new URL(url).searchParams.get('room') || '';
+    const parsed = new URL(url);
+    const actualRoom = parsed.searchParams.get('room') || '';
     if (actualRoom !== safeRoom) {
       throw new Error(`Refusing WebSocket room ${actualRoom || '<empty>'}; guard allows only ${safeRoom}`);
+    }
+    if (expectedWebSocketOrigin && parsed.origin !== expectedWebSocketOrigin) {
+      throw new Error(`Refusing WebSocket origin ${parsed.origin}; guard allows only ${expectedWebSocketOrigin}`);
     }
     const server = route.connectToServer();
     route.onMessage(data => {
