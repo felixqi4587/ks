@@ -5,7 +5,7 @@
 }(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
 
-  var BUILD = 2026071401;
+  var BUILD = 2026071501;
   var BUILD_CHECK_TIMEOUT_MS = 10_000;
 
   function safeBuild(value) {

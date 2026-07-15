@@ -31,7 +31,7 @@ const settle = () => new Promise((resolve) => setImmediate(resolve));
 
 test('metadata must contain safe positive and internally consistent current/minimum builds', () => {
   const update = loadUpdate();
-  assert.equal(update.BUILD, 2026071401);
+  assert.equal(update.BUILD, 2026071501);
   assert.equal(update.shouldReload(meta(update)), true);
   assert.equal(update.shouldReload(meta(update, { minKvkBuild: update.BUILD })), false);
 
@@ -57,9 +57,9 @@ test('metadata must contain safe positive and internally consistent current/mini
 
 test('the updater bootstrap keeps supported older updater generations running', () => {
   const metadata = {
-    currentBuild: 2026071401,
+    currentBuild: 2026071501,
     minKvkBuild: 2026071301,
-    minTripleBuild: 2026071401
+    minTripleBuild: 2026071501
   };
   assert.equal(loadUpdate(2026071302).shouldReload(metadata), false);
   assert.equal(loadUpdate(2026071303).shouldReload(metadata), false);
@@ -67,9 +67,9 @@ test('the updater bootstrap keeps supported older updater generations running', 
 
 test('a later minimum-build deployment refreshes every updater-capable stale generation', () => {
   const raisedMinimum = {
-    currentBuild: 2026071401,
-    minKvkBuild: 2026071401,
-    minTripleBuild: 2026071401
+    currentBuild: 2026071501,
+    minKvkBuild: 2026071501,
+    minTripleBuild: 2026071501
   };
   assert.equal(loadUpdate(2026071302).shouldReload(raisedMinimum), true);
   assert.equal(loadUpdate(2026071303).shouldReload(raisedMinimum), true);

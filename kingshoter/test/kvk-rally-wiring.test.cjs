@@ -6,7 +6,7 @@ const path = require('node:path');
 const root = path.join(__dirname, '..');
 const html = fs.readFileSync(path.join(root, 'public', 'kvk.html'), 'utf8');
 const kvk = fs.readFileSync(path.join(root, 'public', 'kvk.js'), 'utf8');
-const BUILD = '2026071401';
+const BUILD = '2026071501';
 const rallyModule = { exports: {} };
 require('node:vm').runInNewContext(
   fs.readFileSync(path.join(root, 'public', 'kvk-rally.js'), 'utf8'),
@@ -81,17 +81,17 @@ test('only an exact same-generation rally module enables canonical Triple', () =
     selectPlayer: rally.selectPlayer,
     movePlayerToRole: rally.movePlayerToRole
   });
-  assert.equal(loadRallyAdapter(complete(2026071401), { BUILD: 2026071401 }).tripleClientAvailable, true);
-  assert.equal(loadRallyAdapter(complete(2026071302), { BUILD: 2026071401 }).tripleClientAvailable, false);
-  assert.equal(loadRallyAdapter({ ...complete(2026071401), BUILD: undefined }, { BUILD: 2026071401 }).tripleClientAvailable, false);
-  const hostile = complete(2026071401);
+  assert.equal(loadRallyAdapter(complete(2026071501), { BUILD: 2026071501 }).tripleClientAvailable, true);
+  assert.equal(loadRallyAdapter(complete(2026071302), { BUILD: 2026071501 }).tripleClientAvailable, false);
+  assert.equal(loadRallyAdapter({ ...complete(2026071501), BUILD: undefined }, { BUILD: 2026071501 }).tripleClientAvailable, false);
+  const hostile = complete(2026071501);
   Object.defineProperty(hostile, 'BUILD', { get() { throw new Error('mixed rally cache'); } });
-  assert.equal(loadRallyAdapter(hostile, { BUILD: 2026071401 }).tripleClientAvailable, false);
+  assert.equal(loadRallyAdapter(hostile, { BUILD: 2026071501 }).tripleClientAvailable, false);
 });
 
 test('myTarget rejects hostile module return shapes and uses the safe canonical fallback', () => {
   const hostile = {
-    BUILD: 2026071401,
+    BUILD: 2026071501,
     isRallyCommand: rally.isRallyCommand,
     targetFor() { return { anchor: '12', mine: true, role: 'weak2' }; },
     rolesForMode: rally.rolesForMode,
@@ -99,7 +99,7 @@ test('myTarget rejects hostile module return shapes and uses the safe canonical 
     selectPlayer: rally.selectPlayer,
     movePlayerToRole: rally.movePlayerToRole
   };
-  const context = loadRallyAdapter(hostile, { BUILD: 2026071401 });
+  const context = loadRallyAdapter(hostile, { BUILD: 2026071501 });
   context.myPid = 'captain';
   require('node:vm').runInNewContext(`${extractFunction(kvk, 'myTarget')}`, context);
   const command = {
@@ -111,7 +111,7 @@ test('myTarget rejects hostile module return shapes and uses the safe canonical 
 });
 
 test('socket build advertisement is current only for a complete shared runtime', () => {
-  function advertised(tripleClientAvailable, KvkUpdate, rallyClientBuild = 2026071401) {
+  function advertised(tripleClientAvailable, KvkUpdate, rallyClientBuild = 2026071501) {
     let options = null;
     const context = {
       ROOM: 'qa-kvk-rally-build',
@@ -133,11 +133,11 @@ test('socket build advertisement is current only for a complete shared runtime',
     return options.clientBuild;
   }
 
-  assert.equal(advertised(true, { BUILD: 2026071401 }), 2026071401);
-  assert.equal(advertised(false, { BUILD: 2026071401 }), 0);
-  assert.equal(advertised(true, { BUILD: 2026071401 }, 2026071302), 0);
+  assert.equal(advertised(true, { BUILD: 2026071501 }), 2026071501);
+  assert.equal(advertised(false, { BUILD: 2026071501 }), 0);
+  assert.equal(advertised(true, { BUILD: 2026071501 }, 2026071302), 0);
   assert.equal(advertised(true, null), 0);
-  assert.equal(advertised(true, { BUILD: '2026071401' }), 0);
+  assert.equal(advertised(true, { BUILD: '2026071501' }), 0);
   const hostile = {};
   Object.defineProperty(hostile, 'BUILD', { get() { throw new Error('mixed cache'); } });
   assert.equal(advertised(true, hostile), 0);
