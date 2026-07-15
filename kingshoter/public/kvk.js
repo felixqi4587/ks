@@ -1325,9 +1325,15 @@
     if (d.live && !d.actors.some(function (a) { return a.mine; })) { mapS.gEndMax = Math.max.apply(null, d.actors.map(function (a) { return a.gatherEnd; })); h += '<div class="lanenote join">' + tk("join_note") + '</div>'; }
     box.innerHTML = h + (d.live ? '<div id="nowHead"></div>' : '');
   }
+  function mapRenderKey(data) {
+    if (data.live) return "live-" + data.id;
+    return "idle-" + JSON.stringify(data.actors.map(function (actor) {
+      return [actor.pid, actor.name || actor.pid, actor.march, actor.role, !!actor.mine];
+    }));
+  }
   function syncMap() {
     var d = mapData();
-    var key = d.live ? "live-" + d.id : ("idle-" + d.actors.map(function (a) { return a.pid + a.march; }).join(","));
+    var key = mapRenderKey(d);
     if (mapS.mode === key) return;
     mapS.mode = key; mapS.live = d.live; mapS.t0 = d.t0 || 0; mapS.span = d.span || 1; mapS.domain = domainFor(d.actors.map(function (a) { return a.march; }), d.live);
     stopRaf(); renderRadar(d); renderLanes(d);
