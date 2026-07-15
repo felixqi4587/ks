@@ -634,6 +634,23 @@ async function broadcastDeviceStatus(page, pid) {
     }, { pid: raceProfile.pid, name: 'Race Captain' }, { timeout: 8000 });
     assert.equal(await remoteRaceRoster.locator('.roster-name').textContent(), 'Race Captain');
     assert.match(await remoteRaceRoster.locator('.roster-time').textContent(), /0:48/);
+
+    await racePage.locator('#editBtn').click();
+    await racePage.locator('#pid').fill('Kimchi');
+    const unchangedMarch = await racePage.locator('#marchRange').inputValue();
+    await racePage.locator('#saveBtn').click();
+    await racePage.locator('#youName').filter({ hasText: 'Kimchi' }).waitFor({ timeout: 8000 });
+
+    for (const openPage of [racePage, abortPage]) {
+      await openPage.waitForFunction(({ pid, name }) => {
+        const row = document.querySelector(`#roster .roster-row[data-pid="${pid}"] .roster-name`);
+        const laneNames = Array.from(document.querySelectorAll('#lanes .lname')).map(node => node.textContent);
+        return row && row.textContent === name && laneNames.some(value => value.includes(name)) &&
+          laneNames.every(value => !value.includes('Race Captain'));
+      }, { pid: raceProfile.pid, name: 'Kimchi' }, { timeout: 8000 });
+    }
+    assert.equal(await racePage.locator('#marchRange').inputValue(), unchangedMarch);
+
     await racePage.locator('#editBtn').click();
     await racePage.locator('#identityPlayerId').click();
     assert.equal(await racePage.locator('#pid').inputValue(), '222222', 'switching back restores the independent Player ID draft');
