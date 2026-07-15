@@ -1,0 +1,18 @@
+name = "1406rocks-plan"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+# Admin password gate (checked server-side on POST /plan).
+# Not real security — just stops casual overwrites. Change anytime.
+[vars]
+ADMIN_PASS = "666"
+
+# KV namespace for the kingdom plan. The `id` is filled in automatically
+# after `wrangler kv namespace create PLAN_KV` runs post-authorization.
+[[kv_namespaces]]
+binding = "PLAN_KV"
+id = "16ffe9547013464089f234f0efd54102"
+
+# check sources every 30 min; auto-redeem only newly-detected codes / new members (incremental ledger)
+[triggers]
+crons = ["*/30 * * * *"]

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>kingshoter · 活动表</title>
+<link rel="icon" href="/favicon.svg">
+<link rel="stylesheet" href="app.css?v=15">
+<style>
+  .ev{display:flex;align-items:center;gap:12px;border:2px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:9px;background:var(--paper)}
+  .ev .ic{font-size:26px;flex:0 0 auto}
+  .ev .nm{font:900 15px/1.2 var(--font);color:var(--brown)}
+  .ev .sc{font-size:12px;color:var(--brown2);margin-top:2px}
+</style>
+</head>
+<body>
+<div class="wrap"><main>
+  <div class="top"><div><h1 data-i18n="card_events">活动 / 事件时间表</h1><div class="sub" data-i18n="card_events_d">你的时区</div></div>
+    <div class="clock"><span id="utc">--:--:--</span><small><span data-i18n="utc_local">UTC · 本地</span> <span id="loc">--:--:--</span></small></div></div>
+  <div class="viewtabs">
+    <a href="index.html" data-i18n="nav_home">🏠 首页</a><a href="kvk.html" data-i18n="nav_kvk">⚔️ KvK 指挥</a>
+    <a href="codes.html" data-i18n="nav_codes">🎁 礼包码</a><a class="on" data-i18n="nav_events">📅 活动表</a>
+  </div>
+  <div class="homebar"><div id="langtoggle" class="langtoggle"></div></div>
+  <div id="list"></div>
+  <p class="hint" style="text-align:center" id="tznote"></p>
+  <p class="foot" data-i18n="foot">Kingshot 玩家自制工具 · 非官方 ⚔️🐟</p>
+</main></div>
+<script src="app.js?v=8"></script>
+<script>
+initI18n(); startClock();
+$("tznote").textContent = "🕒 " + Intl.DateTimeFormat().resolvedOptions().timeZone;
+var EVENTS = null;
+function renderEvents() {
+  var box = $("list"); if (!box || !EVENTS) return;
+  box.innerHTML = "";
+  EVENTS.forEach(function (e) {
+    var d = document.createElement("div"); d.className = "ev";
+    d.innerHTML = '<div class="ic">' + e.icon + '</div><div><div class="nm">' + esc(lang === "zh" ? e.zh : e.en) + '</div><div class="sc">' + esc(lang === "zh" ? e.sched_zh : e.sched_en) + '</div></div>';
+    box.appendChild(d);
+  });
+}
+window.onLangChange = renderEvents;   // re-render on language switch
+fetch("events.json").then(function (r) { return r.json(); }).then(function (list) { EVENTS = list; renderEvents(); }).catch(function () {});
+</script>
+</body>
+</html>

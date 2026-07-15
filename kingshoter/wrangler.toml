@@ -1,0 +1,39 @@
+name = "kingshoter"
+main = "src/worker.js"
+compatibility_date = "2026-01-01"
+workers_dev = true
+
+# Custom domain (zone must be Active in Cloudflare; auto-creates DNS + cert).
+routes = [
+  { pattern = "kingshoter.com", custom_domain = true }
+]
+
+# Static frontend (Workers Static Assets) — public/ served at the edge.
+# run_worker_first: /api/g/* must hit the Worker (auth + KV), never be shadowed by a static file.
+[assets]
+directory = "public"
+binding = "ASSETS"
+
+# One Durable Object per room ("r:<room>" — room name only): live state + WebSocket fan-out.
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "Room"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]
+
+# Gift tool's KV — shared with the legacy 1406rocks worker (same namespace id), so the roster /
+# codeDB / done-ledger carry over with zero migration. Now ALSO written by gift.js (auto-redeem).
+[[kv_namespaces]]
+binding = "GIFT_KV"
+id = "16ffe9547013464089f234f0efd54102"
+
+# MASTER is an encrypted Cloudflare Worker secret (set with `wrangler secret put MASTER`).
+# It gates the hidden gift tool and remains an operational room-recovery override; never commit its value.
+
+# Hidden gift auto-redeem (gift.js), migrated from the old 1406rocks worker:
+# every 1 min: read the official Discord channel directly (fastest path for limited/race codes)
+# every 5 min: sweep third-party code sources + auto-redeem new codes / new members
+[triggers]
+crons = ["* * * * *", "*/5 * * * *"]
