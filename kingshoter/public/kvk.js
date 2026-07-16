@@ -1135,6 +1135,22 @@
   var lastFlashSec = null;
   function pips(rem) { var lit = (rem >= 1 && rem <= 5) ? rem : 0, h = ""; for (var i = 5; i >= 1; i--) h += '<i class="' + (i <= lit ? "lit" : "") + '"></i>'; return h; }
   function stagedForMe() { var st = room && room.live && room.live.staged; if (!st) return null; for (var k = 1; k <= 2; k++) { var s = st[k]; if (s && s.pairs) { var f = s.pairs.filter(function (x) { return x.pid === myPid; })[0]; if (f) return { kingdom: k, role: f.role }; } } return null; }
+  function stageAlertTransition(sourceRoom, pid, previousKey) {
+    var live = sourceRoom && sourceRoom.live || {}, staged = live.staged || {};
+    var key = "", hasStage = false, k, pairs, pair;
+    for (k = 1; k <= 2 && !key; k += 1) {
+      pairs = staged[k] && Array.isArray(staged[k].pairs) ? staged[k].pairs : [];
+      pair = pairs.filter(function (item) { return item && item.pid === pid; })[0];
+      if (pair) { key = k + ":" + pair.role; hasStage = true; }
+    }
+    for (k = 1; k <= 2 && !key; k += 1) {
+      pairs = live.commands && live.commands[k] && live.commands[k].payload &&
+        Array.isArray(live.commands[k].payload.pairs) ? live.commands[k].payload.pairs : [];
+      pair = pairs.filter(function (item) { return item && item.pid === pid; })[0];
+      if (pair) key = k + ":" + pair.role;
+    }
+    return { key: key, alert: !!(hasStage && key !== previousKey) };
+  }
   // auto-ready: a captain is ready when joined+filled AND present (a fresh heartbeat ⇒ also clock-synced, since the same path re-runs syncClock). No tap, decays in ~70s if they drop.
   function isReady(p) { return !!(p && p.march && p.lastSeen && (window.serverNow() - Date.parse(p.lastSeen)) < 70000); }
   function requiredCaptains(kingdom) { return rallyMode(kingdom) === "triple" ? 3 : 2; }
@@ -2952,9 +2968,13 @@
     // publish ack = the server echoing OUR by-token (never "the count looks right" — a stale broadcast could fake that)
     if (pendingPubTok && r.updatedBy === pendingPubTok) { pendingPubTok = null; pendingPubWhales = null; var pm = $("pubMsg"); if (pm) pm.innerHTML = '<span style="color:var(--green-deep)">' + tk("pub_ok") + '</span>'; window.toast(tk("pub_ok")); }
     // staged pre-warning must be perceivable even from the Defense tab / a pocketed phone
-    var sm = stagedForMe(), sk = sm ? (sm.kingdom + ":" + sm.role) : "";
-    if (sk && sk !== lastStagedKey) { if (viewMode === "defense") setView("attack"); fireAlert(); try { navigator.vibrate && navigator.vibrate([80, 40, 80]); } catch (e) {} }
-    lastStagedKey = sk;
+    var stageTransition = stageAlertTransition(r, myPid, lastStagedKey);
+    if (stageTransition.alert) {
+      if (viewMode === "defense") setView("attack");
+      fireAlert();
+      try { navigator.vibrate && navigator.vibrate([80, 40, 80]); } catch (e) {}
+    }
+    lastStagedKey = stageTransition.key;
     // my march changed (this device or another of mine) → defense cues recompute
     var mm = (r.players && r.players[myPid] && r.players[myPid].march) || 0;
     if (mm !== lastMyMarch) { lastMyMarch = mm; if (viewMode === "defense") renderDefense(); }
