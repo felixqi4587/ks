@@ -73,7 +73,7 @@ Expected: every command exits 0 with no failures.
 
 Run GitNexus change detection and confirm only static presentation plus the regression test are affected. Commit the scoped files.
 
-### Task 2: Publish an isolated online QA Worker
+### Task 2: Define the isolated online QA Worker
 
 **Files:**
 - Create: `wrangler.qa.toml`
@@ -81,7 +81,7 @@ Run GitNexus change detection and confirm only static presentation plus the regr
 
 **Interfaces:**
 - Consumes: committed Worker bundle and the existing `Room` class.
-- Produces: a public `kingshoter-qa` workers.dev origin with an isolated Durable Object namespace and a unique `qa-kvk-*` phone-test URL.
+- Produces: a reviewed `kingshoter-qa` configuration with an isolated Durable Object namespace and no production bindings.
 
 - [ ] **Step 1: Write the failing QA-config safety test**
 
@@ -95,16 +95,29 @@ Expected: FAIL because `wrangler.qa.toml` does not exist.
 
 Create `wrangler.qa.toml` with `name`, `main`, `compatibility_date`, `workers_dev`, `preview_urls`, Triple vars, static assets, `ROOM`, and the `v1` `Room` migration only. Run the focused test and `npx wrangler deploy -c wrangler.qa.toml --dry-run`.
 
-- [ ] **Step 3: Deploy without production traffic**
+- [ ] **Step 3: Audit and commit the QA boundary**
+
+Run GitNexus change detection, inspect the dry-run bindings, and commit only `wrangler.qa.toml` and `test/qa-worker-config.test.cjs` after confirming the production route, cron, KV, secrets, and cross-Worker bindings are absent.
+
+### Task 3: Deploy and seed the isolated QA Worker
+
+**Files:**
+- No tracked source changes.
+
+**Interfaces:**
+- Consumes: the reviewed `wrangler.qa.toml` from Task 2 and the generated-room helper in `test/support/qa-kvk.cjs`.
+- Produces: a public `kingshoter-qa` workers.dev origin and a unique `qa-kvk-*` phone-test URL.
+
+- [ ] **Step 1: Deploy without production traffic**
 
 Run `npx wrangler deploy -c wrangler.qa.toml --tag git-$(git rev-parse --short=12 HEAD) --message "KvK compact ready copy phone QA"`.
 
 Expected: Wrangler deploys only `kingshoter-qa` and returns its workers.dev URL.
 
-- [ ] **Step 4: Generate and verify a QA room**
+- [ ] **Step 2: Generate and verify a QA room**
 
 Generate a new room with `test/support/qa-kvk.cjs`, open `/kvk?room=<room>&notour=1&lang=en&__kvk_build=2026071505` on the preview origin, and verify HTTP 200 plus the new HTML/JS/CSS content.
 
-- [ ] **Step 5: Hand off the phone URL**
+- [ ] **Step 3: Hand off the phone URL**
 
 Provide the QA Worker link and state explicitly that `kingshoter.com` production traffic and production room storage were not changed.
