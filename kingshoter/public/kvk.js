@@ -329,6 +329,7 @@
       pwhint_new: "这个房间还没有指挥密码——你现在输入的就会成为本房间的密码，记得告诉其他指挥。",
       net_off: "连接中…", syncing: "对时中…", online_n: "{n} 在线",
       idlesub: "指挥发令后，这里变成你的大倒计时", waitlaunch: "⏳ 等待你的 {n} 秒开车倒数", youlaunch: "🚗 你开车！", whalelaunch: "🐋 鲸鱼开车", main: "主力", weak: "消耗",
+      cmd_watch_title: "发车监控", cmd_watch_sub: "指挥视角 · 静音", cmd_watch_next: "下一个", cmd_watch_opened: "已开车",
       refilltitle: "💧 现在 refill 补兵", refillsub: "敌落地后补满守军，把他弹回去", go: "出发！",
       soundon: "🔊 本页提醒已开启", soundgate: "① 开启本页提醒 · 手机系统仍可能暂停后台，开战前先测试", need2: "先选 2 个车头", wrongpw: "密码错误",
       action_remove: "删除", remove_confirm: "从房间删除 {n}？", remove_aria: "移除 {n}", remove_description: "删除后，该玩家会立即从所有指挥端和待命位置消失。", remove_impact: "同时清除以下待命位置：", remove_impact_line: "王国 {k} · {r}", remove_no_impact: "当前没有待命位置", remove_in_use: "该玩家正在进行中的集结里；先取消集结才能删除", remove_cancel: "取消", remove_button: "删除玩家", removing: "正在等待全房间确认删除 {n}…", remove_unknown: "连接中断，结果待确认；重连后会核对，但不会自动重发。", remove_retry: "没有成功发送或确认，请手动重试。", remove_changed: "玩家状态或待命位置刚刚变化；请检查后再点一次确认。", removed: "已删除 {n}", player_missing: "有车头已被删除或不在名单，请重新选择", identity_rebinding: "身份连接已失效，正在重新连接；连接后请重试保存",
@@ -373,6 +374,7 @@
       pwhint_new: "This room has no commander password yet — whatever you enter now becomes this room's password. Share it with your co-commanders.",
       net_off: "Connecting…", syncing: "syncing…", online_n: "{n} online",
       idlesub: "When the commander fires, this becomes your countdown", waitlaunch: "⏳ Waiting for your {n}s launch countdown", youlaunch: "🚗 YOU launch!", whalelaunch: "🐋 Whales launch", main: "Main", weak: "Sacrifice",
+      cmd_watch_title: "Launch monitor", cmd_watch_sub: "Commander view · silent", cmd_watch_next: "Next", cmd_watch_opened: "Opened",
       refilltitle: "💧 Refill the garrison now", refillsub: "Top up right after they land — bounce them back", go: "GO!",
       soundon: "🔊 Page alerts enabled", soundgate: "① Enable page alerts · phones may pause background audio; test before battle", need2: "Pick 2 captains first", wrongpw: "Wrong password",
       action_remove: "Remove", remove_confirm: "Remove {n} from this room?", remove_aria: "Remove {n}", remove_description: "This removes the player from every commander and clears their staged positions.", remove_impact: "Staged positions that will be cleared:", remove_impact_line: "Kingdom {k} · {r}", remove_no_impact: "No staged positions", remove_in_use: "This player is in an active rally — cancel it before removal", remove_cancel: "Cancel", remove_button: "Remove player", removing: "Waiting for the room to confirm removal of {n}…", remove_unknown: "Connection closed; outcome unknown. Reconnect will verify it without resending.", remove_retry: "Not sent or not confirmed. Retry manually.", remove_changed: "The player or staged impact changed. Review it, then confirm again.", removed: "Removed {n}", player_missing: "A captain was removed or is no longer in the roster — pick again", identity_rebinding: "Your player connection expired. Reconnecting now; retry the save when connected",
@@ -1066,6 +1068,60 @@
       return target;
     } catch (e) { return fallback; }
   }
+  function commanderLaunchRows(r, nowSec) {
+    var rows = [], roleOrder = { weak: 0, weak2: 1, main: 2 };
+    liveCommands(r).forEach(function (command) {
+      if (!isRallyCommand(command)) return;
+      var payload = command.payload || {}, pairs = Array.isArray(payload.pairs) ? payload.pairs : [];
+      var triple = commandUsesTripleRoles(command), allowed = triple ? ["weak", "weak2", "main"] : ["weak", "main"];
+      var kingdom = Number(command.kingdom || payload.kingdom) === 2 ? 2 : 1;
+      var commandRows = pairs.filter(function (pair) {
+        return !!pair && typeof pair.pid === "string" && pair.pid.length > 0 &&
+          allowed.indexOf(pair.role) >= 0 && Number.isFinite(pair.pressUTC);
+      }).map(function (pair) {
+        return {
+          commandId: command.id, kingdom: kingdom, pid: pair.pid, name: pair.name || pair.pid,
+          role: pair.role, pressUTC: pair.pressUTC, triple: triple
+        };
+      });
+      rows = rows.concat(commandRows);
+    });
+    if (Number.isFinite(nowSec) && !rows.some(function (row) { return row.pressUTC >= nowSec - 3; })) return [];
+    rows.sort(function (a, b) {
+      return a.pressUTC - b.pressUTC || a.kingdom - b.kingdom || roleOrder[a.role] - roleOrder[b.role] || a.pid.localeCompare(b.pid);
+    });
+    return rows.slice(0, 6);
+  }
+  function shouldShowCommanderLaunchMonitor(r, active) {
+    if (!isCommanderDevice()) return false;
+    var rallies = liveCommands(r).filter(isRallyCommand);
+    return rallies.length > 0 && (!active || isRallyCommand(active)) &&
+      !rallies.some(function (command) { return myTarget(command).mine; });
+  }
+  function commanderLaunchMonitorHTML(rows, nowSec) {
+    var nextIndex = -1;
+    for (var i = 0; i < rows.length; i += 1) {
+      if (rows[i].pressUTC > nowSec) { nextIndex = i; break; }
+    }
+    var body = rows.map(function (row, index) {
+      var remaining = Math.ceil(row.pressUTC - nowSec), launched = remaining <= 0;
+      var className = "clm-row" + (index === nextIndex ? " next" : "") + (index === nextIndex && remaining <= 10 ? " urgent" : "") + (launched ? " launched" : "");
+      var kingdomLabel = tk("kw" + row.kingdom), state = launched ? tk("cmd_watch_opened") : window.mmss(Math.max(0, remaining));
+      return '<div class="' + className + '">' +
+        '<span class="clm-k" aria-label="' + window.esc(kingdomLabel) + '">' + (row.kingdom === 2 ? "②" : "①") + '</span>' +
+        '<span class="clm-person"><strong class="clm-name">' + window.esc(row.name) + '</strong><small class="clm-role">' + window.esc(rallyRoleLabel(row.role, row.triple)) + '</small></span>' +
+        '<span class="clm-state">' + (index === nextIndex ? '<b class="clm-next">' + window.esc(tk("cmd_watch_next")) + '</b>' : "") + '<time>' + window.esc(state) + '</time></span>' +
+      '</div>';
+    }).join("");
+    return '<div class="clm-head"><h2 id="commanderLaunchMonitorTitle">' + window.esc(tk("cmd_watch_title")) + '</h2><small>' + window.esc(tk("cmd_watch_sub")) + '</small></div><div class="clm-list">' + body + '</div>';
+  }
+  function paintCommanderLaunchMonitor(rows) {
+    var monitor = $("commanderLaunchMonitor");
+    if (!monitor) return;
+    if (!rows.length) { monitor.classList.add("hide"); monitor.innerHTML = ""; return; }
+    monitor.innerHTML = commanderLaunchMonitorHTML(rows, window.serverNowSec());
+    monitor.classList.remove("hide");
+  }
   /* ---------- supported-build handoff ---------- */
   function noUpdateController() {
     return {
@@ -1186,6 +1242,17 @@
     var ph = $("phero"), c = room ? activeCommand(room) : null;
     if ($("cancelBtn")) $("cancelBtn").disabled = !(room && room.live && room.live.commands && room.live.commands[fireKingdom]);
     var iw = $("idleWait");
+    if (room && shouldShowCommanderLaunchMonitor(room, c)) {
+      if (iw) iw.classList.add("hide");
+      var commanderStagedLine = $("stagedLine");
+      if (commanderStagedLine) commanderStagedLine.classList.add("hide");
+      $("chrome").classList.remove("staged");
+      ph.className = "phero hide";
+      paintCommanderLaunchMonitor(commanderLaunchRows(room, window.serverNowSec()));
+      scheduleAllCues();
+      return;
+    }
+    paintCommanderLaunchMonitor([]);
     if (!c) {
       if (lastCmdId !== null) lastCmdId = null;
       // nothing time-sensitive: stay out of the way. The dim-lock (#roomView.presound) already flags

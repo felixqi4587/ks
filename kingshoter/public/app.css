@@ -245,6 +245,30 @@ details summary:before{content:"▸ ";color:var(--mint)} details[open] summary:b
 .phero.idle{border-color:var(--line-hi);background:var(--paper)}
 .phero.idle .ptitle{color:var(--brown2)}
 
+/* silent all-captain view for a commander who is not launching */
+.commander-launch-monitor{border:2px solid var(--cmd-line);border-radius:var(--r-lg);padding:12px;margin-bottom:14px;
+  background:linear-gradient(180deg,var(--cmd-bg),var(--paper));box-shadow:var(--shadow-sm);overflow:hidden}
+.clm-head{display:flex;align-items:baseline;gap:8px;margin:0 2px 9px;min-width:0}
+.clm-head h2{margin:0;font:900 15px/1.1 var(--font);color:var(--cmd)}
+.clm-head small{margin-left:auto;font:800 10.5px/1.1 var(--font);color:var(--brown3);white-space:nowrap}
+.clm-list{display:grid;gap:6px}
+.clm-row{display:grid;grid-template-columns:30px minmax(0,1fr) auto;align-items:center;gap:8px;min-width:0;
+  min-height:48px;padding:7px 9px;border:1.5px solid var(--line);border-radius:12px;background:rgba(255,253,246,.88)}
+.clm-row.next{border-color:var(--mint);background:var(--mint-bg);box-shadow:inset 3px 0 0 var(--mint)}
+.clm-row.urgent{border-color:var(--ring-urgent);background:var(--coral-bg);box-shadow:inset 3px 0 0 var(--ring-urgent)}
+.clm-row.launched{opacity:.68;background:rgba(239,236,226,.72)}
+.clm-k{display:grid;place-items:center;width:30px;height:30px;border-radius:10px;background:var(--paper);border:1px solid var(--line);
+  font:900 13px/1 var(--font);color:var(--cmd)}
+.clm-person{min-width:0}
+.clm-name{display:block;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font:900 13px/1.15 var(--font);color:var(--brown)}
+.clm-role{display:block;margin-top:3px;font:800 10.5px/1.1 var(--font);color:var(--brown3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.clm-state{display:flex;align-items:center;justify-content:flex-end;gap:6px;min-width:62px;text-align:right}
+.clm-next{padding:3px 5px;border-radius:999px;background:var(--mint);color:#fff;font:900 9px/1 var(--font);text-transform:uppercase}
+.clm-row.urgent .clm-next{background:var(--ring-urgent)}
+.clm-state time{font:900 16px/1 var(--mono);font-variant-numeric:tabular-nums;color:var(--mint-deep);white-space:nowrap}
+.clm-row.urgent .clm-state time{color:var(--coral)}
+.clm-row.launched .clm-state time{font:800 11px/1 var(--font);color:var(--brown3)}
+
 /* full-screen GO flash */
 #goFlash{position:fixed;inset:0;background:var(--green);opacity:0;pointer-events:none;z-index:60;transition:opacity .12s}
 #goFlash.on{opacity:.45}

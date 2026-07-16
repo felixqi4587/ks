@@ -31,7 +31,7 @@ const settle = () => new Promise((resolve) => setImmediate(resolve));
 
 test('metadata must contain safe positive and internally consistent current/minimum builds', () => {
   const update = loadUpdate();
-  assert.equal(update.BUILD, 2026071601);
+  assert.equal(update.BUILD, 2026071602);
   assert.equal(update.shouldReload(meta(update)), true);
   assert.equal(update.shouldReload(meta(update, { minKvkBuild: update.BUILD })), false);
 

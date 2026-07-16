@@ -1,6 +1,6 @@
-export const CURRENT_KVK_BUILD = 2026071601;
-export const MIN_KVK_BUILD = 2026071601;
-export const MIN_TRIPLE_BUILD = 2026071601;
+export const CURRENT_KVK_BUILD = 2026071602;
+export const MIN_KVK_BUILD = 2026071602;
+export const MIN_TRIPLE_BUILD = 2026071602;
 
 export function parseClientBuild(value) {
   const parsed = Number(value);
