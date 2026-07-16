@@ -1251,18 +1251,32 @@
   function E2(t, x, y, txt, fill, fs) { var e = E("text", { x: x, y: y, "text-anchor": "middle", fill: fill, "font-weight": 800, "font-size": fs }); e.textContent = txt; return e; }
   function stopRaf() { if (mapS.raf) { cancelAnimationFrame(mapS.raf); mapS.raf = null; } }
   function mapData() {
-    if (!room) return { live: false, actors: [] };
+    if (!room) return { live: false, actors: [], groups: [] };
     var c = activeCommand(room);
     if (c && isRallyCommand(c) && c.payload && c.payload.pairs && c.payload.pairs.length) {
       // real arc: press (click) → 5:00 gather → march → land. The right-rail landing clock is the ACTUAL landing.
       var pairs = c.payload.pairs.map(function (p) { var ge = p.pressUTC + ATK_GATHER; return { pid: p.pid, name: p.name || p.pid, role: p.role, march: p.march, mine: p.pid === myPid, press: p.pressUTC, gatherEnd: ge, land: ge + p.march }; });
       pairs.sort(function (a, b) { return a.march - b.march; });
-      var t0 = Math.min.apply(null, pairs.map(function (p) { return p.press; })), maxLand = Math.max.apply(null, pairs.map(function (p) { return p.land; }));
-      return { live: true, id: c.id, kingdom: (c.payload.kingdom) || 1, actors: pairs, t0: t0, span: Math.max(8, maxLand - t0) };
+      var t0 = Math.min.apply(null, pairs.map(function (p) { return p.press; })), maxLand = Math.max.apply(null, pairs.map(function (p) { return p.land; })),
+        kingdom = (c.payload.kingdom) || 1, mode = commandUsesTripleRoles(c) ? "triple" : "double";
+      return { live: true, id: c.id, kingdom: kingdom, actors: pairs, groups: [{ kingdom: kingdom, mode: mode, required: mode === "triple" ? 3 : 2, actors: pairs }], t0: t0, span: Math.max(8, maxLand - t0) };
     }
-    var ps = Object.keys(room.players || {}).map(function (pid) { var p = room.players[pid]; return { pid: pid, name: p.name || pid, role: "joiner", march: Math.max(MARCH_MIN_SECONDS, Math.min(MARCH_MAX_SECONDS, p.march || 60)), mine: pid === myPid }; });
-    ps.sort(function (a, b) { return a.march - b.march; });
-    return { live: false, actors: ps };
+    var players = room.players || {}, groups = [1, 2].map(function (kingdom) {
+      var mode = rallyMode(kingdom) === "triple" ? "triple" : "double", required = requiredCaptains(kingdom),
+        roles = mode === "triple" ? ["weak", "weak2", "main"] : ["weak", "main"], staged = Array.isArray(serverStagedByK[kingdom]) ? serverStagedByK[kingdom] : [],
+        seen = Object.create(null), actors = [];
+      roles.slice(0, required).forEach(function (role) {
+        for (var i = 0; i < staged.length; i++) {
+          var pick = staged[i];
+          if (!pick || !pick.pid || pick.role !== role || seen[pick.pid] || !Object.prototype.hasOwnProperty.call(players, pick.pid)) continue;
+          var player = players[pick.pid]; if (!player) continue; seen[pick.pid] = true;
+          actors.push({ pid: pick.pid, name: player.name || pick.pid, march: player.march, role: pick.role, mine: pick.pid === myPid, kingdom: kingdom });
+          break;
+        }
+      });
+      return { kingdom: kingdom, mode: mode, required: required, actors: actors };
+    });
+    return { live: false, actors: groups.reduce(function (all, group) { return all.concat(group.actors); }, []), groups: groups };
   }
   function domainFor(ms, live) {
     if (!live) return MARCH_MAX_SECONDS;
@@ -1317,9 +1331,13 @@
   function renderLanes(d) {
     var box = $("lanes"); if (!box) return; mapS.lanes = [];
     if (!d.actors.length) { box.innerHTML = ""; return; }
-    var dom = mapS.domain, t0 = d.t0 || 0, span = d.span || 1, shown = d.actors.slice(0, 6), extra = d.actors.length - shown.length, h = "";
-    shown.forEach(function (a, i) { h += laneRow(a, i, d.live, dom, t0, span); });
-    if (extra > 0) h += '<div class="lane"><span class="lname">+' + extra + '</span><div class="ltrack"></div><div class="ltime"></div></div>';
+    var dom = mapS.domain, t0 = d.t0 || 0, span = d.span || 1, actorIndex = 0, h = "";
+    d.groups.forEach(function (group) {
+      if (!group.actors.length) return;
+      h += '<section class="lane-group kingdom-' + group.kingdom + '"><div class="lane-group-head"><span>' + window.esc(tk("kw" + group.kingdom)) + '</span><small>' + window.esc(tk(group.mode === "triple" ? "mode_triple" : "mode_double")) + ' · ' + group.actors.length + '/' + group.required + '</small></div>';
+      group.actors.forEach(function (a) { h += laneRow(a, actorIndex++, d.live, dom, t0, span); });
+      h += '</section>';
+    });
     h += '<div class="lanenote">' + tk(d.live ? "atk_note" : "idle_note") + '</div>';   // the strip is the biggest thing on screen — it gets a legend in BOTH states, not just mid-fight
     // a mid-gather cold-open sees lanes but no verb: non-captains get the one action that matters while joining is still possible
     if (d.live && !d.actors.some(function (a) { return a.mine; })) { mapS.gEndMax = Math.max.apply(null, d.actors.map(function (a) { return a.gatherEnd; })); h += '<div class="lanenote join">' + tk("join_note") + '</div>'; }
@@ -1327,8 +1345,11 @@
   }
   function mapRenderKey(data) {
     if (data.live) return "live-" + data.id;
-    return "idle-" + JSON.stringify(data.actors.map(function (actor) {
-      return [actor.pid, actor.name || actor.pid, actor.march, actor.role, !!actor.mine];
+    var groups = data.groups && data.groups.length ? data.groups : [{ kingdom: 0, mode: "", actors: data.actors || [] }];
+    return "idle-" + JSON.stringify(groups.map(function (group) {
+      return [group.kingdom, group.mode, group.required, group.actors.map(function (actor) {
+        return [actor.pid, actor.name || actor.pid, actor.march, actor.role, !!actor.mine, actor.kingdom];
+      })];
     }));
   }
   function syncMap() {
