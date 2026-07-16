@@ -32,4 +32,3 @@ For the current Cancel Rally review, the room ends with a complete editable Doub
 - Production routes, bindings, rooms, and data are not read or changed.
 - Automated regression stays isolated in generated rooms.
 - Before handoff, verify the `qa` room password, exact restored PIDs and roles, zero frozen slots, enabled Fire, reload persistence, and a second synchronized page.
-

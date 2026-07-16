@@ -140,4 +140,3 @@ Reload the first page and open a second page on the same stable URL. Expected: b
 - [ ] **Step 4: Finalize the browser handoff**
 
 Keep one `qa` page as `deliverable` and close duplicate or older temporary QA tabs. Give the user only the stable URL and password `qa`.
-
