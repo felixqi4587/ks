@@ -159,6 +159,40 @@ function crossKingdomLiveCaptain(live, kingdom, pairs, nowSec) {
   return conflict ? { pid: normalizeRoutingKey(conflict.pid), kingdom: otherKingdom } : null;
 }
 
+function cancelledRallyStage(room, kingdom, command, nowSec) {
+  if (!command || !['double_rally', 'triple_rally'].includes(command.type)) return undefined;
+  const modeRecord = room.rallyModes[kingdom];
+  const allowedRoles = new Set(modeRecord.mode === 'triple'
+    ? ['weak', 'weak2', 'main'] : ['weak', 'main']);
+  const otherKingdom = kingdom === 1 ? 2 : 1;
+  const otherStaged = new Set((((room.live.staged[otherKingdom] || {}).pairs) || [])
+    .map(pair => normalizeRoutingKey(pair && pair.pid)).filter(Boolean));
+  const otherLive = activeCommandPids({
+    commands: { [otherKingdom]: room.live.commands[otherKingdom] }
+  }, nowSec);
+  const seenPids = new Set();
+  const seenRoles = new Set();
+  const pairs = [];
+
+  for (const sourcePair of ((command.payload && command.payload.pairs) || [])) {
+    const pid = normalizeRoutingKey(sourcePair && sourcePair.pid);
+    const role = sourcePair && sourcePair.role;
+    if (!pid || !allowedRoles.has(role) || seenPids.has(pid) || seenRoles.has(role)) continue;
+    if (!Object.prototype.hasOwnProperty.call(room.players, pid)) continue;
+    if (otherStaged.has(pid) || otherLive.has(pid)) continue;
+    seenPids.add(pid);
+    seenRoles.add(role);
+    pairs.push({ pid, role });
+  }
+
+  const validated = validateStagedPairs({
+    modeRecord, modeRevision: modeRecord.revision, pairs, players: room.players
+  });
+  return validated.ok && validated.pairs.length
+    ? { kingdom, pairs: validated.pairs }
+    : null;
+}
+
 export class Room {
   constructor(state, env) {
     this.state = state;
@@ -1130,9 +1164,13 @@ export class Room {
       }
       if (type === "cancel") {
         const cancelledCommand = this.room.live.commands[kd];
-        cancelledCommandId = cancelledCommand && typeof cancelledCommand.id === "string"
-          ? cancelledCommand.id : "";
+        if (!cancelledCommand) return;
+        cancelledCommandId = typeof cancelledCommand.id === "string" ? cancelledCommand.id : "";
+        const restoredStage = cancelledRallyStage(
+          this.room, kd, cancelledCommand, Math.floor(this.nowMs() / 1000)
+        );
         this.room.live.commands[kd] = null;
+        if (restoredStage !== undefined) this.room.live.staged[kd] = restoredStage;
       } else {
         let payload = (c.payload && typeof c.payload === "object") ? c.payload : {};
         if (type === "double_rally") {
@@ -1161,7 +1199,9 @@ export class Room {
         command.delivery = startCommandDelivery(command, this.devices, this.nowMs());
         this.room.live.commands[kd] = command;
       }
-      this.room.live.staged[kd] = null;   // a real order supersedes that kingdom's staged pre-warning
+      if (type !== "cancel") {
+        this.room.live.staged[kd] = null;
+      }
       this.room.live.mode = (this.room.live.commands[1] || this.room.live.commands[2]) ? "live" : "idle";
       await this.persistAll(); await this.scheduleExpiry(); this.broadcast();
       const reliableCommand = type === "double_rally" ? this.room.live.commands[kd] : null;
