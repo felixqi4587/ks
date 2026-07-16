@@ -3,7 +3,7 @@
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.KvkRally = api;
 }(typeof globalThis !== 'undefined' ? globalThis : this, function () {
-  const BUILD = 2026071506;
+  const BUILD = 2026071507;
 
   function isRallyCommand(command) {
     return !!command && (command.type === 'double_rally' || command.type === 'triple_rally');
