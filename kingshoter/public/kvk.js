@@ -1258,7 +1258,7 @@
       var pairs = c.payload.pairs.map(function (p) { var ge = p.pressUTC + ATK_GATHER; return { pid: p.pid, name: p.name || p.pid, role: p.role, march: p.march, mine: p.pid === myPid, press: p.pressUTC, gatherEnd: ge, land: ge + p.march }; });
       pairs.sort(function (a, b) { return a.march - b.march; });
       var t0 = Math.min.apply(null, pairs.map(function (p) { return p.press; })), maxLand = Math.max.apply(null, pairs.map(function (p) { return p.land; })),
-        kingdom = (c.payload.kingdom) || 1, mode = commandUsesTripleRoles(c) ? "triple" : "double";
+        kingdom = Number(c.kingdom != null ? c.kingdom : c.payload.kingdom) === 2 ? 2 : 1, mode = commandUsesTripleRoles(c) ? "triple" : "double";
       return { live: true, id: c.id, kingdom: kingdom, actors: pairs, groups: [{ kingdom: kingdom, mode: mode, required: mode === "triple" ? 3 : 2, actors: pairs }], t0: t0, span: Math.max(8, maxLand - t0) };
     }
     var players = room.players || {}, groups = [1, 2].map(function (kingdom) {

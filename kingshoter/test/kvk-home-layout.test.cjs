@@ -207,6 +207,34 @@ test('live tactical projection remains frozen to command pairs and one kingdom g
   }))), plain(actors));
 });
 
+test('live tactical projection prefers the canonical kingdom over untrusted payload metadata', () => {
+  const maliciousKingdom = '2\" onclick=\"alert(1)';
+  const liveRoom = structuredClone(roomFixture);
+  liveRoom.live.commands[2] = {
+    id: 'double-command-untrusted-kingdom',
+    type: 'double_rally',
+    kingdom: 2,
+    anchorUTC: 1_000,
+    expiresUTC: 1_600,
+    payload: {
+      kingdom: maliciousKingdom,
+      firstPress: 980,
+      pairs: [
+        { pid: 'captain-1', name: 'Frozen Weak', march: 81, role: 'weak', pressUTC: 1_000 },
+        { pid: 'captain-6', name: 'Frozen Main', march: 101, role: 'main', pressUTC: 980 }
+      ]
+    }
+  };
+
+  const data = loadMapHarness(liveRoom).mapData();
+
+  assert.equal(data.kingdom, 2);
+  assert.equal(typeof data.kingdom, 'number');
+  assert.equal(data.groups[0].kingdom, 2);
+  assert.equal(typeof data.groups[0].kingdom, 'number');
+  assert.equal(JSON.stringify(data).includes(maliciousKingdom), false);
+});
+
 test('idle battlefield geometry uses the fixed scale and approved ring radius', () => {
   const { domainFor, ringR } = loadMapHarness();
 
