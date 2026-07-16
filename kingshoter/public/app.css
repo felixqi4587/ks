@@ -546,6 +546,6 @@ body.cmdmode .toast{bottom:130px}   /* keep toasts clear of the fire dock */
 #cancelBtn:disabled{display:none}   /* no live order → no dead gray row */
 
 @media (max-width:820px){
-  input:not([type="range"],[type="checkbox"],[type="radio"]),select,textarea{font-size:16px!important}
-  .mmss input,.commander-march input{font-size:20px!important}
+  body.kvk-page input:not([type="range"],[type="checkbox"],[type="radio"]),body.kvk-page select,body.kvk-page textarea{font-size:16px!important}
+  body.kvk-page .mmss input,body.kvk-page .commander-march input{font-size:20px!important}
 }
