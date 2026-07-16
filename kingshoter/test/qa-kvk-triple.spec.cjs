@@ -264,6 +264,161 @@ test.beforeEach(async ({ request }) => {
   if (expectedGlobal !== '') expect(metadata.tripleEnabled).toBe(expectedGlobal === '1');
 });
 
+test('ordinary-player homepage preserves typography while showing six selected captains', async ({ browser, baseURL, request }, testInfo) => {
+  test.slow();
+  const room = makeQaRoom(testInfo);
+  const secret = password();
+  const errors = [];
+  const actors = [];
+  const marches = [20, 40, 60, 80, 100, 120, 30, 50];
+  const players = marches.map((march, index) => profile(
+    `84000000${index + 1}`,
+    `Captain ${index + 1}`,
+    march
+  ));
+
+  try {
+    await Promise.all(players.map(player => ensureCanonicalProfile(baseURL, room, player)));
+    const commander = await openActor(browser, baseURL, room, {
+      key: 'homepage-commander', profile: deliveryOnlyProfile(players[0]), deviceId: deviceId(31), errors
+    });
+    actors.push(commander);
+    const viewer = await openActor(browser, baseURL, room, {
+      key: 'homepage-viewer', profile: players[7], deviceId: deviceId(32), errors
+    });
+    actors.push(viewer);
+    await waitForPlayerCount(request, baseURL, room, 8);
+
+    await unlock(commander.page, secret);
+    await commander.page.locator('#kingdomPick button[data-k="1"]').click();
+    await expect(commander.page.locator('#tripleMode')).not.toBeChecked();
+    await commander.page.locator('#tripleMode').click();
+    await expect.poll(async () => (await roomState(request, baseURL, room)).rallyModes['1'].mode).toBe('triple');
+    for (let index = 0; index < 3; index += 1) {
+      await commander.page.locator(`#roster .rp[data-pid="${players[index].pid}"]`).click();
+      await expect.poll(async () => {
+        const staged = (await roomState(request, baseURL, room)).live.staged['1'];
+        return staged && staged.pairs.map(pair => pair.pid);
+      }).toEqual(players.slice(0, index + 1).map(player => player.pid));
+    }
+
+    await commander.page.locator('#kingdomPick button[data-k="2"]').click();
+    await expect(commander.page.locator('#tripleMode')).not.toBeChecked();
+    await commander.page.locator('#tripleMode').click();
+    await expect.poll(async () => (await roomState(request, baseURL, room)).rallyModes['2'].mode).toBe('triple');
+    for (let index = 3; index < 6; index += 1) {
+      await commander.page.locator(`#roster .rp[data-pid="${players[index].pid}"]`).click();
+      await expect.poll(async () => {
+        const staged = (await roomState(request, baseURL, room)).live.staged['2'];
+        return staged && staged.pairs.map(pair => pair.pid);
+      }).toEqual(players.slice(3, index + 1).map(player => player.pid));
+    }
+
+    await expect.poll(async () => {
+      const state = await roomState(request, baseURL, room);
+      return [1, 2].map(kingdom => ({
+        kingdom,
+        pairs: state.live.staged[String(kingdom)].pairs.map(pair => ({ pid: pair.pid, role: pair.role }))
+      }));
+    }).toEqual([
+      { kingdom: 1, pairs: [
+        { pid: players[0].pid, role: 'weak' },
+        { pid: players[1].pid, role: 'weak2' },
+        { pid: players[2].pid, role: 'main' }
+      ] },
+      { kingdom: 2, pairs: [
+        { pid: players[3].pid, role: 'weak' },
+        { pid: players[4].pid, role: 'weak2' },
+        { pid: players[5].pid, role: 'main' }
+      ] }
+    ]);
+    await viewer.page.waitForFunction(() => document.querySelectorAll('#lanes .lane').length >= 6);
+
+    const selectedNames = players.slice(0, 6).map(player => player.name);
+    const laneSnapshot = await viewer.page.evaluate(() => {
+      const lanes = [...document.querySelectorAll('#lanes .lane')];
+      const names = lanes.map(lane => (lane.querySelector('.lname')?.textContent || '').trim());
+      return {
+        laneCount: lanes.length,
+        groupLaneCounts: [...document.querySelectorAll('#lanes .lane-group')]
+          .map(group => group.querySelectorAll('.lane').length),
+        names,
+        normalizedNames: names.map(name => name.replace(/^[●○]\s*/, '')),
+        trackCount: document.querySelectorAll('#lanes .ltrack').length,
+        timeCount: document.querySelectorAll('#lanes .ltimev').length,
+        markerLefts: [...document.querySelectorAll('#lanes .ltrack .ldot')]
+          .map(dot => Number.parseFloat(dot.style.left))
+      };
+    });
+    expect.soft(laneSnapshot.laneCount).toBe(6);
+    expect.soft(laneSnapshot.groupLaneCounts).toEqual([3, 3]);
+    expect.soft(laneSnapshot.normalizedNames).toEqual(selectedNames);
+    expect.soft(laneSnapshot.names.some(name => /^\+\d+/.test(name))).toBe(false);
+    expect.soft(laneSnapshot.trackCount).toBe(6);
+    expect.soft(laneSnapshot.timeCount).toBe(6);
+    const expectedMarkerLefts = [16.67, 33.33, 50, 66.67, 83.33, 96];
+    expect.soft(laneSnapshot.markerLefts).toHaveLength(expectedMarkerLefts.length);
+    laneSnapshot.markerLefts.forEach((left, index) => {
+      expect.soft(Math.abs(left - expectedMarkerLefts[index]), `idle marker ${index + 1}`).toBeLessThanOrEqual(0.2);
+    });
+
+    await expect.soft(viewer.page.locator('#cmdGate')).toBeVisible();
+    await expect.soft(viewer.page.locator('#console')).toBeHidden();
+    const overflowSelectors = ['#roomView', '#situation', '#lanes', '.lane-group', '.lane', '.pond'];
+    for (const width of [320, 375, 390, 430]) {
+      await expectNoHorizontalOverflow(viewer.page, width, overflowSelectors);
+    }
+
+    for (const [width, battlefieldHeight] of [[320, 258], [390, 270]]) {
+      await viewer.page.setViewportSize({ width, height: 1050 });
+      const metrics = await viewer.page.evaluate(() => {
+        const name = getComputedStyle(document.querySelector('#lanes .lname'));
+        const time = getComputedStyle(document.querySelector('#lanes .ltimev'));
+        const track = getComputedStyle(document.querySelector('#lanes .ltrack'));
+        return {
+          nameSize: name.fontSize,
+          nameWeight: name.fontWeight,
+          timeSize: time.fontSize,
+          timeWeight: time.fontWeight,
+          trackHeight: track.height,
+          font: getComputedStyle(document.documentElement).getPropertyValue('--font'),
+          battlefieldHeight: document.querySelector('#situation .pond').getBoundingClientRect().height
+        };
+      });
+      expect.soft(metrics.nameSize, `.lname size at ${width}px`).toBe('13px');
+      expect.soft(metrics.nameWeight, `.lname weight at ${width}px`).toBe('800');
+      expect.soft(metrics.timeSize, `.ltimev size at ${width}px`).toBe('15px');
+      expect.soft(metrics.timeWeight, `.ltimev weight at ${width}px`).toBe('900');
+      expect.soft(metrics.trackHeight, `.ltrack height at ${width}px`).toBe('30px');
+      expect.soft(metrics.font, `--font at ${width}px`).toContain('ui-rounded');
+      expect.soft(Math.abs(metrics.battlefieldHeight - battlefieldHeight), `battlefield height at ${width}px`)
+        .toBeLessThanOrEqual(2);
+    }
+
+    const radar = await viewer.page.evaluate(() => {
+      const castle = document.querySelector('#radar rect[rx="8"]');
+      const dots = [...document.querySelectorAll('#radar .rally-dot')];
+      return {
+        castle: castle && { width: castle.getAttribute('width'), height: castle.getAttribute('height') },
+        distances: dots.map(dot => {
+          const transform = dot.transform.baseVal.consolidate();
+          if (!transform) return Number.NaN;
+          const matrix = transform.matrix;
+          return Math.hypot(matrix.e - 180, matrix.f - 68);
+        })
+      };
+    });
+    expect.soft(radar.castle).toEqual({ width: '40', height: '32' });
+    expect.soft(radar.distances).toHaveLength(6);
+    radar.distances.forEach((distance, index) => {
+      expect.soft(distance, `rally dot ${index + 1} clears the castle`).toBeGreaterThan(48);
+    });
+    expect.soft(errors).toEqual([]);
+  } finally {
+    await closeActors(actors);
+  }
+});
+
 test('Triple lifecycle synchronizes roles, timing, delivery truth, audience, and narrow layouts', async ({ browser, baseURL, request }, testInfo) => {
   test.slow();
   const room = makeQaRoom(testInfo);

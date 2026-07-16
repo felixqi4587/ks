@@ -127,7 +127,14 @@ function utcClock(seconds) {
       ...players.map(player => ({
         t: 'registerPlayer', pid: player.pid, name: player.name, march: player.march,
         identityMode: 'playerId', alliance: '', profileKey: player.profileKey
-      }))
+      })),
+      { t: 'stage', password, staged: { kingdom: 1, modeRevision: 0, pairs: [
+        { pid: players[0].pid, role: 'weak' },
+        { pid: players[1].pid, role: 'main' }
+      ] } },
+      { t: 'stage', password, staged: { kingdom: 2, modeRevision: 0, pairs: [
+        { pid: players[2].pid, role: 'weak' }
+      ] } }
     ]);
     await page.waitForFunction(() => document.querySelectorAll('#lanes .lane').length === 3);
 

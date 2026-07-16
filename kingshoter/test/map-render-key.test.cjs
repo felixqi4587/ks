@@ -27,10 +27,19 @@ function loadMapRenderKey() {
 
 test('idle tactical render key includes canonical display fields', () => {
   const key = loadMapRenderKey();
-  const ff = { live: false, actors: [{ pid: 'route-a', name: 'Ff', march: 34, role: 'joiner', mine: true }] };
-  const kimchi = { live: false, actors: [{ ...ff.actors[0], name: 'Kimchi' }] };
-  assert.notEqual(key(ff), key(kimchi));
-  assert.equal(key(ff), key(structuredClone(ff)));
+  const base = {
+    live: false,
+    actors: [{ pid: 'route-a', name: 'Ff', march: 34, role: 'weak', mine: true, kingdom: 1 }],
+    groups: [{
+      kingdom: 1, mode: 'double', required: 2,
+      actors: [{ pid: 'route-a', name: 'Ff', march: 34, role: 'weak', mine: true, kingdom: 1 }]
+    }]
+  };
+  const kimchi = { ...base, actors: [{ ...base.actors[0], name: 'Kimchi' }] };
+  assert.notEqual(key(base), key(kimchi));
+  assert.equal(key(base), key(structuredClone(base)));
+  assert.notEqual(key(base), key({ ...base, groups: [{ ...base.groups[0], mode: 'triple', required: 3 }] }));
+  assert.notEqual(key(base), key({ ...base, groups: [{ ...base.groups[0], kingdom: 2 }] }));
 });
 
 test('live tactical render key remains frozen to the command id', () => {
