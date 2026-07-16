@@ -2,17 +2,18 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Remove the redundant idle-ready sentence and keep the healthy audio status to one line on phones, then publish only a Cloudflare preview version for QA.
+**Goal:** Remove the redundant idle-ready sentence and keep the healthy audio status to one line on phones, then publish it only to an isolated Cloudflare QA Worker.
 
-**Architecture:** Leave all audio and tactical functions unchanged. Apply the UX adjustment entirely through the static HTML target, translation literals, and `.astat` CSS, then validate a unique Cloudflare Version preview alias in a generated QA room.
+**Architecture:** Leave all audio and tactical functions unchanged. Apply the UX adjustment entirely through the static HTML target, translation literals, and `.astat` CSS. Deploy through a dedicated `kingshoter-qa` configuration with its own Durable Object namespace and no production bindings.
 
-**Tech Stack:** Static HTML/CSS/JavaScript, Node test runner, Cloudflare Workers Versions, Durable Objects.
+**Tech Stack:** Static HTML/CSS/JavaScript, Node test runner, Cloudflare Workers, Durable Objects.
 
 ## Global Constraints
 
 - Do not edit `paintAudioStatus` or `paintHero`.
 - Do not alter audio readiness, countdown, Fire, Defense, commander, WebSocket, or room-state behavior.
-- Do not deploy traffic to `kingshoter.com`; upload a preview version only.
+- Do not upload or deploy this candidate to the production `kingshoter` Worker or `kingshoter.com`.
+- The QA Worker must not bind production routes, cron triggers, `GIFT_KV`, `MASTER`, or another Worker's Durable Object.
 - Use only a newly generated lowercase `qa-kvk-*` room for online mutation.
 - Keep build `2026071505` for the unique preview origin.
 
@@ -72,25 +73,38 @@ Expected: every command exits 0 with no failures.
 
 Run GitNexus change detection and confirm only static presentation plus the regression test are affected. Commit the scoped files.
 
-### Task 2: Publish an isolated online QA preview
+### Task 2: Publish an isolated online QA Worker
 
 **Files:**
-- No tracked source changes.
+- Create: `wrangler.qa.toml`
+- Create: `test/qa-worker-config.test.cjs`
 
 **Interfaces:**
-- Consumes: committed Worker bundle and Cloudflare `versions upload --preview-alias`.
-- Produces: a public preview origin and a unique `qa-kvk-*` phone-test URL.
+- Consumes: committed Worker bundle and the existing `Room` class.
+- Produces: a public `kingshoter-qa` workers.dev origin with an isolated Durable Object namespace and a unique `qa-kvk-*` phone-test URL.
 
-- [ ] **Step 1: Upload without production traffic**
+- [ ] **Step 1: Write the failing QA-config safety test**
 
-Run `npx wrangler versions upload --preview-alias <unique-alias> --message "KvK compact ready copy phone QA" --strict`.
+Create a Node test that asserts the future config uses `name = "kingshoter-qa"`, `workers_dev = true`, the local `Room` binding and `v1` migration, and contains none of `routes`, `triggers`, `kv_namespaces`, `GIFT_KV`, `MASTER`, or `script_name`.
 
-Expected: Wrangler returns a Version ID and preview URL; no production deployment is created.
+Run: `node --test test/qa-worker-config.test.cjs`
 
-- [ ] **Step 2: Generate and verify a QA room**
+Expected: FAIL because `wrangler.qa.toml` does not exist.
+
+- [ ] **Step 2: Add the isolated Wrangler config and confirm GREEN**
+
+Create `wrangler.qa.toml` with `name`, `main`, `compatibility_date`, `workers_dev`, `preview_urls`, Triple vars, static assets, `ROOM`, and the `v1` `Room` migration only. Run the focused test and `npx wrangler deploy -c wrangler.qa.toml --dry-run`.
+
+- [ ] **Step 3: Deploy without production traffic**
+
+Run `npx wrangler deploy -c wrangler.qa.toml --tag git-$(git rev-parse --short=12 HEAD) --message "KvK compact ready copy phone QA"`.
+
+Expected: Wrangler deploys only `kingshoter-qa` and returns its workers.dev URL.
+
+- [ ] **Step 4: Generate and verify a QA room**
 
 Generate a new room with `test/support/qa-kvk.cjs`, open `/kvk?room=<room>&notour=1&lang=en&__kvk_build=2026071505` on the preview origin, and verify HTTP 200 plus the new HTML/JS/CSS content.
 
-- [ ] **Step 3: Hand off the phone URL**
+- [ ] **Step 5: Hand off the phone URL**
 
-Provide the preview QA link and state explicitly that `kingshoter.com` production traffic was not changed.
+Provide the QA Worker link and state explicitly that `kingshoter.com` production traffic and production room storage were not changed.

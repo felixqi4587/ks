@@ -20,11 +20,14 @@ GitNexus rates `paintAudioStatus` CRITICAL and `paintHero` HIGH because they par
 
 ## QA release
 
-Upload a Cloudflare Worker Version with a unique preview alias. Do not deploy the version to production traffic and do not change the `kingshoter.com` route. Use a newly generated `qa-kvk-*` room on the preview origin for phone testing. Because the preview alias has a unique origin, keep build `2026071505` during QA; a later production rollout must receive a new forced-refresh build.
+Deploy a dedicated `kingshoter-qa` Worker on its workers.dev origin. Its configuration must contain only the application entry point, static assets, Triple feature variables, and its own `Room` Durable Object migration. It must not contain the `kingshoter.com` route, cron triggers, production `GIFT_KV`, or production secrets. Do not upload the candidate as a Version of the production `kingshoter` service because that can still bind production Durable Objects.
+
+Use a newly generated `qa-kvk-*` room in the QA Worker's isolated Durable Object namespace for phone testing. Because this is the first deployment of a unique QA origin, keep build `2026071505` during QA; a later production rollout must receive a new forced-refresh build.
 
 ## Verification
 
 - Static regression test proves `#idleWait` is absent, both healthy-status strings are compact, and `.astat` is no-wrap.
 - Focused test is observed failing before implementation and passing afterward.
 - Full unit, Triple, and Delivery suites pass.
-- Online preview responds successfully and its assets contain the new copy with no idle element.
+- A static safety test proves the QA Worker config has no production routes, crons, KV namespaces, or service binding.
+- The online QA Worker responds successfully and its assets contain the new copy with no idle element.
