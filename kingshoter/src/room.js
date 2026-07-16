@@ -162,10 +162,14 @@ function crossKingdomLiveCaptain(live, kingdom, pairs, nowSec) {
 function cancelledRallyStage(room, kingdom, command, nowSec) {
   if (!command || !['double_rally', 'triple_rally'].includes(command.type)) return undefined;
   const modeRecord = room.rallyModes[kingdom];
-  const allowedRoles = new Set(modeRecord.mode === 'triple'
+  const commandRoles = new Set(command.type === 'triple_rally'
     ? ['weak', 'weak2', 'main'] : ['weak', 'main']);
+  const allowedRoles = new Set((modeRecord.mode === 'triple'
+    ? ['weak', 'weak2', 'main'] : ['weak', 'main']).filter(role => commandRoles.has(role)));
   const otherKingdom = kingdom === 1 ? 2 : 1;
-  const otherStaged = new Set((((room.live.staged[otherKingdom] || {}).pairs) || [])
+  const otherPairs = room.live.staged[otherKingdom] &&
+    Array.isArray(room.live.staged[otherKingdom].pairs) ? room.live.staged[otherKingdom].pairs : [];
+  const otherStaged = new Set(otherPairs
     .map(pair => normalizeRoutingKey(pair && pair.pid)).filter(Boolean));
   const otherLive = activeCommandPids({
     commands: { [otherKingdom]: room.live.commands[otherKingdom] }
@@ -173,8 +177,10 @@ function cancelledRallyStage(room, kingdom, command, nowSec) {
   const seenPids = new Set();
   const seenRoles = new Set();
   const pairs = [];
+  const commandPairs = command.payload && Array.isArray(command.payload.pairs)
+    ? command.payload.pairs : [];
 
-  for (const sourcePair of ((command.payload && command.payload.pairs) || [])) {
+  for (const sourcePair of commandPairs) {
     const pid = normalizeRoutingKey(sourcePair && sourcePair.pid);
     const role = sourcePair && sourcePair.role;
     if (!pid || !allowedRoles.has(role) || seenPids.has(pid) || seenRoles.has(role)) continue;
@@ -1165,9 +1171,11 @@ export class Room {
       if (type === "cancel") {
         const cancelledCommand = this.room.live.commands[kd];
         if (!cancelledCommand) return;
+        const nowSec = Math.floor(this.nowMs() / 1000);
+        if (Number(cancelledCommand.expiresUTC) <= nowSec) return;
         cancelledCommandId = typeof cancelledCommand.id === "string" ? cancelledCommand.id : "";
         const restoredStage = cancelledRallyStage(
-          this.room, kd, cancelledCommand, Math.floor(this.nowMs() / 1000)
+          this.room, kd, cancelledCommand, nowSec
         );
         this.room.live.commands[kd] = null;
         if (restoredStage !== undefined) this.room.live.staged[kd] = restoredStage;

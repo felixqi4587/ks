@@ -155,6 +155,65 @@ test('a second Cancel leaves restored staging byte-for-byte unchanged', async ()
   assert.deepEqual(h.calls, []);
 });
 
+test('a delayed Cancel for an expired rally is a byte-identical no-op', async () => {
+  const h = await createRallyHarness();
+  await send(h, command('double_rally', 1, doublePairs(), 0));
+  h.room.room.live.commands[1].expiresUTC = h.nowMs / 1000;
+  h.room.room.live.staged[1] = {
+    kingdom: 1,
+    pairs: [{ pid: MAIN, role: 'main' }]
+  };
+  const beforeRoomJSON = JSON.stringify(h.room.room);
+  let deliveryCancellations = 0;
+  h.room.cancelDeliveryCommand = async () => { deliveryCancellations += 1; };
+  h.reset();
+
+  await send(h, cancel(1));
+
+  assert.equal(JSON.stringify(h.room.room), beforeRoomJSON);
+  assert.deepEqual(h.calls, [], 'expired Cancel does not persist, reschedule, or broadcast');
+  assert.equal(deliveryCancellations, 0, 'expired Cancel does not dispatch delivery cancellation');
+});
+
+test('Cancel ignores a non-array other-kingdom staged pair collection', async () => {
+  const h = await createRallyHarness();
+  await send(h, command('double_rally', 1, doublePairs(), 0));
+  const malformedOtherStage = { kingdom: 2, pairs: { legacy: true } };
+  h.room.room.live.staged[2] = malformedOtherStage;
+
+  await assert.doesNotReject(() => send(h, cancel(1)));
+
+  assert.equal(h.room.room.live.commands[1], null);
+  assert.deepEqual(stagePairs(h, 1), doublePairs());
+  assert.deepEqual(h.room.room.live.staged[2], malformedOtherStage);
+});
+
+test('Cancel removes an active rally whose payload pairs are not an array without restoring a lineup', async () => {
+  const h = await createRallyHarness([WEAK, WEAK2]);
+  await send(h, command('double_rally', 1, doublePairs(), 0));
+  h.room.room.live.commands[1].payload.pairs = { legacy: true };
+
+  await assert.doesNotReject(() => send(h, cancel(1)));
+
+  assert.equal(h.room.room.live.commands[1], null);
+  assert.equal(h.room.room.live.staged[1], null);
+});
+
+test('a malformed Double command cannot restore weak2 after the room changes to Triple', async () => {
+  const h = await createRallyHarness();
+  await send(h, command('double_rally', 1, doublePairs(), 0));
+  h.room.room.live.commands[1].payload.pairs = triplePairs();
+  await setMode(h, 1, 'triple', 0);
+
+  await send(h, cancel(1));
+
+  assert.equal(h.room.room.live.commands[1], null);
+  assert.deepEqual(stagePairs(h, 1), [
+    { pid: WEAK, role: 'weak' },
+    { pid: MAIN, role: 'main' }
+  ]);
+});
+
 test('Cancel in kingdom 1 preserves kingdom 2 staging', async () => {
   const h = await createRallyHarness();
   await stage(h, 2, [{ pid: MAIN, role: 'weak' }]);

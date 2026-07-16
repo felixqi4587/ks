@@ -1024,8 +1024,23 @@ async function runCoreScenario(browser, engineName) {
     if (await selectedCommander.page.locator('#console').isHidden()) {
       await unlockCommander(selectedCommander.page);
     }
-    assert.equal(await selectedCommander.page.locator('#pickSlots .slot').count(), 2,
-      'a refreshed commander rebuilds the lineup from canonical staging');
+    await selectedCommander.page.locator('#pickSlots .slot.filled').nth(1).waitFor({ timeout: 8_000 });
+    const reloadedSlots = await selectedCommander.page.locator('#pickSlots .slot.filled').evaluateAll(slots =>
+      slots.map(slot => ({
+        pid: slot.getAttribute('data-pid'),
+        roleClasses: ['weak', 'weak2', 'main'].filter(role => slot.classList.contains(role))
+      })).sort((a, b) => a.pid.localeCompare(b.pid))
+    );
+    const expectedReloadedSlots = liveCommand.payload.pairs.map(pair => ({
+      pid: pair.pid,
+      roleClasses: [pair.role]
+    })).sort((a, b) => a.pid.localeCompare(b.pid));
+    assert.deepEqual(reloadedSlots, expectedReloadedSlots,
+      'a refreshed commander rebuilds the exact filled PIDs and role classes from canonical staging');
+    assert.equal(await selectedCommander.page.locator('#pickSlots .slot.frozen').count(), 0,
+      'a refreshed commander receives no frozen slots');
+    assert.equal(await selectedCommander.page.locator('#fireDouble').isDisabled(), false,
+      'a refreshed commander can Fire the restored complete lineup');
 
     const beforeReconnect = await readSnapshot(commander.page, room);
     const canonicalBeforeReconnect = beforeReconnect.room.players[captainAProfile.pid];
