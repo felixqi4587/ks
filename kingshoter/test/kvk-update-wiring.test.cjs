@@ -9,7 +9,7 @@ const root = path.join(__dirname, '..');
 const html = fs.readFileSync(path.join(root, 'public', 'kvk.html'), 'utf8');
 const css = fs.readFileSync(path.join(root, 'public', 'app.css'), 'utf8');
 const kvk = fs.readFileSync(path.join(root, 'public', 'kvk.js'), 'utf8');
-const BUILD = '2026071507';
+const BUILD = '2026071601';
 
 function count(source, token) {
   return source.split(token).length - 1;

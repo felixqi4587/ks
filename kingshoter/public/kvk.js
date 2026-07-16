@@ -1295,9 +1295,10 @@
     return { live: false, actors: groups.reduce(function (all, group) { return all.concat(group.actors); }, []), groups: groups };
   }
   function domainFor(ms, live) {
-    if (!live) return MARCH_MAX_SECONDS;
+    if (!ms.length) return MARCH_MAX_SECONDS;
     var mx = ms.length ? Math.max.apply(null, ms) : 60;
-    return Math.max(30, Math.ceil(mx / 30) * 30);
+    var domain = Math.max(30, Math.ceil(mx / 30) * 30);
+    return live ? domain : Math.min(MARCH_MAX_SECONDS, domain);
   }
   function ringR(seconds, domain) { return 48 + Math.min(seconds, domain) / domain * 132; }
   function radarAngle(actor, index, count) {

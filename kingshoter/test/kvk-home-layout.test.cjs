@@ -245,10 +245,17 @@ test('live tactical projection prefers the canonical kingdom over untrusted payl
   assert.equal(JSON.stringify(data).includes(maliciousKingdom), false);
 });
 
-test('idle battlefield geometry uses the fixed scale and approved ring radius', () => {
+test('idle battlefield geometry expands to the current captains in 30-second steps', () => {
   const { domainFor, ringR } = loadMapHarness();
 
+  assert.equal(domainFor([], false), 120);
+  assert.equal(domainFor([5, 30], false), 30);
+  assert.equal(domainFor([13, 34, 36, 40], false), 60);
+  assert.equal(domainFor([40, 61], false), 90);
+  assert.equal(domainFor([90, 91], false), 120);
   assert.equal(domainFor([20, 120], false), 120);
+  assert.equal(domainFor([20, 121], false), 120);
   assert.equal(ringR(120, 120), 180);
-  assert.ok(ringR(5, 120) >= 48);
+  assert.equal(ringR(60, domainFor([13, 60], false)), 180);
+  assert.ok(ringR(5, 30) >= 48);
 });

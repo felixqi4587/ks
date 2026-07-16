@@ -15,7 +15,7 @@ const rally = loadRally();
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
 test('shared rally semantics identify their exact supported build generation', () => {
-  assert.equal(rally.BUILD, 2026071507);
+  assert.equal(rally.BUILD, 2026071601);
 });
 
 test('Double, Triple, and projected legacy Triple are rally commands', () => {

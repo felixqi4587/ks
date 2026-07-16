@@ -31,16 +31,16 @@ test('legacy projection preserves canonical state and all three personal targets
 test('build metadata contains monotonic numeric versions and no secrets', async () => {
   const mod = await load();
   assert.deepEqual(mod.buildMetadata(false, true), {
-    currentBuild: 2026071507,
-    minKvkBuild: 2026071507,
-    minTripleBuild: 2026071507,
+    currentBuild: 2026071601,
+    minKvkBuild: 2026071601,
+    minTripleBuild: 2026071601,
     tripleEnabled: false,
     tripleQaEnabled: true
   });
   assert.equal(mod.MIN_KVK_BUILD, mod.CURRENT_KVK_BUILD,
     'the forced-refresh floor must match the coherent client build');
   assert.equal(mod.MIN_TRIPLE_BUILD, mod.CURRENT_KVK_BUILD);
-  assert.equal(mod.parseClientBuild('2026071507'), 2026071507);
+  assert.equal(mod.parseClientBuild('2026071601'), 2026071601);
   for (const value of ['bad', '', '0', '-1', '1.5', null, undefined, Infinity]) {
     assert.equal(mod.parseClientBuild(value), 0, String(value));
   }
