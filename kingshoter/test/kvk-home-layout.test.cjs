@@ -4,7 +4,9 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
+const html = fs.readFileSync(path.join(__dirname, '../public/kvk.html'), 'utf8');
 const source = fs.readFileSync(path.join(__dirname, '../public/kvk.js'), 'utf8');
+const css = fs.readFileSync(path.join(__dirname, '../public/app.css'), 'utf8');
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -92,6 +94,14 @@ function loadMapHarness(room = roomFixture) {
 }
 
 const plain = value => JSON.parse(JSON.stringify(value));
+
+test('compact ready copy removes the redundant idle line and keeps healthy audio status on one line', () => {
+  assert.doesNotMatch(html, /id="idleWait"/);
+  assert.doesNotMatch(source, /idle_wait:/);
+  assert.match(source, /as_on: "🔊 提醒已开启 · 可切回游戏"/);
+  assert.match(source, /as_on: "🔊 Alerts on · switch to game"/);
+  assert.match(css, /\.astat\{[^}]*white-space:nowrap[^}]*overflow:hidden[^}]*text-overflow:ellipsis/);
+});
 
 test('idle tactical projection groups only staged captains by kingdom', () => {
   const data = loadMapHarness().mapData();

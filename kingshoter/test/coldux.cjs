@@ -1,6 +1,6 @@
 require('./support/legacy-kvk-script-guard.cjs')(__filename);
 // cold-user audit fixes: first-unlock=set-password copy, copy-link empty state, ID-lookup fail copy,
-// dead-submit feedback, idle "then what" line, labeled lead/kingdom chips, defense cold state, join note, defense-tab pull-once
+// dead-submit feedback, compact idle state, labeled lead/kingdom chips, defense cold state, join note, defense-tab pull-once
 const { chromium } = require("playwright");
 (async () => {
   const HOST = process.argv[2] || "https://kingshoter.com";
@@ -30,8 +30,7 @@ const { chromium } = require("playwright");
   await p.locator("#marchRange").fill("75"); await p.locator("#saveBtn").click(); await p.waitForTimeout(500);
   const tt = await p.locator("#toast").textContent() || "";
   ok(/Submitted/.test(tt) && !/（/.test(tt), "submit toast is clean EN punctuation (" + tt.trim() + ")");
-  ok(await p.locator("#idleWait").evaluate(e => !e.classList.contains("hide")), "idle 'wait for the commander…' line is persistent after submit");
-  ok(/big countdown/i.test(await p.locator("#idleWait").textContent() || ""), "…and says what will happen");
+  ok(await p.locator("#idleWait").count() === 0, "idle readiness uses the compact identity chip without a redundant wait line");
   ok(/each dot/.test(await p.locator("#lanes .lanenote").textContent() || ""), "idle timeline strip has a legend");
 
   // ---- first unlock on a FRESH room = SET password (copy must say so) ----
