@@ -544,3 +544,8 @@ body.cmdmode .toast{bottom:130px}   /* keep toasts clear of the fire dock */
 .firedock.nofix,#commanderMarchEditor:not(.hide) ~ #fireDock{position:static}   /* yield for keyboard focus or a visible commander march editor */
 .firedock .syncpill{margin:0 0 6px;font-size:12px}
 #cancelBtn:disabled{display:none}   /* no live order → no dead gray row */
+
+@media (max-width:820px){
+  input:not([type="range"],[type="checkbox"],[type="radio"]),select,textarea{font-size:16px!important}
+  .mmss input,.commander-march input{font-size:20px!important}
+}
