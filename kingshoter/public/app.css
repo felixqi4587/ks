@@ -357,11 +357,17 @@ details summary:before{content:"▸ ";color:var(--mint)} details[open] summary:b
 /* timeline lanes — the temporal view, synced with the radar */
 /* ===== timeline (dominant): one row per captain, real time axis, absolute landing clock on the right, one shared NOW head ===== */
 .lanes{position:relative;margin:2px 0 12px}
+.lane-group{margin:0 0 8px}
+.lane-group:last-child{margin-bottom:2px}
+.lane-group-head{display:flex;align-items:center;gap:6px;min-height:28px;padding:0 8px;border-radius:9px;font:900 10px/1 var(--font)}
+.lane-group-head small{margin-left:auto;font:800 9px/1 var(--font)}
+.lane-group.kingdom-1 .lane-group-head{background:var(--mint-bg);color:var(--mint-deep)}
+.lane-group.kingdom-2 .lane-group-head{background:#eef0fb;color:#5963a6}
 .lane{display:grid;grid-template-columns:84px 1fr 56px;gap:8px;align-items:center;height:34px;margin:8px 0}
 .lane .lname{font:800 13px/1.1 var(--font);color:var(--brown2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lane.me .lname{color:var(--mint-deep);font-weight:900}
 .lane .ltrack{position:relative;height:30px;border-radius:15px;background:linear-gradient(90deg,#eafaf7,#d7f1ec);border:1.5px solid #cdeee8}
-.lane .ltrack.idle{background:repeating-linear-gradient(90deg,#eafaf7 0 calc(100%/3 - 1px),#cfeae3 calc(100%/3 - 1px) calc(100%/3))}
+.lane .ltrack.idle{background:repeating-linear-gradient(90deg,#eafaf7 0 calc(25% - 1px),#cfeae3 calc(25% - 1px) 25%)}
 .lane .gband{position:absolute;top:50%;height:14px;transform:translateY(-50%);background:rgba(245,195,28,.16);border:1.5px solid rgba(245,195,28,.5);border-radius:6px;z-index:1}
 .lane .lpath{position:absolute;top:50%;height:7px;transform:translateY(-50%);border-radius:3px;z-index:2}
 .lane .lpath.main{background:linear-gradient(90deg,#19c8b9,#0fa193)} .lane .lpath.weak,.lane .lpath.weak2{background:rgba(25,200,185,.45)}
@@ -380,11 +386,20 @@ details summary:before{content:"▸ ";color:var(--mint)} details[open] summary:b
 .syncpill{text-align:center;font:900 13px/1 var(--font);color:var(--brown2);margin:8px 0 2px}
 .syncpill.allgo{color:var(--mint-deep)}
 /* situation: timeline + radar, one card, always expanded — nothing left to accidentally fold */
-.situation{display:flex;flex-direction:column;background:var(--paper);border:2px solid var(--line);border-radius:var(--r-lg);padding:14px 14px 10px;margin-bottom:14px;box-shadow:var(--shadow);min-height:clamp(300px,44svh,420px)}
+.situation{display:flex;flex-direction:column;background:var(--paper);border:2px solid var(--line);border-radius:var(--r-lg);padding:10px;margin-bottom:14px;box-shadow:var(--shadow);min-height:clamp(300px,44svh,420px)}
 body.cmdmode .situation{min-height:clamp(320px,48svh,460px)}
 .situation .lanes{margin-top:0}
-.situation .pond{flex:1;display:flex;align-items:center;margin:10px 0 0;min-height:140px}
-.situation .pond svg{width:100%}
+.situation .pond{flex:0 0 270px;display:flex;align-items:center;height:270px;min-height:270px;margin:10px 0 0}
+.situation .pond svg{width:100%;height:270px;max-height:none}
+body.cmdmode .situation .pond{flex-basis:200px;height:200px;min-height:140px}
+body.cmdmode .situation .pond svg{height:200px;max-height:200px}
+@media(max-width:430px){.kvk-wrap{padding-left:10px;padding-right:10px}}
+@media(max-width:360px){
+  .kvk-wrap{padding-left:7px;padding-right:7px}
+  .lane{grid-template-columns:76px minmax(0,1fr) 48px;gap:6px}
+  .situation .pond{flex-basis:258px;height:258px;min-height:258px}
+  .situation .pond svg{height:258px}
+}
 /* dominant commander console: heavier card, ONE filled primary (fire), ghost cancel */
 .console{border-width:2.5px;border-radius:24px;padding:14px;box-shadow:0 14px 34px -16px rgba(90,80,150,.42)}
 .console h2{font-size:16px;margin:0 0 8px}
@@ -403,8 +418,6 @@ body.cmdmode .situation{min-height:clamp(320px,48svh,460px)}
 .viewseg #tabAtk.on{border-color:var(--mint);background:linear-gradient(180deg,#eafaf7,var(--mint-bg));color:var(--mint-deep);box-shadow:0 6px 16px -8px rgba(25,200,185,.6)}
 .viewseg #tabDef.on{border-color:var(--coral);background:linear-gradient(180deg,#fdeeee,#fbe3e3);color:var(--coral);box-shadow:0 6px 16px -8px rgba(224,90,90,.5)}
 .dbadge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;margin-left:6px;border-radius:9px;background:var(--coral);color:#fff;font:900 11px/1 var(--mono);vertical-align:middle}
-/* defense radar is the star on its tab — lift the compact 104px cap the attack radar uses */
-.situation .pond svg{max-height:200px}
 /* commander's enemy-whale editor block */
 /* whale editor folds away by default — pre-battle setup, not fight-time UI (override the generic details card skin) */
 details.cdefense{background:none;border:0;border-radius:0;box-shadow:none;padding:12px 0 0;margin:14px 0 0;border-top:1.5px dashed var(--line-hi)}

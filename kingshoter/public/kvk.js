@@ -332,7 +332,7 @@
       refilltitle: "💧 现在 refill 补兵", refillsub: "敌落地后补满守军，把他弹回去", go: "出发！",
       soundon: "🔊 本页提醒已开启", soundgate: "① 开启本页提醒 · 手机系统仍可能暂停后台，开战前先测试", need2: "先选 2 个车头", wrongpw: "密码错误",
       action_remove: "删除", remove_confirm: "从房间删除 {n}？", remove_aria: "移除 {n}", remove_description: "删除后，该玩家会立即从所有指挥端和待命位置消失。", remove_impact: "同时清除以下待命位置：", remove_impact_line: "王国 {k} · {r}", remove_no_impact: "当前没有待命位置", remove_in_use: "该玩家正在进行中的集结里；先取消集结才能删除", remove_cancel: "取消", remove_button: "删除玩家", removing: "正在等待全房间确认删除 {n}…", remove_unknown: "连接中断，结果待确认；重连后会核对，但不会自动重发。", remove_retry: "没有成功发送或确认，请手动重试。", remove_changed: "玩家状态或待命位置刚刚变化；请检查后再点一次确认。", removed: "已删除 {n}", player_missing: "有车头已被删除或不在名单，请重新选择", identity_rebinding: "身份连接已失效，正在重新连接；连接后请重试保存",
-      mapcastle: "王城", mapempty: "还没有人 · 把房间链接发给队友", mapstaged: "已就位 · 等指挥", kw1: "王国 ①", kw2: "王国 ②", mapnote: "⭕ 每环 = 30 秒行军 · 越外圈离王城越远",
+      mapcastle: "王城", mapempty: "指挥还没选择集结车头", mapstaged: "已就位 · 等指挥", kw1: "王国 ①", kw2: "王国 ②", mapnote: "⭕ 每环 = 30 秒行军 · 越外圈离王城越远",
       copylink: "📋 点我复制房间链接", copied: "✓ 已复制 · 发给队友吧", idle_wait: "✅ 都填好了 · 等指挥发令；切回游戏前先用下方按钮实测本机后台提醒",
       idle_note: "○ 每人离王城的行军时间 · 开打后变成实时进度条", legend_live: "● 主力 ○ 消耗 · 越近王城越快落地",
       join_note: "🐋 集结中 · 现在去游戏里点「加入」车头的集结", pulled_atk: "⚔️ 有开车指令 · 已切到进攻页（可再切回防守）",
@@ -376,7 +376,7 @@
       refilltitle: "💧 Refill the garrison now", refillsub: "Top up right after they land — bounce them back", go: "GO!",
       soundon: "🔊 Page alerts enabled", soundgate: "① Enable page alerts · phones may pause background audio; test before battle", need2: "Pick 2 captains first", wrongpw: "Wrong password",
       action_remove: "Remove", remove_confirm: "Remove {n} from this room?", remove_aria: "Remove {n}", remove_description: "This removes the player from every commander and clears their staged positions.", remove_impact: "Staged positions that will be cleared:", remove_impact_line: "Kingdom {k} · {r}", remove_no_impact: "No staged positions", remove_in_use: "This player is in an active rally — cancel it before removal", remove_cancel: "Cancel", remove_button: "Remove player", removing: "Waiting for the room to confirm removal of {n}…", remove_unknown: "Connection closed; outcome unknown. Reconnect will verify it without resending.", remove_retry: "Not sent or not confirmed. Retry manually.", remove_changed: "The player or staged impact changed. Review it, then confirm again.", removed: "Removed {n}", player_missing: "A captain was removed or is no longer in the roster — pick again", identity_rebinding: "Your player connection expired. Reconnecting now; retry the save when connected",
-      mapcastle: "King's Castle", mapempty: "Nobody yet · share the room link", mapstaged: "Staged · waiting for the order", kw1: "Kingdom ①", kw2: "Kingdom ②", mapnote: "⭕ each ring = 30s march · outer = farther from the castle",
+      mapcastle: "King's Castle", mapempty: "Waiting for the commander to select rally captains", mapstaged: "Staged · waiting for the order", kw1: "Kingdom ①", kw2: "Kingdom ②", mapnote: "⭕ each ring = 30s march · outer = farther from the castle",
       copylink: "📋 Tap to copy the room link", copied: "✓ Copied — share it with your team", idle_wait: "✅ All set · wait for the order; test this device's background alert below before switching to the game.",
       idle_note: "○ each dot = march time to the castle · turns into a live progress bar at fire", legend_live: "● main ○ sacrifice · closer = landing sooner",
       join_note: "🐋 Rally live — go tap JOIN on the whale's rally in-game now", pulled_atk: "⚔️ Launch order live — switched to Attack (you can tab back)",
@@ -1246,7 +1246,7 @@
   setInterval(function () { if (soundReady) { resumeAudio(); scheduleAllCues(); } if (sock) { if (!sock.connected) sock.kick(); else sendDeviceStatus("hb", true); } try { if (window.speechSynthesis && speechSynthesis.paused) speechSynthesis.resume(); } catch (e) {} }, 25000);   // heartbeat: keep the WS warm, keep me un-evictable, self-heal audio + a stuck TTS queue (desktop Chrome), re-arm cues
 
   /* ---------- map: radar (space) + synced timeline (time), ONE data source so they never desync ---------- */
-  var CX = 180, CY = 66, ATK_GATHER = 300, mapS = { mode: null, raf: null, t0: 0, span: 1, domain: 90, live: false };   // ATK_GATHER: rally gather 5:00 — on the timeline so the landing time is REAL
+  var CX = 180, CY = 68, ATK_GATHER = 300, mapS = { mode: null, raf: null, t0: 0, span: 1, domain: 90, live: false };   // ATK_GATHER: rally gather 5:00 — on the timeline so the landing time is REAL
   function E(t, a) { var e = document.createElementNS("http://www.w3.org/2000/svg", t); for (var k in a) e.setAttribute(k, a[k]); return e; }
   function E2(t, x, y, txt, fill, fs) { var e = E("text", { x: x, y: y, "text-anchor": "middle", fill: fill, "font-weight": 800, "font-size": fs }); e.textContent = txt; return e; }
   function stopRaf() { if (mapS.raf) { cancelAnimationFrame(mapS.raf); mapS.raf = null; } }
@@ -1283,30 +1283,54 @@
     var mx = ms.length ? Math.max.apply(null, ms) : 60;
     return Math.max(30, Math.ceil(mx / 30) * 30);
   }
-  function ringR(s, dom) { return 12 + Math.min(s, dom) / dom * 52; }   // radar (viewBox 150 tall): glance-only, no numbers — the timeline carries the times
+  function ringR(seconds, domain) { return 48 + Math.min(seconds, domain) / domain * 132; }
+  function radarAngle(actor, index, count) {
+    var roleIndex = actor.role === "weak2" ? 1 : actor.role === "main" ? 2 : 0;
+    var degrees = actor.kingdom === 1 ? [135, 120, 105][roleIndex]
+      : actor.kingdom === 2 ? [45, 60, 75][roleIndex]
+        : count > 1 ? 45 + 90 * index / (count - 1) : 90;
+    return degrees * Math.PI / 180;
+  }
   function clockAt(utc) { var d = new Date(utc * 1000); return window.pad(d.getHours()) + ":" + window.pad(d.getMinutes()) + ":" + window.pad(d.getSeconds()); }   // absolute landing clock time
   function renderRadar(d) {
     var svg = $("radar"); if (!svg) return; svg.innerHTML = ""; var dom = mapS.domain; mapS.dots = [];
     for (var s = 30; s <= dom; s += 30) svg.appendChild(E("circle", { cx: CX, cy: CY, r: ringR(s, dom), fill: "none", stroke: "#cdeee8", "stroke-width": 1.3, "stroke-dasharray": "2 6" }));
-    window.ksCastle(svg, CX, CY, "neutral");
-    if (!d.actors.length) {
-      // empty-state guidance sits BELOW the castle (it used to overlap the icon and read as a render bug),
-      // and "share the link" gets an actual tap action instead of sending people to dig in the address bar
-      svg.appendChild(E2("text", CX, 106, tk("mapempty"), "#5aa99b", 9));
-      var cp = E2("text", CX, 124, tk("copylink"), "#0fa193", 10); cp.setAttribute("id", "copyLinkT"); cp.setAttribute("style", "cursor:pointer"); svg.appendChild(cp);
-    }
-    else {
+    if (d.actors.length) {
       var n = d.actors.length;
-      d.actors.forEach(function (a, i) {
-        var ang = (n > 1 ? (38 + 104 * i / (n - 1)) : 90) * Math.PI / 180, r0 = ringR(a.march, dom), col = a.role === "main" ? "#0fa193" : "#19c8b9";
-        var g = E("g", {});   // numberless glyph (dot + 'you' ring) translated each frame toward the castle
+      var placements = d.actors.map(function (a, i) {
+        var kingdom = Number(a.kingdom), dataKingdom = Number(d.kingdom);
+        if (kingdom !== 1 && kingdom !== 2) kingdom = dataKingdom === 1 || dataKingdom === 2 ? dataKingdom : 0;
+        if (!kingdom && d.groups) {
+          for (var j = 0; j < d.groups.length; j++) {
+            if (d.groups[j].actors && d.groups[j].actors.indexOf(a) !== -1) {
+              var groupedKingdom = Number(d.groups[j].kingdom);
+              if (groupedKingdom === 1 || groupedKingdom === 2) kingdom = groupedKingdom;
+              break;
+            }
+          }
+        }
+        if (kingdom !== 1 && kingdom !== 2) kingdom = 1;
+        var ang = radarAngle({ role: a.role, kingdom: kingdom }, i, n), r0 = ringR(a.march, dom);
+        return { a: a, kingdom: kingdom, ang: ang, r0: r0, x: CX + Math.cos(ang) * r0, y: CY + Math.sin(ang) * r0 };
+      });
+      placements.forEach(function (o) {
+        svg.appendChild(E("line", { "class": "rally-route kingdom-" + o.kingdom, x1: CX, y1: CY, x2: o.x.toFixed(1), y2: o.y.toFixed(1), fill: "none", stroke: o.kingdom === 2 ? "#aeb4dc" : "#9bded5", "stroke-width": 1.2, "stroke-dasharray": "4 6", opacity: .72, "pointer-events": "none" }));
+      });
+      placements.forEach(function (o) {
+        var a = o.a, col = o.kingdom === 2 ? "#6571ba" : a.role === "main" ? "#0fa193" : "#19c8b9";
+        var g = E("g", { "class": "rally-dot kingdom-" + o.kingdom });   // numberless glyph (dot + 'you' ring) translated each frame toward the castle
         if (a.mine) g.appendChild(E("circle", { cx: 0, cy: 0, r: 9, fill: "none", stroke: "#f5c542", "stroke-width": 2.5 }));
-        g.appendChild(E("circle", { cx: 0, cy: 0, r: 6, fill: a.role === "main" ? col : "#eafaf7", stroke: col, "stroke-width": 2.5 }));
-        g.setAttribute("transform", "translate(" + (CX + Math.cos(ang) * r0).toFixed(1) + "," + (CY + Math.sin(ang) * r0).toFixed(1) + ")");
-        svg.appendChild(g); mapS.dots.push({ g: g, ang: ang, r0: r0, a: a });
+        g.appendChild(E("circle", { cx: 0, cy: 0, r: 6, fill: a.role === "main" ? col : o.kingdom === 2 ? "#eef0fb" : "#eafaf7", stroke: col, "stroke-width": 2.5 }));
+        g.setAttribute("transform", "translate(" + o.x.toFixed(1) + "," + o.y.toFixed(1) + ")");
+        svg.appendChild(g); mapS.dots.push({ g: g, ang: o.ang, r0: o.r0, a: a });
       });
     }
-    svg.appendChild(E2("text", CX, 145, tk(d.live ? "legend_live" : "legend"), "#9cc4bc", 8));   // live draws captains only — a "● you" legend would promise a dot most viewers don't have
+    window.ksCastle(svg, CX, CY, "neutral");
+    if (!d.actors.length) {
+      svg.appendChild(E2("text", CX, 170, tk("mapempty"), "#5aa99b", 9));
+      var cp = E2("text", CX, 192, tk("copylink"), "#0fa193", 10); cp.setAttribute("id", "copyLinkT"); cp.setAttribute("style", "cursor:pointer"); svg.appendChild(cp);
+    }
+    svg.appendChild(E2("text", CX, 258, tk(d.live ? "legend_live" : "legend"), "#9cc4bc", 8));   // live draws captains only — a "● you" legend would promise a dot most viewers don't have
   }
   function laneRow(a, i, live, dom, t0, span) {
     var col = a.role === "main" ? "#0fa193" : "#19c8b9", fill = a.role === "main" ? col : "#fff", nm = (a.mine ? "● " : "○ ") + window.esc(a.name || a.pid);
