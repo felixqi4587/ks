@@ -22,6 +22,8 @@ The existing page remains recognizable:
 
 When no rally command is active, the homepage uses the canonical staged selections in `room.live.staged[1]` and `room.live.staged[2]`. It no longer renders every registered room player.
 
+The staged records are authoritative for membership and role only. Display name and march time come from the current canonical `room.players[pid]` record, so a commander name/time edit repaints every open page without restaging the captain.
+
 - Only players already selected into a kingdom's rally queue appear.
 - A kingdom may show two Double captains or three Triple captains.
 - The maximum is six rows: three for Kingdom 1 and three for Kingdom 2.

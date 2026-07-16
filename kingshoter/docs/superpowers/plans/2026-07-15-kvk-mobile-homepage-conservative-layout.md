@@ -57,17 +57,19 @@ const room = {
 
 const serverStagedByK = {
   1: [
-    { pid: 'captain-1', name: 'Captain 1', march: 20, role: 'weak' },
-    { pid: 'captain-2', name: 'Captain 2', march: 40, role: 'weak2' },
-    { pid: 'captain-3', name: 'Captain 3', march: 60, role: 'main' }
+    { pid: 'captain-1', role: 'weak' },
+    { pid: 'captain-2', role: 'weak2' },
+    { pid: 'captain-3', role: 'main' }
   ],
   2: [
-    { pid: 'captain-4', name: 'Captain 4', march: 80, role: 'weak' },
-    { pid: 'captain-5', name: 'Captain 5', march: 100, role: 'weak2' },
-    { pid: 'captain-6', name: 'Captain 6', march: 120, role: 'main' }
+    { pid: 'captain-4', role: 'weak' },
+    { pid: 'captain-5', role: 'weak2' },
+    { pid: 'captain-6', role: 'main' }
   ]
 };
 ```
+
+This matches the real `onState() -> reconcilePickList()` shape: `serverStagedByK` owns selection and role, while `room.players[pid]` owns the current canonical display name and march time.
 
 Assert:
 
@@ -193,7 +195,7 @@ In `mapData()`:
 - Replace the idle `Object.keys(room.players)` projection with `[1, 2]` mapped from `serverStagedByK`.
 - Normalize each staged group to the current mode, canonical role order `weak`, `weak2`, `main`, and a maximum of the mode's required count.
 - Flatten the groups into `actors` without global march sorting.
-- Copy canonical `pid`, `name`, `march`, `role`, `mine`, and `kingdom` into every actor.
+- Take `pid` and `role` from the server-confirmed staged selection, join `name` and `march` from the current canonical `room.players[pid]` record, and derive `mine` and `kingdom` for every actor. Fail closed when a staged pid no longer exists in `room.players`.
 
 The return shape must be:
 
