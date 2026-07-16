@@ -1007,6 +1007,26 @@ async function runCoreScenario(browser, engineName) {
     assert.equal(await commander.page.locator('#pickSlots .slot.frozen').count(), 0,
       'Cancel releases the read-only live slots');
 
+    const restored = await readSnapshot(commander.page, room);
+    assert.deepEqual(restored.room.live.staged['1'].pairs,
+      liveCommand.payload.pairs.map(({ pid, role }) => ({ pid, role })),
+      'Cancel restores the exact frozen captain roles as editable canonical staging');
+    for (const role of [commander, selectedCommander]) {
+      await role.page.locator('#pickSlots .slot').nth(1).waitFor({ timeout: 8_000 });
+      assert.equal(await role.page.locator('#pickSlots .slot.frozen').count(), 0,
+        'both commanders receive editable restored slots');
+      assert.equal(await role.page.locator('#pickSlots .slot').count(), 2,
+        'both commanders receive the complete Double lineup');
+      assert.equal(await role.page.locator('#fireDouble').isDisabled(), false,
+        'both commanders can Fire the restored complete lineup');
+    }
+    await selectedCommander.page.reload({ waitUntil: 'networkidle' });
+    if (await selectedCommander.page.locator('#console').isHidden()) {
+      await unlockCommander(selectedCommander.page);
+    }
+    assert.equal(await selectedCommander.page.locator('#pickSlots .slot').count(), 2,
+      'a refreshed commander rebuilds the lineup from canonical staging');
+
     const beforeReconnect = await readSnapshot(commander.page, room);
     const canonicalBeforeReconnect = beforeReconnect.room.players[captainAProfile.pid];
     const socketCount = await captainASecond.page.evaluate(() => window.__qaRoomSockets.length);
@@ -1034,8 +1054,11 @@ async function runCoreScenario(browser, engineName) {
       return profile && profile.pid === playerId && profile.march === march && profile.marchRevision === revision;
     }, { roomName: room, playerId: captainAProfile.pid, march: canonicalBeforeReconnect.march, revision: canonicalBeforeReconnect.marchRevision }, { timeout: 8_000 });
 
+    await commander.page.locator(`#roster .rp[data-pid="${captainAProfile.pid}"]`).click();
+    await commander.page.waitForFunction(value =>
+      document.querySelector(`#roster .rp[data-pid="${value}"]`)?.getAttribute('aria-pressed') === 'false',
+    captainAProfile.pid, { timeout: 8_000 });
     await selectPlayer(commander.page, selectedCommanderProfile.pid);
-    await selectPlayer(commander.page, captainBProfile.pid);
     await fireDouble(commander.page);
     await waitUntil(async () => (await cueState(selectedCommander))
       .some(cue => cue.key.includes('-me:') && cue.nodeCount > 0),

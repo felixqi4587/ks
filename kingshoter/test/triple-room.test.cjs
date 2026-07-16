@@ -306,7 +306,7 @@ test('real broadcast projects by socket build and merge-safe attachments retain 
   }
   const legacy = socket(0, '00000000-0000-4000-8000-000000000010');
   socket(0, '00000000-0000-4000-8000-000000000012', true);
-  const current = socket(2026071505, '00000000-0000-4000-8000-000000000011');
+  const current = socket(2026071506, '00000000-0000-4000-8000-000000000011');
   h.room.room.live.commands[1] = {
     id: 'c', type: 'triple_rally', kingdom: 1,
     payload: { pairs: [{ pid: 'a', role: 'weak' }, { pid: 'b', role: 'weak2' }, { pid: 'c', role: 'main' }] }
@@ -323,7 +323,7 @@ test('real broadcast projects by socket build and merge-safe attachments retain 
   assert.equal(Object.prototype.hasOwnProperty.call(h.room.snapshot(), 'capabilities'), false);
   const attachment = h.room.readSocketAttachment(current.ws);
   assert.equal(attachment.roomName, h.roomName);
-  assert.equal(attachment.clientBuild, 2026071505);
+  assert.equal(attachment.clientBuild, 2026071506);
   assert.equal(attachment.lastProbeId, 'probe-1');
   assert.equal(attachment.deviceId, '00000000-0000-4000-8000-000000000011');
 });
@@ -363,7 +363,7 @@ test('fetch binds the canonical room, client build, and Reliable defaults before
     h.room.ensureDeliveryLoaded = async () => {};
     await h.room.fetch({
       headers: { get: (name) => name === 'Upgrade' ? 'websocket' : null },
-      url: 'https://qa-kvk.invalid/api/ws?room=operation-room&clientBuild=2026071505'
+      url: 'https://qa-kvk.invalid/api/ws?room=operation-room&clientBuild=2026071506'
     });
   } finally {
     globalThis.WebSocketPair = originalPair;
@@ -372,7 +372,7 @@ test('fetch binds the canonical room, client build, and Reliable defaults before
 
   assert.ok(server);
   assert.equal(attachmentAtFirstSend.roomName, h.roomName);
-  assert.equal(attachmentAtFirstSend.clientBuild, 2026071505);
+  assert.equal(attachmentAtFirstSend.clientBuild, 2026071506);
   assert.equal(attachmentAtFirstSend.v, 1);
   assert.equal(attachmentAtFirstSend.qa, true);
   assert.equal(attachmentAtFirstSend.view, 'player');
