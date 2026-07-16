@@ -35,11 +35,24 @@ test('idle tactical render key includes canonical display fields', () => {
       actors: [{ pid: 'route-a', name: 'Ff', march: 34, role: 'weak', mine: true, kingdom: 1 }]
     }]
   };
-  const kimchi = { ...base, actors: [{ ...base.actors[0], name: 'Kimchi' }] };
+  const withActor = patch => ({
+    ...base,
+    actors: [{ ...base.actors[0], ...patch }],
+    groups: [{
+      ...base.groups[0],
+      actors: [{ ...base.groups[0].actors[0], ...patch }]
+    }]
+  });
+  const kimchi = withActor({ name: 'Kimchi' });
   assert.notEqual(key(base), key(kimchi));
   assert.equal(key(base), key(structuredClone(base)));
-  assert.notEqual(key(base), key({ ...base, groups: [{ ...base.groups[0], mode: 'triple', required: 3 }] }));
+  assert.notEqual(key(base), key({ ...base, groups: [{ ...base.groups[0], mode: 'triple' }] }));
+  assert.notEqual(key(base), key({ ...base, groups: [{ ...base.groups[0], required: 3 }] }));
   assert.notEqual(key(base), key({ ...base, groups: [{ ...base.groups[0], kingdom: 2 }] }));
+  assert.notEqual(key(base), key(withActor({ march: 35 })));
+  assert.notEqual(key(base), key(withActor({ role: 'main' })));
+  assert.notEqual(key(base), key(withActor({ mine: false })));
+  assert.notEqual(key(base), key(withActor({ kingdom: 2 })));
 });
 
 test('live tactical render key remains frozen to the command id', () => {

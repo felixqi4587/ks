@@ -213,11 +213,15 @@ async function expectNoHorizontalOverflow(page, width, selectors) {
     const clientWidth = document.documentElement.clientWidth;
     const offenders = [];
     for (const selector of targets) {
-      const element = document.querySelector(selector);
-      if (!element || element.getClientRects().length === 0) continue;
-      const rect = element.getBoundingClientRect();
-      if (rect.left < -1 || rect.right > clientWidth + 1 || element.scrollWidth > element.clientWidth + 1) {
-        offenders.push({ selector, left: rect.left, right: rect.right, clientWidth, scrollWidth: element.scrollWidth, elementWidth: element.clientWidth });
+      const elements = [...document.querySelectorAll(selector)];
+      for (let index = 0; index < elements.length; index += 1) {
+        const element = elements[index];
+        if (element.getClientRects().length === 0) continue;
+        const rect = element.getBoundingClientRect();
+        if (rect.left < -1 || rect.right > clientWidth + 1 || element.scrollWidth > element.clientWidth + 1) {
+          offenders.push({ selector, index, left: rect.left, right: rect.right, clientWidth,
+            scrollWidth: element.scrollWidth, elementWidth: element.clientWidth });
+        }
       }
     }
     return { rootFits: document.documentElement.scrollWidth <= clientWidth + 1, offenders };
@@ -362,6 +366,28 @@ test('ordinary-player homepage preserves typography while showing six selected c
       expect.soft(Math.abs(left - expectedMarkerLefts[index]), `idle marker ${index + 1}`).toBeLessThanOrEqual(0.2);
     });
 
+    await commander.page.waitForFunction(() => document.querySelector('#lanes .lane.me .lname'));
+    expect.soft(await commander.page.locator('#lanes .lane.me').count(), 'selected player has one personal lane').toBe(1);
+    const selectedPlayerTypography = await commander.page.evaluate(() => {
+      const nameElement = document.querySelector('#lanes .lane.me .lname');
+      const name = getComputedStyle(nameElement);
+      return {
+        text: (nameElement.textContent || '').trim().replace(/^[●○]\s*/, ''),
+        size: name.fontSize,
+        weight: name.fontWeight,
+        family: name.fontFamily,
+        font: getComputedStyle(document.documentElement).getPropertyValue('--font')
+      };
+    });
+    expect.soft(selectedPlayerTypography.text).toBe(players[0].name);
+    expect.soft(selectedPlayerTypography.size, 'selected `.lane.me` name size').toBe('13px');
+    expect.soft(selectedPlayerTypography.weight, 'selected `.lane.me` name weight').toBe('900');
+    expect.soft(selectedPlayerTypography.family.split(',')[0].replace(/[\s"']/g, '').toLowerCase(),
+      'selected `.lane.me` uses --font').toBe(
+      selectedPlayerTypography.font.split(',')[0].replace(/[\s"']/g, '').toLowerCase()
+    );
+
+    expect.soft(await viewer.page.locator('#lanes .lane.me').count(), 'unselected viewer has no personal lane').toBe(0);
     await expect.soft(viewer.page.locator('#cmdGate')).toBeVisible();
     await expect.soft(viewer.page.locator('#console')).toBeHidden();
     const overflowSelectors = ['#roomView', '#situation', '#lanes', '.lane-group', '.lane', '.pond'];
@@ -378,10 +404,13 @@ test('ordinary-player homepage preserves typography while showing six selected c
         return {
           nameSize: name.fontSize,
           nameWeight: name.fontWeight,
+          nameFamily: name.fontFamily,
           timeSize: time.fontSize,
           timeWeight: time.fontWeight,
+          timeFamily: time.fontFamily,
           trackHeight: track.height,
           font: getComputedStyle(document.documentElement).getPropertyValue('--font'),
+          mono: getComputedStyle(document.documentElement).getPropertyValue('--mono'),
           battlefieldHeight: document.querySelector('#situation .pond').getBoundingClientRect().height
         };
       });
@@ -391,6 +420,15 @@ test('ordinary-player homepage preserves typography while showing six selected c
       expect.soft(metrics.timeWeight, `.ltimev weight at ${width}px`).toBe('900');
       expect.soft(metrics.trackHeight, `.ltrack height at ${width}px`).toBe('30px');
       expect.soft(metrics.font, `--font at ${width}px`).toContain('ui-rounded');
+      expect.soft(metrics.mono, `--mono at ${width}px`).toContain('ui-monospace');
+      expect.soft(metrics.nameFamily.split(',')[0].replace(/[\s"']/g, '').toLowerCase(),
+        `.lname family at ${width}px`).toBe(
+        metrics.font.split(',')[0].replace(/[\s"']/g, '').toLowerCase()
+      );
+      expect.soft(metrics.timeFamily.split(',')[0].replace(/[\s"']/g, '').toLowerCase(),
+        `.ltimev family at ${width}px`).toBe(
+        metrics.mono.split(',')[0].replace(/[\s"']/g, '').toLowerCase()
+      );
       expect.soft(Math.abs(metrics.battlefieldHeight - battlefieldHeight), `battlefield height at ${width}px`)
         .toBeLessThanOrEqual(2);
     }

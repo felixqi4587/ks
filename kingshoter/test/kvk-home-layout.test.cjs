@@ -44,7 +44,7 @@ function extractFunction(name) {
 const roomFixture = {
   players: Object.fromEntries(Array.from({ length: 8 }, (_, index) => {
     const pid = `captain-${index + 1}`;
-    return [pid, { name: `Captain ${index + 1}`, march: 20 * (index + 1) }];
+    return [pid, { name: `Canonical Captain ${index + 1}`, march: 111 + index }];
   })),
   rallyModes: {
     1: { mode: 'triple', revision: 1 },
@@ -53,16 +53,18 @@ const roomFixture = {
   live: { commands: { 1: null, 2: null }, staged: { 1: null, 2: null } }
 };
 
+// Display fields are deliberately stale: selection/order/role come from staging,
+// while canonical name/march must come from room.players.
 const stagedFixture = {
   1: [
-    { pid: 'captain-1', name: 'Captain 1', march: 20, role: 'weak' },
-    { pid: 'captain-2', name: 'Captain 2', march: 40, role: 'weak2' },
-    { pid: 'captain-3', name: 'Captain 3', march: 60, role: 'main' }
+    { pid: 'captain-1', name: 'Stale Stage 1', march: 20, role: 'weak' },
+    { pid: 'captain-2', name: 'Stale Stage 2', march: 40, role: 'weak2' },
+    { pid: 'captain-3', name: 'Stale Stage 3', march: 60, role: 'main' }
   ],
   2: [
-    { pid: 'captain-4', name: 'Captain 4', march: 80, role: 'weak' },
-    { pid: 'captain-5', name: 'Captain 5', march: 100, role: 'weak2' },
-    { pid: 'captain-6', name: 'Captain 6', march: 120, role: 'main' }
+    { pid: 'captain-4', name: 'Stale Stage 4', march: 80, role: 'weak' },
+    { pid: 'captain-5', name: 'Stale Stage 5', march: 100, role: 'weak2' },
+    { pid: 'captain-6', name: 'Stale Stage 6', march: 120, role: 'main' }
   ]
 };
 
@@ -75,14 +77,15 @@ function loadMapHarness(room = roomFixture) {
     MARCH_MIN_SECONDS: 5,
     MARCH_MAX_SECONDS: 120
   };
-  sandbox.activeCommand = current => current.live.commands[1] || current.live.commands[2] || null;
   sandbox.isRallyCommand = command => ['double_rally', 'triple_rally'].includes(command && command.type);
   sandbox.rallyMode = kingdom => sandbox.room.rallyModes[kingdom].mode;
   sandbox.requiredCaptains = kingdom => sandbox.rallyMode(kingdom) === 'triple' ? 3 : 2;
   sandbox.commandUsesTripleRoles = command => command && command.type === 'triple_rally';
   vm.runInNewContext(
-    `${extractFunction('mapData')}\n${extractFunction('domainFor')}\n${extractFunction('ringR')}\n` +
-      'this.mapData = mapData; this.domainFor = domainFor; this.ringR = ringR;',
+    `${extractFunction('liveCommands')}\n${extractFunction('activeCommand')}\n` +
+      `${extractFunction('mapData')}\n${extractFunction('domainFor')}\n${extractFunction('ringR')}\n` +
+      'this.activeCommand = activeCommand; this.mapData = mapData; ' +
+      'this.domainFor = domainFor; this.ringR = ringR;',
     sandbox
   );
   return sandbox;
@@ -93,27 +96,71 @@ const plain = value => JSON.parse(JSON.stringify(value));
 test('idle tactical projection groups only staged captains by kingdom', () => {
   const data = loadMapHarness().mapData();
 
+  assert.equal(data.live, false);
   assert.ok(Array.isArray(data.groups), 'idle projection exposes kingdom groups');
   assert.deepEqual(plain(data.groups.map(group => ({
     kingdom: group.kingdom,
     mode: group.mode,
     required: group.required,
-    pids: group.actors.map(actor => actor.pid),
-    roles: group.actors.map(actor => actor.role)
+    actors: group.actors.map(actor => ({
+      pid: actor.pid,
+      name: actor.name,
+      march: actor.march,
+      role: actor.role,
+      mine: actor.mine,
+      kingdom: actor.kingdom
+    }))
   }))), [
     { kingdom: 1, mode: 'triple', required: 3,
-      pids: ['captain-1', 'captain-2', 'captain-3'], roles: ['weak', 'weak2', 'main'] },
+      actors: [
+        { pid: 'captain-1', name: 'Canonical Captain 1', march: 111, role: 'weak', mine: true, kingdom: 1 },
+        { pid: 'captain-2', name: 'Canonical Captain 2', march: 112, role: 'weak2', mine: false, kingdom: 1 },
+        { pid: 'captain-3', name: 'Canonical Captain 3', march: 113, role: 'main', mine: false, kingdom: 1 }
+      ] },
     { kingdom: 2, mode: 'triple', required: 3,
-      pids: ['captain-4', 'captain-5', 'captain-6'], roles: ['weak', 'weak2', 'main'] }
+      actors: [
+        { pid: 'captain-4', name: 'Canonical Captain 4', march: 114, role: 'weak', mine: false, kingdom: 2 },
+        { pid: 'captain-5', name: 'Canonical Captain 5', march: 115, role: 'weak2', mine: false, kingdom: 2 },
+        { pid: 'captain-6', name: 'Canonical Captain 6', march: 116, role: 'main', mine: false, kingdom: 2 }
+      ] }
   ]);
-  assert.deepEqual(plain(data.actors.map(actor => actor.pid)), [
-    'captain-1', 'captain-2', 'captain-3', 'captain-4', 'captain-5', 'captain-6'
+  assert.deepEqual(plain(data.actors.map(actor => ({
+    pid: actor.pid,
+    name: actor.name,
+    march: actor.march,
+    role: actor.role,
+    mine: actor.mine,
+    kingdom: actor.kingdom
+  }))), [
+    { pid: 'captain-1', name: 'Canonical Captain 1', march: 111, role: 'weak', mine: true, kingdom: 1 },
+    { pid: 'captain-2', name: 'Canonical Captain 2', march: 112, role: 'weak2', mine: false, kingdom: 1 },
+    { pid: 'captain-3', name: 'Canonical Captain 3', march: 113, role: 'main', mine: false, kingdom: 1 },
+    { pid: 'captain-4', name: 'Canonical Captain 4', march: 114, role: 'weak', mine: false, kingdom: 2 },
+    { pid: 'captain-5', name: 'Canonical Captain 5', march: 115, role: 'weak2', mine: false, kingdom: 2 },
+    { pid: 'captain-6', name: 'Canonical Captain 6', march: 116, role: 'main', mine: false, kingdom: 2 }
   ]);
   assert.equal(data.actors.some(actor => actor.pid === 'captain-7' || actor.pid === 'captain-8'), false);
 });
 
 test('live tactical projection remains frozen to command pairs and one kingdom group', () => {
-  const frozen = Object.freeze({
+  const decoy = Object.freeze({
+    id: 'triple-command-1',
+    type: 'triple_rally',
+    kingdom: 1,
+    anchorUTC: 900,
+    expiresUTC: 1_500,
+    payload: Object.freeze({
+      kingdom: 1,
+      firstPress: 860,
+      leadSeconds: 10,
+      pairs: Object.freeze([
+        Object.freeze({ pid: 'captain-2', name: 'Decoy Weak', march: 22, role: 'weak', pressUTC: 900 }),
+        Object.freeze({ pid: 'captain-3', name: 'Decoy Second', march: 42, role: 'weak2', pressUTC: 880 }),
+        Object.freeze({ pid: 'captain-4', name: 'Decoy Main', march: 62, role: 'main', pressUTC: 860 })
+      ])
+    })
+  });
+  const preferred = Object.freeze({
     id: 'triple-command-2',
     type: 'triple_rally',
     kingdom: 2,
@@ -124,22 +171,29 @@ test('live tactical projection remains frozen to command pairs and one kingdom g
       firstPress: 960,
       leadSeconds: 10,
       pairs: Object.freeze([
-        Object.freeze({ pid: 'captain-4', name: 'Frozen Weak', march: 81, role: 'weak', pressUTC: 1_000 }),
+        Object.freeze({ pid: 'captain-1', name: 'Frozen Weak', march: 81, role: 'weak', pressUTC: 1_000 }),
         Object.freeze({ pid: 'captain-5', name: 'Frozen Second', march: 101, role: 'weak2', pressUTC: 980 }),
         Object.freeze({ pid: 'captain-6', name: 'Frozen Main', march: 121, role: 'main', pressUTC: 960 })
       ])
     })
   });
   const liveRoom = structuredClone(roomFixture);
-  liveRoom.live.commands[2] = frozen;
+  liveRoom.live.commands[1] = decoy;
+  liveRoom.live.commands[2] = preferred;
 
-  const data = loadMapHarness(liveRoom).mapData();
+  const harness = loadMapHarness(liveRoom);
+  assert.equal(harness.activeCommand(liveRoom).id, preferred.id,
+    'the existing personal-command priority selects Kingdom 2');
+  const data = harness.mapData();
   const actors = data.actors.map(actor => ({
     pid: actor.pid, name: actor.name, march: actor.march, role: actor.role
   }));
 
+  assert.equal(data.live, true);
+  assert.equal(data.id, preferred.id);
+  assert.equal(data.kingdom, 2);
   assert.deepEqual(plain(actors), [
-    { pid: 'captain-4', name: 'Frozen Weak', march: 81, role: 'weak' },
+    { pid: 'captain-1', name: 'Frozen Weak', march: 81, role: 'weak' },
     { pid: 'captain-5', name: 'Frozen Second', march: 101, role: 'weak2' },
     { pid: 'captain-6', name: 'Frozen Main', march: 121, role: 'main' }
   ]);
