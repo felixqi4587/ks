@@ -241,10 +241,10 @@ Keep `if (data.live) return "live-" + data.id;` unchanged.
 Run:
 
 ```bash
-node --test test/kvk-home-layout.test.cjs test/map-render-key.test.cjs
+node --test --test-name-pattern="tactical projection|render key" test/kvk-home-layout.test.cjs test/map-render-key.test.cjs
 ```
 
-Expected: PASS; idle state contains only the six selected captains in stable kingdom/role order and live state remains frozen to the command.
+Expected: PASS; idle state contains only the six selected captains in stable kingdom/role order and live state remains frozen to the command. The separately named battlefield-geometry test remains RED until Task 3 and is intentionally excluded at this checkpoint.
 
 - [ ] **Step 6: Commit the projection and grouping implementation**
 
