@@ -1,0 +1,21 @@
+name = "kingshoter-qa"
+main = "src/worker.js"
+compatibility_date = "2026-01-01"
+workers_dev = true
+preview_urls = false
+
+[vars]
+TRIPLE_RALLY_ENABLED = "1"
+TRIPLE_RALLY_QA_ENABLED = "1"
+
+[assets]
+directory = "public"
+binding = "ASSETS"
+
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "Room"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]
