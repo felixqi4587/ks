@@ -40,8 +40,9 @@ No credentials, tokens, account identifiers, or secret values are recorded here.
 
 ## Characterization gate
 
-- Focused Rally characterization command: exit 0.
-- Result: 42 tests, 42 passed, 0 failed.
+- Initial focused Rally characterization command: exit 0; 42 tests passed, 0 failed.
+- Independent review required stronger behavioral proof. The strengthened gate executes fake-clock/AudioContext scheduling, all four lead values, two-live-rally audience selection, exact shipped audio inventory, cancellation/drift behavior, and reconnect profile settlement.
+- Strengthened result: 47 tests, 47 passed, 0 failed.
 - The focused gate covers existing Rally timing, audio/readiness, cancellation, reconnect, Double/Triple behavior, and room-device delivery semantics.
 - New characterization tests are deliberately read-only locks around the pre-change behavior; they do not alter runtime code.
 
