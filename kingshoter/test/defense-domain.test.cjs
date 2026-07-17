@@ -39,6 +39,8 @@ test('Defense config defaults to 3:00 and accepts both exact timing endpoints', 
       updatedAt: null
     },
     players: {},
+    rosterRevision: 0,
+    profileGenerationCounter: 0,
     pendingRemovalPids: [],
     orderRevision: 0,
     activeOrder: null,
@@ -442,6 +444,33 @@ test('mutation replay ignores regenerated server metadata but still fingerprints
   assert.equal(cancelReplay.state.lastTerminal.terminalAtMs, 3_501_000);
 });
 
+test('manager march mutations are revision-protected and idempotent in the Defense ledger', async () => {
+  const { mod, state } = await configuredState();
+  state.players = { p1: player('One', 30) };
+  const request = {
+    mutationId: 'manager-march', pid: 'p1', profileGeneration: 1,
+    baseRevision: 0, march: 40
+  };
+  const saved = mod.setDefensePlayerMarch(state, request);
+  assert.equal(saved.ok, true);
+  assert.equal(saved.state.players.p1.march, 40);
+  assert.equal(saved.state.players.p1.marchRevision, 1);
+
+  const replayed = mod.setDefensePlayerMarch(saved.state, request);
+  assert.equal(replayed.replayed, true);
+  assert.equal(replayed.state.recentMutations.length, saved.state.recentMutations.length);
+  const stale = mod.setDefensePlayerMarch(saved.state, {
+    mutationId: 'manager-march-stale', pid: 'p1', profileGeneration: 1,
+    baseRevision: 0, march: 45
+  });
+  assert.equal(stale.error, 'player_conflict');
+  assert.equal(stale.canonicalRevision, 1);
+  const conflictingReuse = mod.setDefensePlayerMarch(saved.state, {
+    ...request, march: 41
+  });
+  assert.equal(conflictingReuse.error, 'mutation_conflict');
+});
+
 test('cross-round fire replay never mixes an old mutation outcome with the current active order', async () => {
   const { mod, state } = await configuredState({ tapAnchorSeconds: 180, enemyMarchSeconds: 30 });
   state.players = { p1: player('One', 30) };
@@ -524,6 +553,43 @@ test('captured removal queues until cancellation while a mid-order newcomer is p
   });
   assert.equal(cancelled.state.orderRevision, 2);
   assert.equal(mod.nextDefenseWakeAt(cancelled.state), null);
+});
+
+test('remove mutation replay derives pending and removed from current canonical state', async () => {
+  const { mod, state } = await configuredState({ tapAnchorSeconds: 180, enemyMarchSeconds: 30 });
+  state.players = { p1: player('Original', 30) };
+  const created = mod.createDefenseOrder(state, {
+    mutationId: 'fire-remove-replay', orderId: 'order-remove-replay', configRevision: 1,
+    signalAtMs: 4_500_000, acceptedAtMs: 4_500_010, connectedPids: ['p1']
+  });
+  const removal = {
+    mutationId: 'remove-replay', pid: 'p1', profileGeneration: 1,
+    baseRevision: created.order.revision
+  };
+  const queued = mod.removeDefensePlayer(created.state, removal);
+  assert.equal(queued.pending, true);
+  assert.equal(queued.removed, false);
+
+  const cancelled = mod.cancelDefenseOrder(queued.state, {
+    mutationId: 'cancel-remove-replay', orderId: created.order.id,
+    orderRevision: created.order.revision, cancelledAtMs: 4_500_100
+  });
+  const afterTerminal = mod.removeDefensePlayer(cancelled.state, removal);
+  assert.equal(afterTerminal.replayed, true);
+  assert.equal(afterTerminal.pending, false);
+  assert.equal(afterTerminal.removed, true);
+  assert.deepEqual(afterTerminal.purgePids, [],
+    'the terminal bundle already completed the physical purge');
+
+  const reusedPidState = structuredClone(afterTerminal.state);
+  reusedPidState.players.p1 = player('Replacement', 40);
+  const afterReregistration = mod.removeDefensePlayer(reusedPidState, removal);
+  assert.equal(afterReregistration.replayed, true);
+  assert.equal(afterReregistration.pending, false);
+  assert.equal(afterReregistration.removed, false);
+  assert.deepEqual(afterReregistration.purgePids, [],
+    'an old removal replay cannot purge a newly registered owner');
+  assert.equal(afterReregistration.state.players.p1.name, 'Replacement');
 });
 
 test('cancellation rejects stale revisions and duplicate cancellation cannot resurrect or repurge', async () => {
@@ -691,4 +757,102 @@ test('order creation rejects stale config and unsafe timestamp arithmetic withou
   assert.equal(overflow.ok, false);
   assert.equal(overflow.error, 'invalid_time');
   assert.deepEqual(state, before);
+});
+
+test('legacy profile generations migrate deterministically without random or eager persistence state', async () => {
+  const mod = await domain();
+  const legacy = {
+    rosterRevision: 7,
+    profileGenerationCounter: 2,
+    players: {
+      a: player('A', 20),
+      b: player('B', 21, 0, { profileGeneration: 5 }),
+      c: player('C', 22, 0, { profileGeneration: 5 })
+    }
+  };
+
+  const first = mod.normalizeDefenseState(structuredClone(legacy));
+  const independentReload = mod.normalizeDefenseState(structuredClone(legacy));
+  assert.deepEqual(independentReload, first,
+    'two cold reads of the same legacy state derive the same incarnations');
+  assert.deepEqual(Object.fromEntries(Object.entries(first.players)
+    .map(([pid, profile]) => [pid, profile.profileGeneration])), {
+    a: 6, b: 5, c: 7
+  });
+  assert.equal(new Set(Object.values(first.players).map(profile => profile.profileGeneration)).size, 3);
+  assert.equal(first.profileGenerationCounter, 7);
+  assert.equal(first.rosterRevision, 7);
+  assert.deepEqual(mod.normalizeDefenseState(structuredClone(first)), first,
+    'the pure migration is stable after its next canonical persistence');
+});
+
+test('exhausted legacy generation counters preserve every profile with deterministic unused incarnations', async () => {
+  const mod = await domain();
+  const legacy = {
+    profileGenerationCounter: Number.MAX_SAFE_INTEGER,
+    players: {
+      a: player('A', 20),
+      b: player('B', 21, 0, { profileGeneration: Number.MAX_SAFE_INTEGER }),
+      c: player('C', 22, 0, { profileGeneration: Number.MAX_SAFE_INTEGER })
+    }
+  };
+  const normalized = mod.normalizeDefenseState(legacy);
+  assert.deepEqual(Object.fromEntries(Object.entries(normalized.players)
+    .map(([pid, profile]) => [pid, profile.profileGeneration])), {
+    a: 1, b: Number.MAX_SAFE_INTEGER, c: 2
+  });
+  assert.equal(normalized.profileGenerationCounter, Number.MAX_SAFE_INTEGER);
+  assert.deepEqual(mod.normalizeDefenseState(structuredClone(normalized)), normalized);
+});
+
+test('terminal purge advances roster generation once while replay and stale ABA actions remain read-only', async () => {
+  const { mod, state } = await configuredState({ tapAnchorSeconds: 5, enemyMarchSeconds: 5 });
+  state.players = {
+    p1: player('Generation A', 5, 0, { profileGeneration: 1 })
+  };
+  state.profileGenerationCounter = 1;
+  state.rosterRevision = 1;
+  const created = mod.createDefenseOrder(state, {
+    mutationId: 'epoch-fire', orderId: 'epoch-order', configRevision: 1,
+    signalAtMs: 20_000_000, acceptedAtMs: 20_000_001, connectedPids: ['p1']
+  });
+  const queued = mod.removeDefensePlayer(created.state, {
+    mutationId: 'epoch-remove-a', pid: 'p1', profileGeneration: 1, baseRevision: 1
+  });
+  assert.equal(queued.ok, true);
+  assert.equal(queued.pending, true);
+  assert.equal(queued.state.rosterRevision, 1,
+    'marking a captured profile pending does not change membership');
+
+  const cancelled = mod.cancelDefenseOrder(queued.state, {
+    mutationId: 'epoch-cancel', orderId: 'epoch-order', orderRevision: 1,
+    cancelledAtMs: 20_000_010
+  });
+  assert.equal(cancelled.state.rosterRevision, 2);
+  assert.equal(cancelled.state.profileGenerationCounter, 1);
+  assert.equal(cancelled.state.players.p1, undefined);
+
+  const replay = mod.cancelDefenseOrder(cancelled.state, {
+    mutationId: 'epoch-cancel', orderId: 'epoch-order', orderRevision: 1,
+    cancelledAtMs: 20_000_010
+  });
+  assert.equal(replay.replayed, true);
+  assert.equal(replay.state.rosterRevision, 2);
+  assert.equal(replay.state.profileGenerationCounter, 1);
+
+  const replacement = mod.normalizeDefenseState({
+    ...replay.state,
+    players: { p1: player('Generation B', 6, 0, { profileGeneration: 2 }) },
+    profileGenerationCounter: 2,
+    rosterRevision: 3
+  });
+  const stale = mod.removeDefensePlayer(replacement, {
+    mutationId: 'epoch-stale-remove', pid: 'p1', profileGeneration: 1,
+    baseRevision: replacement.orderRevision
+  });
+  assert.equal(stale.ok, false);
+  assert.equal(stale.error, 'profile_generation_conflict');
+  assert.equal(stale.canonicalProfileGeneration, 2);
+  assert.equal(stale.state.players.p1.name, 'Generation B');
+  assert.equal(stale.state.rosterRevision, 3);
 });

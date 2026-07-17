@@ -10,15 +10,50 @@ async function loadRoom() {
 }
 
 function createRoomHarness(Room, options = {}) {
-  const sent = [];
   const calls = [];
-  const roomName = require('./support/qa-kvk.cjs').assertQaRoomName(options.roomName || 'qa-kvk-harness');
-  const nowMs = Number.isFinite(options.nowMs) ? options.nowMs : Date.now();
+  const requestedRoomName = options.roomName || 'qa-kvk-harness';
+  const roomName = requestedRoomName === 'qa'
+    ? 'qa'
+    : require('./support/qa-kvk.cjs').assertQaRoomName(requestedRoomName);
+  let currentNowMs = Number.isFinite(options.nowMs) ? options.nowMs : Date.now();
   const sockets = [];
+  const storage = options.storage instanceof Map
+    ? options.storage
+    : new Map(Object.entries(options.storage || {}));
+  const storageCalls = [];
+  let alarmAtMs = null;
+  const clone = value => value == null ? value : structuredClone(value);
   const state = {
     id: { name: roomName },
     getWebSockets() { return sockets.slice(); },
-    acceptWebSocket(socket) { if (!sockets.includes(socket)) sockets.push(socket); }
+    acceptWebSocket(socket) { if (!sockets.includes(socket)) sockets.push(socket); },
+    storage: {
+      async get(key) {
+        if (Array.isArray(key)) {
+          return new Map(key.filter(name => storage.has(name)).map(name => [name, clone(storage.get(name))]));
+        }
+        return clone(storage.get(key));
+      },
+      async put(key, value) {
+        if (typeof key === 'string') {
+          storage.set(key, clone(value));
+          storageCalls.push({ op: 'put', keys: [key] });
+          return;
+        }
+        const keys = Object.keys(key || {});
+        for (const name of keys) storage.set(name, clone(key[name]));
+        storageCalls.push({ op: 'put', keys });
+      },
+      async getAlarm() { return alarmAtMs; },
+      async setAlarm(value) {
+        alarmAtMs = value;
+        storageCalls.push({ op: 'setAlarm', atMs: value });
+      },
+      async deleteAlarm() {
+        alarmAtMs = null;
+        storageCalls.push({ op: 'deleteAlarm' });
+      }
+    }
   };
   const room = Object.create(Room.prototype);
   room.state = state;
@@ -28,8 +63,8 @@ function createRoomHarness(Room, options = {}) {
     pwHash: null,
     config: { castleName: '', rallyAllies: [], enemyWhales: [] },
     players: Object.assign({
-      '001': { name: 'Test 001', march: 32, marchRevision: 0, alliance: '', ready: false, lastSeen: new Date(nowMs).toISOString() },
-      kimchi: { name: 'Kimchi', march: 40, marchRevision: 0, alliance: '', ready: false, lastSeen: new Date(nowMs).toISOString() }
+      '001': { name: 'Test 001', march: 32, marchRevision: 0, alliance: '', ready: false, lastSeen: new Date(currentNowMs).toISOString() },
+      kimchi: { name: 'Kimchi', march: 40, marchRevision: 0, alliance: '', ready: false, lastSeen: new Date(currentNowMs).toISOString() }
     }, options.players || {}),
     live: {
       mode: options.live ? 'live' : 'idle',
@@ -42,25 +77,44 @@ function createRoomHarness(Room, options = {}) {
   };
   room.devices = [];
   room.deliveryAcks = [];
+  room._deliveryLoaded = true;
+  room._deliveryLoadPromise = null;
+  room._rallyLoaded = true;
+  room._rallyLoadPromise = null;
+  room._defenseLoaded = false;
+  room._defenseLoadPromise = null;
   if (typeof room.normalizeLive === 'function') room.normalizeLive();
-  room.nowMs = () => nowMs;
-  room.now = () => new Date(nowMs).toISOString();
+  room.nowMs = () => currentNowMs;
+  room.now = () => new Date(currentNowMs).toISOString();
   room.persist = async () => { calls.push('persist'); };
   room.persistAll = async () => { calls.push('persistAll'); };
   room.persistDevices = async () => { calls.push('persistDevices'); };
   room.broadcast = () => { calls.push('broadcast'); };
-  room.scheduleExpiry = async () => { calls.push('alarm'); };
-  let attachment = null;
-  const ws = {
-    send(message) { sent.push(JSON.parse(message)); },
-    serializeAttachment(value) { attachment = structuredClone(value); },
-    deserializeAttachment() { return attachment == null ? null : structuredClone(attachment); }
-  };
-  if (typeof room.attachSocket === 'function') room.attachSocket(ws, roomName);
-  else {
-    ws.serializeAttachment({ roomName });
-    state.acceptWebSocket(ws);
+  if (!options.useRealSchedule) room.scheduleExpiry = async () => { calls.push('alarm'); };
+  function addSocket(surface = 'rally', initialAttachment = {}) {
+    const socketSent = [];
+    let attachment = null;
+    const ws = {
+      readyState: 1,
+      send(message) { socketSent.push(JSON.parse(message)); },
+      close() { this.readyState = 3; },
+      serializeAttachment(value) { attachment = structuredClone(value); },
+      deserializeAttachment() { return attachment == null ? null : structuredClone(attachment); }
+    };
+    if (typeof room.attachSocket === 'function') room.attachSocket(ws, roomName, surface);
+    else {
+      ws.serializeAttachment({ roomName, surface });
+      state.acceptWebSocket(ws);
+    }
+    if (initialAttachment && Object.keys(initialAttachment).length) {
+      const current = ws.deserializeAttachment() || {};
+      ws.serializeAttachment({ ...current, ...clone(initialAttachment), surface });
+    }
+    return { ws, sent: socketSent };
   }
+  const primary = addSocket(options.surface || 'rally', options.attachment || {});
+  const ws = primary.ws;
+  const sent = primary.sent;
   const fetchURL = new URL('/api/ws', 'https://qa-kvk.invalid');
   fetchURL.searchParams.set('room', roomName);
   return {
@@ -68,11 +122,18 @@ function createRoomHarness(Room, options = {}) {
     ws,
     sent,
     calls,
-    nowMs,
+    nowMs: currentNowMs,
     roomName,
+    storage,
+    storageCalls,
+    sockets,
+    addSocket,
+    alarmAtMs() { return alarmAtMs; },
+    setNowMs(value) { currentNowMs = Number(value); return currentNowMs; },
+    advanceMs(value) { currentNowMs += Number(value); return currentNowMs; },
     fetchURL: fetchURL.toString(),
     fetchRequest(init = {}) { return new Request(fetchURL, init); },
-    reset() { sent.length = 0; calls.length = 0; }
+    reset() { sent.length = 0; calls.length = 0; storageCalls.length = 0; }
   };
 }
 

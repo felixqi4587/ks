@@ -47,7 +47,7 @@ function normalizeStoredMarch(value) {
   return Number.isInteger(number) && Number.isSafeInteger(number) ? number : null;
 }
 
-function copyPlayerRecords(value) {
+function copyPlayerRecords(value, generationCounterValue) {
   const source = value && typeof value === 'object' ? value : {};
   const players = {};
   for (const rawPid of Object.keys(source).sort().slice(0, MAX_PLAYERS)) {
@@ -56,7 +56,44 @@ function copyPlayerRecords(value) {
     if (!pid || pid !== rawPid || !player || typeof player !== 'object' || Array.isArray(player)) continue;
     players[pid] = { ...player, marchRevision: normalizeMarchRevision(player.marchRevision) };
   }
-  return players;
+  let profileGenerationCounter = Number.isSafeInteger(generationCounterValue) && generationCounterValue >= 0
+    ? generationCounterValue : 0;
+  for (const player of Object.values(players)) {
+    if (Number.isSafeInteger(player.profileGeneration) && player.profileGeneration > 0) {
+      profileGenerationCounter = Math.max(profileGenerationCounter, player.profileGeneration);
+    }
+  }
+  const keeperByGeneration = new Map();
+  for (const pid of Object.keys(players).sort()) {
+    const generation = players[pid].profileGeneration;
+    if (Number.isSafeInteger(generation) && generation > 0 &&
+        !keeperByGeneration.has(generation)) {
+      keeperByGeneration.set(generation, pid);
+    }
+  }
+  const reservedGenerations = new Set(keeperByGeneration.keys());
+  const usedGenerations = new Set();
+  let fallbackGeneration = 1;
+  for (const pid of Object.keys(players).sort()) {
+    const player = players[pid];
+    const storedGeneration = player.profileGeneration;
+    if (Number.isSafeInteger(storedGeneration) && storedGeneration > 0 &&
+        keeperByGeneration.get(storedGeneration) === pid) {
+      usedGenerations.add(storedGeneration);
+      continue;
+    }
+    if (profileGenerationCounter < Number.MAX_SAFE_INTEGER) {
+      profileGenerationCounter += 1;
+      player.profileGeneration = profileGenerationCounter;
+    } else {
+      while (reservedGenerations.has(fallbackGeneration) ||
+          usedGenerations.has(fallbackGeneration)) fallbackGeneration += 1;
+      player.profileGeneration = fallbackGeneration;
+      fallbackGeneration += 1;
+    }
+    usedGenerations.add(player.profileGeneration);
+  }
+  return { players, profileGenerationCounter };
 }
 
 function normalizeRosterEntry(value) {
@@ -187,7 +224,11 @@ function normalizeTerminal(value) {
 function normalizeMutationOutcome(value) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   const outcome = {};
-  for (const key of ['ok', 'error', 'mutationId', 'revision', 'orderId', 'status', 'activeOrderId', 'activeOrderRevision']) {
+  for (const key of [
+    'ok', 'error', 'mutationId', 'revision', 'orderId', 'status',
+    'activeOrderId', 'activeOrderRevision', 'pid', 'pending', 'cardStatus',
+    'profileGeneration', 'rosterRevision'
+  ]) {
     if (own(source, key)) outcome[key] = source[key];
   }
   if (source.config && typeof source.config === 'object') outcome.config = { ...source.config };
@@ -214,6 +255,8 @@ export function defaultDefenseState() {
       updatedAt: null
     },
     players: {},
+    rosterRevision: 0,
+    profileGenerationCounter: 0,
     pendingRemovalPids: [],
     orderRevision: 0,
     activeOrder: null,
@@ -231,7 +274,10 @@ export function normalizeDefenseState(value) {
   const configRevision = source.config && Number.isInteger(source.config.revision) && source.config.revision >= 0
     ? source.config.revision : 0;
   const configValid = tapAnchorSeconds != null && (rawEnemyMarch == null || enemyMarchSeconds != null);
-  const players = copyPlayerRecords(source.players);
+  const migratedPlayers = copyPlayerRecords(source.players, source.profileGenerationCounter);
+  const players = migratedPlayers.players;
+  const rosterRevision = Number.isSafeInteger(source.rosterRevision) && source.rosterRevision >= 0
+    ? source.rosterRevision : 0;
   const pendingRemovalPids = [];
   const pendingSeen = new Set();
   for (const rawPid of Array.isArray(source.pendingRemovalPids) ? source.pendingRemovalPids : []) {
@@ -263,6 +309,8 @@ export function normalizeDefenseState(value) {
       updatedAt: typeof source.config.updatedAt === 'string' ? source.config.updatedAt.slice(0, 64) : null
     } : base.config,
     players,
+    rosterRevision,
+    profileGenerationCounter: migratedPlayers.profileGenerationCounter,
     pendingRemovalPids,
     orderRevision,
     activeOrder,
@@ -346,6 +394,51 @@ export function updateDefenseConfig(stateValue, input) {
   };
   const outcome = { ok: true, mutationId, config: { ...state.config }, revision };
   appendMutation(state, mutationId, 'config', requestFingerprint, outcome);
+  return { ...outcome, state };
+}
+
+export function setDefensePlayerMarch(stateValue, input) {
+  const state = normalizeDefenseState(stateValue);
+  const mutationId = normalizeMutationId(input && input.mutationId);
+  const pid = normalizeRoutingKey(input && input.pid);
+  const requestFingerprint = fingerprint([
+    pid,
+    input && input.profileGeneration,
+    input && input.baseRevision,
+    input && input.march
+  ]);
+  if (!mutationId) return failure(state, 'invalid_mutation', { mutationId: '' });
+  const existing = mutationLookup(state, mutationId, 'managerMarch', requestFingerprint);
+  if (existing && existing.conflict) return failure(state, 'mutation_conflict', { mutationId });
+  if (existing) return replay(state, 'managerMarch', existing.outcome);
+  if (!pid || !own(state.players, pid)) return failure(state, 'player_missing', { mutationId, pid });
+  const march = parseMarchSeconds(input && input.march);
+  if (march == null) return failure(state, 'invalid_march', { mutationId, pid });
+  const player = state.players[pid];
+  const profileGeneration = Number.isSafeInteger(input && input.profileGeneration) &&
+    input.profileGeneration > 0 ? input.profileGeneration : null;
+  if (profileGeneration == null || profileGeneration !== player.profileGeneration) {
+    return failure(state, 'profile_generation_conflict', {
+      mutationId,
+      pid,
+      canonicalProfileGeneration: player.profileGeneration
+    });
+  }
+  const currentRevision = normalizeMarchRevision(player.marchRevision);
+  if (!Number.isInteger(input && input.baseRevision) || input.baseRevision !== currentRevision) {
+    return failure(state, 'player_conflict', {
+      mutationId,
+      pid,
+      canonicalRevision: currentRevision
+    });
+  }
+  const revision = currentRevision + 1;
+  if (!Number.isSafeInteger(revision)) {
+    return failure(state, 'revision_exhausted', { mutationId, pid });
+  }
+  state.players[pid] = { ...player, march, marchRevision: revision };
+  const outcome = { ok: true, mutationId, pid, march, revision, profileGeneration };
+  appendMutation(state, mutationId, 'managerMarch', requestFingerprint, outcome);
   return { ...outcome, state };
 }
 
@@ -473,9 +566,13 @@ function purgePendingPlayers(state) {
   for (const rawPid of state.pendingRemovalPids) {
     const pid = normalizeRoutingKey(rawPid);
     if (!pid || purgePids.includes(pid)) continue;
-    purgePids.push(pid);
+    if (own(state.players, pid)) purgePids.push(pid);
+  }
+  if (purgePids.length && state.rosterRevision >= Number.MAX_SAFE_INTEGER) return null;
+  for (const pid of purgePids) {
     delete state.players[pid];
   }
+  if (purgePids.length) state.rosterRevision += 1;
   state.pendingRemovalPids = [];
   return purgePids;
 }
@@ -484,6 +581,7 @@ function terminalState(state, activeOrder, status, terminalAtMs) {
   const revision = state.orderRevision + 1;
   if (!Number.isSafeInteger(revision)) return null;
   const purgePids = purgePendingPlayers(state);
+  if (!purgePids) return null;
   state.orderRevision = revision;
   state.activeOrder = null;
   state.lastTerminal = { orderId: activeOrder.id, revision, status, terminalAtMs, purgePids };
@@ -569,23 +667,90 @@ export function completeDefenseOrder(stateValue, input) {
 
 export function removeDefensePlayer(stateValue, pidValue) {
   const state = normalizeDefenseState(stateValue);
-  const pid = normalizeRoutingKey(pidValue);
+  const protectedInput = pidValue && typeof pidValue === 'object' && !Array.isArray(pidValue)
+    ? pidValue : null;
+  const pid = normalizeRoutingKey(protectedInput ? protectedInput.pid : pidValue);
+  let mutationId = '';
+  let requestFingerprint = '';
+  if (protectedInput) {
+    mutationId = normalizeMutationId(protectedInput.mutationId);
+    if (!mutationId) return failure(state, 'invalid_mutation', { mutationId: '' });
+    requestFingerprint = fingerprint([
+      pid, protectedInput.profileGeneration, protectedInput.baseRevision
+    ]);
+    const existing = mutationLookup(state, mutationId, 'remove', requestFingerprint);
+    if (existing && existing.conflict) return failure(state, 'mutation_conflict', { mutationId });
+    if (existing) {
+      const profileExists = own(state.players, pid);
+      const pending = profileExists && state.pendingRemovalPids.includes(pid);
+      return {
+        ...existing.outcome,
+        pid,
+        pending,
+        removed: !profileExists,
+        state,
+        replayed: true,
+        purgePids: retryablePurgePids(state, existing.outcome.purgePids)
+      };
+    }
+    if (!Number.isInteger(protectedInput.baseRevision) ||
+        protectedInput.baseRevision !== state.orderRevision) {
+      return failure(state, 'order_conflict', {
+        mutationId,
+        canonicalRevision: state.orderRevision
+      });
+    }
+  }
   if (!pid || !own(state.players, pid)) return failure(state, 'player_missing', { pid });
+  const player = state.players[pid];
+  if (protectedInput) {
+    const profileGeneration = Number.isSafeInteger(protectedInput.profileGeneration) &&
+      protectedInput.profileGeneration > 0 ? protectedInput.profileGeneration : null;
+    if (profileGeneration == null || profileGeneration !== player.profileGeneration) {
+      return failure(state, 'profile_generation_conflict', {
+        mutationId,
+        pid,
+        canonicalProfileGeneration: player.profileGeneration
+      });
+    }
+  }
   const captured = Boolean(state.activeOrder && state.activeOrder.rosterAtAcceptance.some(profile => profile.pid === pid));
   if (captured) {
     if (!state.pendingRemovalPids.includes(pid)) state.pendingRemovalPids.push(pid);
-    return {
+    const outcome = {
       ok: true,
       pid,
       pending: true,
+      removed: false,
       purgePids: [],
       cardStatus: 'removal_applies_next_round',
-      state
+      profileGeneration: player.profileGeneration,
+      rosterRevision: state.rosterRevision
     };
+    if (protectedInput) {
+      outcome.mutationId = mutationId;
+      outcome.revision = state.orderRevision;
+      appendMutation(state, mutationId, 'remove', requestFingerprint, outcome);
+    }
+    return { ...outcome, state };
+  }
+  if (state.rosterRevision >= Number.MAX_SAFE_INTEGER) {
+    return failure(state, 'roster_revision_exhausted', { mutationId, pid });
   }
   delete state.players[pid];
   state.pendingRemovalPids = state.pendingRemovalPids.filter(value => value !== pid);
-  return { ok: true, pid, pending: false, purgePids: [pid], state };
+  state.rosterRevision += 1;
+  const outcome = {
+    ok: true, pid, pending: false, removed: true, purgePids: [pid],
+    profileGeneration: player.profileGeneration,
+    rosterRevision: state.rosterRevision
+  };
+  if (protectedInput) {
+    outcome.mutationId = mutationId;
+    outcome.revision = state.orderRevision;
+    appendMutation(state, mutationId, 'remove', requestFingerprint, outcome);
+  }
+  return { ...outcome, state };
 }
 
 export function nextDefenseWakeAt(stateValue) {

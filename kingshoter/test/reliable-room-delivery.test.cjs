@@ -252,7 +252,7 @@ test('Room normalization preserves legacy names, strips one owned prefix, and ke
   }
 });
 
-test('constructor loads Reliable delivery state separately from the Core room', async () => {
+test('constructor loads Core state without conflating it with the separately loaded Reliable bundle', async () => {
   const { Room } = await loadRoom();
   const storageReads = [];
   let initialized;
@@ -261,7 +261,12 @@ test('constructor loads Reliable delivery state separately from the Core room', 
     storage: {
       async get(key) {
         storageReads.push(key);
-        if (key === 'delivery:v1') return { v: 1, roomName: 'qa-kvk-constructor', commands: [] };
+        if (Array.isArray(key)) return new Map([
+          ['delivery:v1', { v: 1, roomName: 'qa-kvk-constructor', commands: [] }],
+          ['devices', []],
+          ['deliveryAcks', []],
+          ['profileOwners', {}]
+        ]);
         return null;
       }
     },
@@ -274,9 +279,53 @@ test('constructor loads Reliable delivery state separately from the Core room', 
   const room = new Room(state, { MASTER: 'separate-master-override' });
   await initialized;
 
-  assert.deepEqual(storageReads, ['room', 'delivery:v1']);
+  assert.deepEqual(storageReads, ['room']);
+  assert.equal(room._deliveryLoaded, false);
+  await room.ensureDeliveryLoaded();
+  assert.deepEqual(storageReads, [
+    'room', ['delivery:v1', 'devices', 'deliveryAcks', 'profileOwners']
+  ]);
   assert.deepEqual(room.delivery, { v: 1, roomName: 'qa-kvk-constructor', commands: [] });
   assert.equal(Object.prototype.hasOwnProperty.call(room.room, 'delivery'), false);
+});
+
+test('a failed private delivery read stays retryable and never becomes an empty loaded state', async () => {
+  const { Room } = await loadRoom();
+  const h = createRoomHarness(Room, {
+    roomName: 'qa-kvk-delivery-read-retry', nowMs: 100_000
+  });
+  const storedDelivery = {
+    v: 1,
+    roomName: h.roomName,
+    commands: [pendingDeliveryRecord({ commandId: 'must-survive-read-retry' })]
+  };
+  let reads = 0;
+  h.room._deliveryLoaded = false;
+  h.room._deliveryLoadPromise = null;
+  h.room.delivery = { v: 1, roomName: h.roomName, commands: [] };
+  h.room.state.storage.get = async keys => {
+    reads += 1;
+    assert.deepEqual(keys, ['delivery:v1', 'devices', 'deliveryAcks', 'profileOwners']);
+    if (reads === 1) throw new Error('transient private read failure');
+    return new Map([
+      ['delivery:v1', structuredClone(storedDelivery)],
+      ['devices', []],
+      ['deliveryAcks', []],
+      ['profileOwners', {}]
+    ]);
+  };
+
+  await assert.rejects(
+    Room.prototype.ensureDeliveryLoaded.call(h.room),
+    /transient private read failure/
+  );
+  assert.equal(h.room._deliveryLoaded, false);
+  assert.deepEqual(h.room.delivery.commands, []);
+
+  await Room.prototype.ensureDeliveryLoaded.call(h.room);
+  assert.equal(h.room._deliveryLoaded, true);
+  assert.equal(h.room.delivery.commands[0].commandId, 'must-survive-read-retry');
+  assert.equal(reads, 2);
 });
 
 test('Reliable attachment wrappers preserve Core identity and unknown fields while enforcing their whitelist', async () => {
@@ -1509,6 +1558,27 @@ test('forged private QA and attachment flags cannot move an operation-room alarm
   assert.deepEqual(calls, [['set', 200_600]]);
 });
 
+test('a cold unknown QA delivery bundle preserves an existing mixed-surface alarm', async () => {
+  const { Room } = await loadRoom();
+  const h = installDispatchRoom(createRoomHarness(Room, {
+    roomName: 'qa-kvk-cold-private-alarm', nowMs: 100_000,
+    useRealSchedule: true
+  }), 100_000);
+  h.room.scheduleExpiry = Room.prototype.scheduleExpiry.bind(h.room);
+  await h.room.ensureDefenseLoaded();
+  await h.room.state.storage.setAlarm(150_000);
+  h.storageCalls.length = 0;
+  h.room._deliveryLoaded = false;
+  h.room._deliveryLoadPromise = null;
+  h.room.delivery = { v: 1, roomName: h.roomName, commands: [] };
+
+  await h.room.scheduleExpiry();
+
+  assert.equal(h.alarmAtMs(), 150_000,
+    'an unknown delivery:v1 namespace may own the existing Durable Object alarm');
+  assert.deepEqual(h.storageCalls, [], 'the cold scheduler must not rewrite or delete that alarm');
+});
+
 test('alarm sends only the 0/500/1500 retries as one byte-identical immutable frame and stops at cutoff equality', async () => {
   const { Room } = await loadRoom();
   let nowMs = DISPATCH_NOW_MS;
@@ -1717,7 +1787,7 @@ test('history-prune equality schedules next millisecond, persists the prune, the
   assert.deepEqual(h.room.delivery.commands, []);
 });
 
-test('repeated prune persistence failures use bounded 500ms wake spacing instead of a 1ms hot loop', async () => {
+test('repeated prune persistence failures use bounded exponential spacing instead of a 1ms hot loop', async () => {
   const { Room } = await loadRoom();
   let nowMs = 100_000;
   const h = installDispatchRoom(createRoomHarness(Room, {
@@ -1755,8 +1825,8 @@ test('repeated prune persistence failures use bounded 500ms wake spacing instead
   assert.deepEqual(storage, [
     ['set', 100_001],
     ['set', 100_501],
-    ['set', 101_001],
-    ['set', 101_501],
+    ['set', 102_001],
+    ['set', 107_001],
     ['delete']
   ]);
   assert.equal(privatePersists, 4);
@@ -2346,3 +2416,337 @@ test('unbound, unchallenged, cutoff-equality, and expired reconnect paths stay c
   }));
   assert.deepEqual(expired.shadowCommands(), []);
 });
+
+test('deliveryShadow mutations share the canonical FIFO with command delivery persistence', async () => {
+  const { Room } = await loadRoom();
+  const h = installDispatchRoom(createRoomHarness(Room, {
+    roomName: 'qa-kvk-shadow-command-fifo', nowMs: DISPATCH_NOW_MS
+  }));
+  const player = reliableSocket(h, {
+    pid: '700001', deviceId: DISPATCH_IDS.a1,
+    shadow: false, audioArmed: false, armedUntilMs: 0
+  });
+  let releaseFirstPersist;
+  let markFirstPersistStarted;
+  const firstPersistStarted = new Promise(resolve => { markFirstPersistStarted = resolve; });
+  const firstPersistMayFinish = new Promise(resolve => { releaseFirstPersist = resolve; });
+  let persistCount = 0;
+  let secondPersistEnteredWhileFirstBlocked = false;
+  h.room.persistDelivery = async () => {
+    persistCount += 1;
+    if (persistCount === 1) {
+      markFirstPersistStarted();
+      await firstPersistMayFinish;
+      return;
+    }
+    secondPersistEnteredWhileFirstBlocked = true;
+  };
+
+  const shadowPromise = h.room.webSocketMessage(player.ws, JSON.stringify({
+    t: 'deliveryShadowHello', v: 1, shadow: true, view: 'player',
+    pid: '700001', deviceId: DISPATCH_IDS.a1
+  }));
+  await firstPersistStarted;
+  const commandPromise = h.room.webSocketMessage(h.ws, JSON.stringify(doubleRallyMessage()));
+  for (let turn = 0; turn < 12 && !secondPersistEnteredWhileFirstBlocked; turn += 1) {
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  const overlapped = secondPersistEnteredWhileFirstBlocked;
+  releaseFirstPersist();
+  await Promise.all([shadowPromise, commandPromise]);
+
+  assert.equal(overlapped, false,
+    'a command cannot persist a stale delivery snapshot while a shadow mutation is uncommitted');
+  assert.equal(persistCount, 2);
+});
+
+test('a Rally fetch cannot run the Triple gate inside a concurrent canonical config transaction', async () => {
+  const { Room } = await loadRoom();
+  const h = createRoomHarness(Room, {
+    roomName: 'qa-kvk-fetch-gate-fifo', nowMs: DISPATCH_NOW_MS
+  });
+  let releaseFetchLoad;
+  let markFetchLoadStarted;
+  const fetchLoadStarted = new Promise(resolve => { markFetchLoadStarted = resolve; });
+  const fetchLoadMayFinish = new Promise(resolve => { releaseFetchLoad = resolve; });
+  let deliveryLoads = 0;
+  h.room.ensureDeliveryLoaded = async () => {
+    deliveryLoads += 1;
+    if (deliveryLoads !== 1) return;
+    markFetchLoadStarted();
+    await fetchLoadMayFinish;
+  };
+  let gateEntered = false;
+  h.room.applyTripleGate = async () => { gateEntered = true; };
+  let releaseConfigPersist;
+  let markConfigPersistStarted;
+  const configPersistStarted = new Promise(resolve => { markConfigPersistStarted = resolve; });
+  const configPersistMayFinish = new Promise(resolve => { releaseConfigPersist = resolve; });
+  h.room.persist = async () => {
+    markConfigPersistStarted();
+    await configPersistMayFinish;
+  };
+
+  const fetchPromise = Room.prototype.fetch.call(h.room,
+    new Request('https://qa-kvk.invalid/api/ws?surface=rally'));
+  await fetchLoadStarted;
+  const configPromise = h.room.webSocketMessage(h.ws, JSON.stringify({
+    t: 'setConfig', password: 'separate-master-override',
+    config: { castleName: 'Canonical', rallyAllies: [], enemyWhales: [] },
+    by: 'fifo-test'
+  }));
+  await configPersistStarted;
+  releaseFetchLoad();
+  for (let turn = 0; turn < 12 && !gateEntered; turn += 1) {
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  const gateEnteredBeforeCommit = gateEntered;
+  releaseConfigPersist();
+  await Promise.all([fetchPromise, configPromise]);
+
+  assert.equal(gateEnteredBeforeCommit, false,
+    'the Triple gate must wait until the canonical config commit releases the FIFO');
+  assert.equal(gateEntered, true);
+});
+
+test('every private delivery alarm failure uses bounded exponential backoff and success resets it', async () => {
+  const { Room } = await loadRoom();
+  let nowMs = 100_000;
+  const h = installDispatchRoom(createRoomHarness(Room, {
+    roomName: 'qa-kvk-delivery-load-backoff', nowMs,
+    useRealSchedule: true
+  }), nowMs);
+  h.room.nowMs = () => nowMs;
+  h.room.scheduleExpiry = Room.prototype.scheduleExpiry.bind(h.room);
+  h.room.ensureDeliveryLoaded = async () => {
+    throw new Error('private bundle unavailable');
+  };
+
+  await assert.doesNotReject(h.room.alarm());
+  assert.equal(h.room._deliveryFailureNotBeforeMs, 100_500);
+  assert.equal(h.alarmAtMs(), 100_500);
+
+  nowMs = 100_500;
+  await assert.doesNotReject(h.room.alarm());
+  assert.equal(h.room._deliveryFailureNotBeforeMs, 102_000);
+  assert.equal(h.alarmAtMs(), 102_000);
+
+  nowMs = 102_000;
+  h.room.ensureDeliveryLoaded = async () => {};
+  await assert.doesNotReject(h.room.alarm());
+  assert.equal(h.room._deliveryFailureNotBeforeMs, 0);
+  assert.equal(h.room._deliveryFailures, 0);
+  assert.equal(h.alarmAtMs(), null);
+});
+
+test('an earlier sibling alarm cannot reread a failed private bundle before its backoff', async () => {
+  const { Room } = await loadRoom();
+  let nowMs = 100_000;
+  const h = installDispatchRoom(createRoomHarness(Room, {
+    roomName: 'qa-kvk-delivery-load-sibling-alarm', nowMs,
+    useRealSchedule: true
+  }), nowMs);
+  h.room.nowMs = () => nowMs;
+  h.room.scheduleExpiry = Room.prototype.scheduleExpiry.bind(h.room);
+  let privateReads = 0;
+  h.room.ensureDeliveryLoaded = async () => {
+    privateReads += 1;
+    throw new Error('private bundle unavailable');
+  };
+
+  await h.room.alarm();
+  assert.equal(privateReads, 1);
+  assert.equal(h.room._deliveryFailureNotBeforeMs, 100_500);
+
+  nowMs = 100_100;
+  await h.room.alarm();
+
+  assert.equal(privateReads, 1,
+    'another surface alarm cannot bypass the private-load retry boundary');
+  assert.equal(h.room._deliveryFailures, 1);
+  assert.equal(h.room._deliveryFailureNotBeforeMs, 100_500);
+  assert.equal(h.alarmAtMs(), 100_500);
+});
+
+test('a failed Core expiry persist cannot starve due private delivery or create a 1ms mixed wake', async () => {
+  const { Room } = await loadRoom();
+  let nowMs = 100_000;
+  const h = installDispatchRoom(createRoomHarness(Room, {
+    roomName: 'qa-kvk-core-private-alarm-isolation', nowMs,
+    useRealSchedule: true
+  }), nowMs);
+  h.room.nowMs = () => nowMs;
+  h.room.scheduleExpiry = Room.prototype.scheduleExpiry.bind(h.room);
+  h.room.room.live.commands = {
+    1: { id: 'expired-core', type: 'ping', kingdom: 1, expiresUTC: 100 },
+    2: null
+  };
+  h.room.room.live.mode = 'live';
+  const player = reliableSocket(h, {
+    pid: '700001', deviceId: DISPATCH_IDS.a1,
+    soundReady: true, shadow: true, audioArmed: true,
+    armedUntilMs: nowMs + 20_000
+  });
+  h.room.delivery.commands = [pendingDeliveryRecord({
+    commandId: 'due-private-during-core-failure',
+    issuedAtMs: nowMs - 500, fireAtMs: nowMs + 10_000,
+    audioExpiresAtMs: nowMs + 10_150, nextRetryAtMs: nowMs
+  })];
+  let corePersistAttempts = 0;
+  let privatePersists = 0;
+  let coreMayPersist = false;
+  h.room.persist = async () => {
+    corePersistAttempts += 1;
+    if (!coreMayPersist) throw new Error('Core room unavailable');
+  };
+  h.room.persistDelivery = async () => { privatePersists += 1; };
+  h.room.broadcast = () => {};
+
+  await assert.doesNotReject(h.room.alarm());
+
+  assert.equal(corePersistAttempts, 1);
+  assert.ok(h.room.room.live.commands[1], 'the uncommitted Core expiry rolls back');
+  assert.equal(privatePersists, 1, 'independent due private work still commits');
+  assert.equal(player.shadowCommands().length, 1, 'the due private target is still delivered');
+  assert.equal(h.room._rallyTransitionFailureNotBeforeMs, 100_500);
+  assert.equal(h.alarmAtMs(), 100_500, 'the mixed alarm uses bounded Core backoff, not now+1');
+
+  nowMs = 100_100;
+  await h.room.alarm();
+  assert.equal(corePersistAttempts, 1,
+    'an earlier private or Defense wake cannot bypass Core transition backoff');
+  assert.equal(h.room._rallyTransitionFailureNotBeforeMs, 100_500);
+
+  nowMs = 100_500;
+  coreMayPersist = true;
+  await h.room.alarm();
+  assert.equal(corePersistAttempts, 2);
+  assert.equal(h.room.room.live.commands[1], null);
+  assert.equal(h.room._rallyTransitionFailureNotBeforeMs, 0);
+});
+
+test('a failing due probe attachment cannot bypass private delivery backoff with a 1ms wake', async () => {
+  const { Room } = await loadRoom();
+  const nowMs = 100_000;
+  const h = installDispatchRoom(createRoomHarness(Room, {
+    roomName: 'qa-kvk-probe-attachment-backoff', nowMs,
+    useRealSchedule: true
+  }), nowMs);
+  h.room.scheduleExpiry = Room.prototype.scheduleExpiry.bind(h.room);
+  const player = reliableSocket(h, {
+    pid: '700001', deviceId: DISPATCH_IDS.a1,
+    soundReady: true, shadow: true, audioArmed: true,
+    armedUntilMs: nowMs + 20_000
+  });
+  h.room.writeReliableAttachment(player.ws, {
+    lastProbeId: 'expired-probe', probeExpiresAtMs: nowMs - 1,
+    nextProbeAtMs: nowMs + 30_000
+  });
+  h.room.delivery.commands = [pendingDeliveryRecord({
+    commandId: 'probe-backoff-owner', issuedAtMs: nowMs,
+    fireAtMs: nowMs + 60_000, nextRetryAtMs: nowMs + 50_000
+  })];
+  h.room.writeReliableAttachment = () => {
+    throw new Error('attachment storage unavailable');
+  };
+
+  await assert.doesNotReject(h.room.alarm());
+
+  assert.equal(h.room._deliveryFailureNotBeforeMs, nowMs + 500);
+  assert.equal(h.alarmAtMs(), nowMs + 500,
+    'the stale due probe is clamped to the same private-work retry boundary');
+});
+
+test('an earlier sibling alarm cannot rerun a failed private probe before its backoff', async () => {
+  const { Room } = await loadRoom();
+  let nowMs = 100_000;
+  const h = installDispatchRoom(createRoomHarness(Room, {
+    roomName: 'qa-kvk-probe-sibling-alarm', nowMs,
+    useRealSchedule: true
+  }), nowMs);
+  h.room.nowMs = () => nowMs;
+  h.room.scheduleExpiry = Room.prototype.scheduleExpiry.bind(h.room);
+  const player = reliableSocket(h, {
+    pid: '700001', deviceId: DISPATCH_IDS.a1,
+    soundReady: true, shadow: true, audioArmed: true,
+    armedUntilMs: nowMs + 20_000
+  });
+  h.room.writeReliableAttachment(player.ws, {
+    lastProbeId: 'expired-sibling-probe', probeExpiresAtMs: nowMs - 1,
+    nextProbeAtMs: nowMs + 30_000
+  });
+  h.room.delivery.commands = [pendingDeliveryRecord({
+    commandId: 'probe-sibling-owner', issuedAtMs: nowMs,
+    fireAtMs: nowMs + 60_000, nextRetryAtMs: nowMs + 50_000
+  })];
+  let attachmentAttempts = 0;
+  h.room.writeReliableAttachment = () => {
+    attachmentAttempts += 1;
+    throw new Error('attachment storage unavailable');
+  };
+
+  await h.room.alarm();
+  assert.equal(attachmentAttempts, 1);
+  assert.equal(h.room._deliveryFailureNotBeforeMs, 100_500);
+
+  nowMs = 100_100;
+  await h.room.alarm();
+
+  assert.equal(attachmentAttempts, 1,
+    'other surface work cannot retry private probe mutation before its own deadline');
+  assert.equal(h.room._deliveryFailures, 1);
+  assert.equal(h.room._deliveryFailureNotBeforeMs, 100_500);
+  assert.equal(h.alarmAtMs(), 100_500);
+});
+
+for (const failingAlarmOperation of ['getAlarm', 'setAlarm']) {
+  test(`a committed Rally command survives one ${failingAlarmOperation} failure and still broadcasts and dispatches`, async () => {
+    const { Room } = await loadRoom();
+    const h = installDispatchRoom(createRoomHarness(Room, {
+      roomName: `qa-kvk-command-${failingAlarmOperation.toLowerCase()}-repair`,
+      nowMs: DISPATCH_NOW_MS, useRealSchedule: true
+    }));
+    const target = reliableSocket(h, {
+      pid: '700001', deviceId: DISPATCH_IDS.a1,
+      soundReady: true, shadow: true, audioArmed: true,
+      armedUntilMs: DISPATCH_NOW_MS + 20_000
+    });
+    let durableRoom = null;
+    let persistedDelivery = null;
+    let broadcasts = 0;
+    let alarmAtMs = null;
+    let injected = false;
+    h.room.persistAll = async () => { durableRoom = structuredClone(h.room.room); };
+    h.room.persistDelivery = async () => { persistedDelivery = structuredClone(h.room.delivery); };
+    h.room.broadcast = () => { broadcasts += 1; };
+    h.room.scheduleExpiry = Room.prototype.scheduleExpiry.bind(h.room);
+    h.room.state.storage.getAlarm = async () => {
+      if (failingAlarmOperation === 'getAlarm' && !injected) {
+        injected = true;
+        throw new Error('injected getAlarm failure');
+      }
+      return alarmAtMs;
+    };
+    h.room.state.storage.setAlarm = async value => {
+      if (failingAlarmOperation === 'setAlarm' && !injected) {
+        injected = true;
+        throw new Error('injected setAlarm failure');
+      }
+      alarmAtMs = value;
+    };
+    h.room.state.storage.deleteAlarm = async () => { alarmAtMs = null; };
+
+    await assert.doesNotReject(h.room.webSocketMessage(
+      h.ws, JSON.stringify(doubleRallyMessage())
+    ));
+
+    assert.ok(durableRoom.live.commands[1], 'the canonical command committed first');
+    assert.equal(broadcasts >= 1, true, 'Classic clients still receive the committed command');
+    assert.equal(persistedDelivery.commands.length, 1,
+      'Reliable delivery is persisted despite the first scheduler failure');
+    assert.equal(target.shadowCommands().length, 1,
+      'the targeted armed device receives its immutable command frame');
+    assert.equal(Number.isFinite(alarmAtMs), true,
+      'a best-effort retry repairs the missing Durable Object alarm');
+  });
+}

@@ -199,7 +199,7 @@ test('a cold Defense fetch does not read or write Rally storage namespaces', asy
   let initialized;
   const sockets = [];
   const state = {
-    id: { name: 'r:qa-kvk-defense-cold-start' },
+    id: { name: 'r:qa' },
     storage: {
       async get(key) { reads.push(key); return null; },
       async put(key, value) { writes.push([key, value]); }
@@ -217,8 +217,14 @@ test('a cold Defense fetch does not read or write Rally storage namespaces', asy
   const result = await captureFetch(room, 'defense');
 
   assert.equal(result.response.status, 101);
-  assert.deepEqual(result.sent, [{ t: 'error', error: 'defense_not_available' }]);
-  assert.deepEqual(reads, [], 'Defense cold start cannot inspect Rally room or delivery state');
+  assert.equal(result.sent.length, 1);
+  assert.equal(result.sent[0].t, 'defenseState');
+  assert.equal(result.sent[0].ownProfile, null);
+  assert.equal(result.sent[0].activeOrderForOwnProfile, null);
+  assert.deepEqual(reads, [[
+    'defense:v1', 'defenseProfileOwners:v1', 'defenseDevices:v1', 'defenseAcks:v1',
+    'defenseRemovedOwners:v1'
+  ]], 'Defense cold start reads only its isolated namespaces');
   assert.deepEqual(writes, [], 'Defense cold start cannot migrate or persist Rally state');
 });
 
@@ -251,9 +257,9 @@ test('missing and explicit Rally fetches retain the Rally handshake and bind imm
   }
 });
 
-test('explicit Defense fetch returns only defense_not_available before any Rally load or projection', async () => {
+test('explicit Defense fetch returns a private canonical handshake before any Rally load or projection', async () => {
   const { Room } = await loadRoom();
-  const h = createRoomHarness(Room, { roomName: 'qa-kvk-surface-defense' });
+  const h = createRoomHarness(Room, { roomName: 'qa', surface: 'defense' });
   const touched = [];
   h.room.ensureDeliveryLoaded = async () => { touched.push('delivery'); };
   h.room.applyTripleGate = async () => { touched.push('triple'); };
@@ -261,7 +267,10 @@ test('explicit Defense fetch returns only defense_not_available before any Rally
 
   const result = await captureFetch(h.room, 'defense');
   assert.equal(result.response.status, 101);
-  assert.deepEqual(result.sent, [{ t: 'error', error: 'defense_not_available' }]);
+  assert.equal(result.sent.length, 1);
+  assert.equal(result.sent[0].t, 'defenseState');
+  assert.equal(Object.hasOwn(result.sent[0], 'players'), false);
+  assert.equal(Object.hasOwn(result.sent[0], 'room'), false);
   assert.deepEqual(touched, []);
   assert.equal(result.attachment().surface, 'defense');
   assert.throws(
@@ -304,7 +313,7 @@ test('first hibernated legacy message migrates to Rally before loading Rally del
   assert.equal(h.ws.deserializeAttachment().surface, 'rally');
 });
 
-test('a Defense first message after hibernation cannot load or mutate Rally state', async () => {
+test('a Defense first message after hibernation rejects Rally operations without loading or mutating Rally state', async () => {
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room, { roomName: 'qa-kvk-surface-hibernated-defense' });
   h.ws.serializeAttachment({
@@ -318,7 +327,7 @@ test('a Defense first message after hibernation cannot load or mutate Rally stat
     t: 'setConfig', password: 'would-claim-rally', config: {}, by: 'defense'
   }));
 
-  assert.deepEqual(h.sent, [{ t: 'error', error: 'defense_not_available' }]);
+  assert.deepEqual(h.sent, [{ t: 'error', source: 'defense', error: 'wrong_surface' }]);
   assert.equal(deliveryLoads, 0);
   assert.equal(h.room.room.pwHash, null);
   assert.deepEqual(h.calls, []);

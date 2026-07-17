@@ -165,8 +165,9 @@ test('private profile owners survive reload, reject invalid hashes, and never en
   h.room.profileOwners = null;
   h.room.state.storage = {
     async get(keys) {
-      assert.deepEqual(keys, ['devices', 'deliveryAcks', 'profileOwners']);
+      assert.deepEqual(keys, ['delivery:v1', 'devices', 'deliveryAcks', 'profileOwners']);
       return new Map([
+        ['delivery:v1', { v: 1, roomName: h.roomName, commands: [] }],
         ['devices', []],
         ['deliveryAcks', []],
         ['profileOwners', { '001': ownerHash, kimchi: 'not-a-hash' }]
@@ -284,12 +285,16 @@ test('concurrent registrations do not lose a player while the first profile key 
       identityMode: 'nickname', profileKey: PROFILE_KEY
     }));
     await gate.waitUntilHeld();
-    await h.room.webSocketMessage(h.ws, JSON.stringify({
+    let secondSettled = false;
+    const second = h.room.webSocketMessage(h.ws, JSON.stringify({
       t: 'registerPlayer', pid: 'race-b', name: 'Race B', march: 36,
       identityMode: 'nickname', profileKey: ATTACKER_PROFILE_KEY
-    }));
+    })).then(() => { secondSettled = true; });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(secondSettled, false,
+      'the second canonical roster mutation waits for the first hash transaction');
     gate.release();
-    await first;
+    await Promise.all([first, second]);
   });
 
   assert.equal(h.room.room.players['race-a'].name, 'Race A');
@@ -299,7 +304,7 @@ test('concurrent registrations do not lose a player while the first profile key 
   assert.deepEqual(h.calls, ['persistAll', 'broadcast', 'persistAll', 'broadcast']);
 });
 
-test('concurrent registrations for one pid grant editing only to the owner that created it', async () => {
+test('concurrent registrations for one pid serialize ownership to the first canonical creator', async () => {
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room);
 
@@ -309,30 +314,30 @@ test('concurrent registrations for one pid grant editing only to the owner that 
       identityMode: 'nickname', profileKey: PROFILE_KEY
     }));
     await gate.waitUntilHeld();
-    await h.room.webSocketMessage(h.ws, JSON.stringify({
+    const second = h.room.webSocketMessage(h.ws, JSON.stringify({
       t: 'registerPlayer', registrationId: 'second-device', pid: 'one-owner', name: 'Second Device', march: 36,
       identityMode: 'nickname', profileKey: ATTACKER_PROFILE_KEY
     }));
     gate.release();
-    await first;
+    await Promise.all([first, second]);
   });
 
-  assert.equal(h.room.room.players['one-owner'].name, 'Second Device');
-  assert.equal(h.room.profileOwners['one-owner'], profileKeyHash(ATTACKER_PROFILE_KEY));
+  assert.equal(h.room.room.players['one-owner'].name, 'First Device');
+  assert.equal(h.room.profileOwners['one-owner'], profileKeyHash(PROFILE_KEY));
   assert.deepEqual(h.sent, [
     {
-      t: 'playerRegistered', registrationId: 'second-device', pid: 'one-owner', created: true, editable: true,
-      identityMode: 'nickname', name: 'Second Device', march: 36, revision: 0
+      t: 'playerRegistered', registrationId: 'first-device', pid: 'one-owner', created: true, editable: true,
+      identityMode: 'nickname', name: 'First Device', march: 35, revision: 0
     },
     {
-      t: 'playerRegistered', registrationId: 'first-device', pid: 'one-owner', created: false, editable: false,
-      identityMode: 'nickname', name: 'Second Device', march: 36, revision: 0
+      t: 'playerRegistered', registrationId: 'second-device', pid: 'one-owner', created: false, editable: false,
+      identityMode: 'nickname', name: 'First Device', march: 35, revision: 0
     }
   ]);
   assert.deepEqual(h.calls, ['persistAll', 'broadcast']);
 });
 
-test('recover-only registration never recreates a player removed while ownership hashing is pending', async () => {
+test('recover-only registration completes before a queued canonical removal', async () => {
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room, {
     players: {
@@ -354,17 +359,19 @@ test('recover-only registration never recreates a player removed while ownership
       identityMode: 'nickname', profileKey: PROFILE_KEY
     }));
     await gate.waitUntilHeld();
-    await h.room.webSocketMessage(h.ws, JSON.stringify({
+    const removal = h.room.webSocketMessage(h.ws, JSON.stringify({
       t: 'removePlayer', password: 'commander-secret', pid: 'recover-race'
     }));
     gate.release();
-    await recovery;
+    await Promise.all([recovery, removal]);
   });
 
   assert.equal(h.room.room.players['recover-race'], undefined);
   assert.equal(h.room.profileOwners['recover-race'], undefined);
   assert.deepEqual(h.sent, [{
-    t: 'error', error: 'player_missing', registrationId: 'recover-only-race', pid: 'recover-race'
+    t: 'playerRegistered', registrationId: 'recover-only-race', pid: 'recover-race',
+    created: false, editable: true, identityMode: 'nickname', name: 'Recover Race',
+    march: 35, revision: 0
   }]);
   assert.deepEqual(h.calls, ['persistAll', 'broadcast']);
 
@@ -552,7 +559,7 @@ test('a second publicly bound audio device cannot overwrite an owned player prof
   assert.deepEqual(h.calls, []);
 });
 
-test('an old owner cannot finish an update after commander removal and secure re-registration', async () => {
+test('an owned update serializes before queued commander removal and secure re-registration', async () => {
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room);
   h.room.profileOwners = { '001': profileKeyHash(PROFILE_KEY) };
@@ -566,21 +573,20 @@ test('an old owner cannot finish an update after commander removal and secure re
       march: 99, baseRevision: 0
     }));
     await gate.waitUntilHeld();
-    await h.room.webSocketMessage(h.ws, JSON.stringify({
+    const removal = h.room.webSocketMessage(h.ws, JSON.stringify({
       t: 'removePlayer', password: 'commander-secret', pid: '001'
     }));
-    await h.room.webSocketMessage(h.ws, JSON.stringify({
+    const replacement = h.room.webSocketMessage(h.ws, JSON.stringify({
       t: 'registerPlayer', pid: '001', name: 'New Owner', march: 32,
       identityMode: 'nickname', profileKey: ATTACKER_PROFILE_KEY
     }));
-    h.sent.length = 0;
     gate.release();
-    await staleUpdate;
+    await Promise.all([staleUpdate, removal, replacement]);
   });
 
-  assert.deepEqual(h.sent, [{
-    t: 'error', error: 'profile_owner_mismatch', mutationId: 'stale-owner', pid: '001'
-  }]);
+  assert.deepEqual(h.sent.map(frame => frame.t), [
+    'playerProfileSaved', 'playerRegistered'
+  ], 'the FIFO commits the already-authorized edit, then removal, then replacement');
   assert.equal(h.room.room.players['001'].name, 'New Owner');
   assert.equal(h.room.room.players['001'].march, 32);
   assert.equal(h.room.profileOwners['001'], profileKeyHash(ATTACKER_PROFILE_KEY));
