@@ -189,7 +189,7 @@ function pendingDeliveryRecord({
 test('worker Durable Object names become trusted business room names at the real Room constructor boundary', async () => {
   const { default: worker, Room } = await loadWorker();
   let capturedName = '';
-  const request = new Request('https://qa-kvk.invalid/api/ws?room=qa-kvk-worker-boundary');
+  const request = new Request('https://coordination.test.invalid/api/ws?room=qa');
   const response = await worker.fetch(request, {
     ROOM: {
       idFromName(name) {
@@ -219,8 +219,8 @@ test('worker Durable Object names become trusted business room names at the real
     dispatched,
     privateWriteKeys: privateWrites.map(([key]) => key)
   }, {
-    capturedName: 'r:qa-kvk-worker-boundary',
-    roomName: 'qa-kvk-worker-boundary',
+    capturedName: 'r:qa',
+    roomName: 'qa',
     dispatched: true,
     privateWriteKeys: ['delivery:v1']
   });
@@ -229,10 +229,10 @@ test('worker Durable Object names become trusted business room names at the real
 test('Room normalization preserves legacy names, strips one owned prefix, and keeps non-QA rooms gated', async () => {
   const { Room } = await loadRoom();
   const cases = [
-    { durableName: 'qa-kvk-legacy', roomName: 'qa-kvk-legacy', dispatched: true },
+    { durableName: 'qa', roomName: 'qa', dispatched: true },
     { durableName: 'operation-room', roomName: 'operation-room', dispatched: false },
     { durableName: 'r:operation-room', roomName: 'operation-room', dispatched: false },
-    { durableName: 'r:r:qa-kvk-double', roomName: 'r:qa-kvk-double', dispatched: false }
+    { durableName: 'r:r:qa', roomName: 'r:qa', dispatched: false }
   ];
 
   for (const item of cases) {
@@ -257,12 +257,12 @@ test('constructor loads Core state without conflating it with the separately loa
   const storageReads = [];
   let initialized;
   const state = {
-    id: { name: 'qa-kvk-constructor' },
+    id: { name: 'qa' },
     storage: {
       async get(key) {
         storageReads.push(key);
         if (Array.isArray(key)) return new Map([
-          ['delivery:v1', { v: 1, roomName: 'qa-kvk-constructor', commands: [] }],
+          ['delivery:v1', { v: 1, roomName: 'qa', commands: [] }],
           ['devices', []],
           ['deliveryAcks', []],
           ['profileOwners', {}]
@@ -285,14 +285,14 @@ test('constructor loads Core state without conflating it with the separately loa
   assert.deepEqual(storageReads, [
     'room', ['delivery:v1', 'devices', 'deliveryAcks', 'profileOwners']
   ]);
-  assert.deepEqual(room.delivery, { v: 1, roomName: 'qa-kvk-constructor', commands: [] });
+  assert.deepEqual(room.delivery, { v: 1, roomName: 'qa', commands: [] });
   assert.equal(Object.prototype.hasOwnProperty.call(room.room, 'delivery'), false);
 });
 
 test('a failed private delivery read stays retryable and never becomes an empty loaded state', async () => {
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room, {
-    roomName: 'qa-kvk-delivery-read-retry', nowMs: 100_000
+    roomName: 'qa', nowMs: 100_000
   });
   const storedDelivery = {
     v: 1,
@@ -330,7 +330,7 @@ test('a failed private delivery read stays retryable and never becomes an empty 
 
 test('Reliable attachment wrappers preserve Core identity and unknown fields while enforcing their whitelist', async () => {
   const { Room } = await loadRoom();
-  const h = createRoomHarness(Room, { roomName: 'qa-kvk-wrapper' });
+  const h = createRoomHarness(Room, { roomName: 'qa' });
   h.room.writeSocketAttachment(h.ws, {
     pid: '001',
     deviceId: '00000000-0000-4000-8000-000000000001',
@@ -355,7 +355,7 @@ test('Reliable attachment wrappers preserve Core identity and unknown fields whi
     nextProbeAtMs: 9012
   });
 
-  assert.equal(written.roomName, 'qa-kvk-wrapper');
+  assert.equal(written.roomName, 'qa');
   assert.equal(written.pid, '001');
   assert.equal(written.deviceId, '00000000-0000-4000-8000-000000000001');
   assert.equal(written.soundReady, true);
@@ -371,7 +371,7 @@ test('Reliable attachment wrappers preserve Core identity and unknown fields whi
 
 test('Reliable defaults are initialized in the harness and in fetch before the first state send', async () => {
   const { Room } = await loadRoom();
-  const h = createRoomHarness(Room, { roomName: 'qa-kvk-initialize' });
+  const h = createRoomHarness(Room, { roomName: 'qa' });
   h.room.delivery = { v: 1, roomName: h.roomName, commands: [] };
   assert.deepEqual(h.room.initializeReliableAttachment(h.ws), {
     roomName: h.roomName,
@@ -414,7 +414,7 @@ test('Reliable defaults are initialized in the harness and in fetch before the f
     h.room.ensureDeliveryLoaded = async () => {};
     await h.room.fetch({
       headers: { get: (name) => name === 'Upgrade' ? 'websocket' : null },
-      url: 'https://qa-kvk.invalid/api/ws?room=qa-kvk-initialize'
+      url: 'https://coordination.test.invalid/api/ws?room=qa'
     });
   } finally {
     globalThis.WebSocketPair = originalPair;
@@ -439,8 +439,8 @@ test('every deliveryShadow message is rejected uniformly outside exact QA rooms 
     { t: 'deliveryShadowUnknown' }
   ];
 
-  for (const roomName of ['operation-room', 'demo', '_', 'qa-kvk-']) {
-    const h = createRoomHarness(Room, { roomName: 'qa-kvk-rejection' });
+  for (const roomName of ['operation-room', 'demo', '_', 'qa-kvk-old']) {
+    const h = createRoomHarness(Room, { roomName: 'qa' });
     h.room.roomName = roomName;
     h.room.delivery = { v: 1, roomName: '', commands: [] };
     h.room._deliveryLoaded = true;
@@ -467,7 +467,7 @@ test('every deliveryShadow message is rejected uniformly outside exact QA rooms 
 test('hello rejects a claimed identity mismatch and challenges an already Core-bound ready socket', async () => {
   const { Room } = await loadRoom();
   const h = prepareReliableSocket(createRoomHarness(Room, {
-    roomName: 'qa-kvk-hello', nowMs: 1_000_000
+    roomName: 'qa', nowMs: 1_000_000
   }));
   const sideEffects = [];
   h.room.persistDelivery = async () => { sideEffects.push('persistDelivery'); };
@@ -495,7 +495,7 @@ test('hello rejects a claimed identity mismatch and challenges an already Core-b
   assert.equal(h.sent[0].sentAtMs, 1_000_000);
   assert.equal(h.sent[0].expiresAtMs, 1_002_000);
   const attachment = h.room.readReliableAttachment(h.ws);
-  assert.equal(attachment.roomName, 'qa-kvk-hello');
+  assert.equal(attachment.roomName, 'qa');
   assert.equal(attachment.pid, '001');
   assert.equal(attachment.deviceId, DEVICE_ID);
   assert.equal(attachment.soundReady, true);
@@ -507,7 +507,7 @@ test('hello rejects a claimed identity mismatch and challenges an already Core-b
   assert.equal(attachment.lastProbeId, h.sent[0].probeId);
   assert.equal(attachment.probeExpiresAtMs, 1_002_000);
   assert.equal(attachment.nextProbeAtMs, 1_003_000);
-  assert.equal(h.room.delivery.roomName, 'qa-kvk-hello');
+  assert.equal(h.room.delivery.roomName, 'qa');
   assert.deepEqual(sideEffects, ['persistDelivery', 'alarm']);
 });
 
@@ -515,7 +515,7 @@ test('probe ACK ignores wrong and expired challenges and grants exactly one 8000
   const { Room } = await loadRoom();
   let nowMs = 2_000_000;
   const h = prepareReliableSocket(createRoomHarness(Room, {
-    roomName: 'qa-kvk-probe', nowMs
+    roomName: 'qa', nowMs
   }));
   h.room.nowMs = () => nowMs;
   h.room.persistDelivery = async () => {};
@@ -579,7 +579,7 @@ test('probe ACK ignores wrong and expired challenges and grants exactly one 8000
 test('Reliable persistence uses only delivery:v1 and probe send failures stay contained', async () => {
   const { Room } = await loadRoom();
   const h = prepareReliableSocket(createRoomHarness(Room, {
-    roomName: 'qa-kvk-persist', nowMs: 3_000_000
+    roomName: 'qa', nowMs: 3_000_000
   }));
   const puts = [];
   h.room.state.storage = { async put(...args) { puts.push(args); } };
@@ -600,10 +600,10 @@ test('Reliable persistence uses only delivery:v1 and probe send failures stay co
 
 test('QA snapshots expose only aggregate delivery summaries and omit them when empty or non-QA', async () => {
   const { Room } = await loadRoom();
-  const h = createRoomHarness(Room, { roomName: 'qa-kvk-summary', nowMs: 4_000_000 });
+  const h = createRoomHarness(Room, { roomName: 'qa', nowMs: 4_000_000 });
   h.room.delivery = {
     v: 1,
-    roomName: 'qa-kvk-summary',
+    roomName: 'qa',
     commands: [{
       commandId: 'command-public-id',
       kingdom: 1,
@@ -658,8 +658,8 @@ test('QA snapshots expose only aggregate delivery summaries and omit them when e
     commandId: 'forged-room-command', kingdom: 1, issuedAtMs: 1,
     cancelledAtMs: null, audiences: [], targets: []
   }];
-  h.room.delivery.roomName = 'qa-kvk-summary';
-  for (const roomName of ['operation-room', 'demo', '_', 'qa-kvk-']) {
+  h.room.delivery.roomName = 'qa';
+  for (const roomName of ['operation-room', 'demo', '_', 'qa-kvk-old']) {
     h.room.roomName = roomName;
     assert.equal(Object.prototype.hasOwnProperty.call(h.room.snapshot(), 'deliveryShadow'), false, roomName);
   }
@@ -679,11 +679,11 @@ test('constructor migration removes contaminated delivery payloads from the Core
     deliveryShadow: { lastProbeId: 'PRIVATE-CONSTRUCTOR-PROBE' }
   };
   const state = {
-    id: { name: 'qa-kvk-contaminated-constructor' },
+    id: { name: 'qa' },
     storage: {
       async get(key) {
         if (key === 'room') return structuredClone(storedRoom);
-        return { v: 1, roomName: 'qa-kvk-contaminated-constructor', commands: [] };
+        return { v: 1, roomName: 'qa', commands: [] };
       }
     },
     blockConcurrencyWhile(callback) {
@@ -703,13 +703,13 @@ test('constructor migration removes contaminated delivery payloads from the Core
 test('snapshots scrub contaminated delivery keys in populated QA, empty QA, and non-QA rooms', async () => {
   const { Room } = await loadRoom();
   const cases = [
-    { roomName: 'qa-kvk-contaminated-summary', commands: true, aggregate: true },
-    { roomName: 'qa-kvk-contaminated-empty', commands: false, aggregate: false },
+    { roomName: 'qa', commands: true, aggregate: true },
+    { roomName: 'qa-kvk-old', commands: false, aggregate: false },
     { roomName: 'operation-room', commands: true, aggregate: false }
   ];
 
   for (const item of cases) {
-    const h = createRoomHarness(Room, { roomName: 'qa-kvk-contaminated-base', nowMs: 5_000_000 });
+    const h = createRoomHarness(Room, { roomName: 'qa', nowMs: 5_000_000 });
     h.room.roomName = item.roomName;
     h.room.room.delivery = { pid: 'PRIVATE-SNAPSHOT-PID', deviceId: DEVICE_ID };
     h.room.room.deliveryShadow = {
@@ -746,7 +746,7 @@ test('snapshots scrub contaminated delivery keys in populated QA, empty QA, and 
 test('a rejected Reliable write leaves hello attachment, model, Core room, identity, and alarm untouched', async () => {
   const { Room } = await loadRoom();
   const h = prepareReliableSocket(createRoomHarness(Room, {
-    roomName: 'qa-kvk-persist-failure', nowMs: 6_000_000
+    roomName: 'qa', nowMs: 6_000_000
   }));
   const beforeAttachment = h.room.readReliableAttachment(h.ws);
   const beforeDelivery = structuredClone(h.room.delivery);
@@ -774,7 +774,7 @@ test('a rejected Reliable write leaves hello attachment, model, Core room, ident
   assert.equal(alarms, 0);
 
   const closed = prepareReliableSocket(createRoomHarness(Room, {
-    roomName: 'qa-kvk-persist-closed', nowMs: 6_100_000
+    roomName: 'qa', nowMs: 6_100_000
   }));
   closed.room.state.storage = { async put() { throw new Error('storage unavailable'); } };
   closed.ws.send = () => { throw new Error('socket closed'); };
@@ -797,7 +797,7 @@ test('hello distinguishes every Core identity failure from malformed shadow prot
 
   for (const item of cases) {
     const h = prepareReliableSocket(createRoomHarness(Room, {
-      roomName: 'qa-kvk-invalid-hello', nowMs: 7_000_000
+      roomName: 'qa', nowMs: 7_000_000
     }));
     if (item.ready === false) h.room.writeSocketAttachment(h.ws, { soundReady: false });
     let persists = 0;
@@ -822,7 +822,7 @@ test('hello distinguishes every Core identity failure from malformed shadow prot
 test('an unsupported deliveryShadow frame in QA gets a bounded error without mutation', async () => {
   const { Room } = await loadRoom();
   const h = prepareReliableSocket(createRoomHarness(Room, {
-    roomName: 'qa-kvk-unsupported', nowMs: 8_000_000
+    roomName: 'qa', nowMs: 8_000_000
   }));
   const beforeAttachment = h.room.readReliableAttachment(h.ws);
   const beforeDelivery = structuredClone(h.room.delivery);
@@ -845,7 +845,7 @@ test('an unsupported deliveryShadow frame in QA gets a bounded error without mut
 test('Fire completes exact Classic order before targeting only selected currently armed shadow devices', async () => {
   const { Room } = await loadRoom();
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-dispatch-order', nowMs: DISPATCH_NOW_MS
+    roomName: 'qa', nowMs: DISPATCH_NOW_MS
   }));
   const events = [];
   const socket = (options) => reliableSocket(h, {
@@ -919,7 +919,7 @@ test('Fire completes exact Classic order before targeting only selected currentl
 test('dispatch retries byte-identical envelopes only while the exact socket lease remains current', async () => {
   const { Room } = await loadRoom();
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-dispatch-bytes', nowMs: DISPATCH_NOW_MS
+    roomName: 'qa', nowMs: DISPATCH_NOW_MS
   }));
   const a1 = reliableSocket(h, {
     pid: '700001', deviceId: DISPATCH_IDS.a1,
@@ -970,7 +970,7 @@ test('dispatch retries byte-identical envelopes only while the exact socket leas
 test('an exact armed probe ACK activates every still-actionable pending record but hello activates none', async () => {
   const { Room } = await loadRoom();
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-probe-activation', nowMs: DISPATCH_NOW_MS
+    roomName: 'qa', nowMs: DISPATCH_NOW_MS
   }));
   let events = [];
   const player = reliableSocket(h, {
@@ -1028,7 +1028,7 @@ test('an exact armed probe ACK activates every still-actionable pending record b
 test('candidate ACK identity comes from its attached target and publishes only after private persistence', async () => {
   const { Room } = await loadRoom();
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-candidate-identity', nowMs: DISPATCH_NOW_MS
+    roomName: 'qa', nowMs: DISPATCH_NOW_MS
   }));
   const a1 = reliableSocket(h, { pid: '700001', deviceId: DISPATCH_IDS.a1 });
   const a2 = reliableSocket(h, { pid: '700001', deviceId: DISPATCH_IDS.a2 });
@@ -1071,7 +1071,7 @@ test('candidate ACK identity comes from its attached target and publishes only a
 test('candidate ACK persistence failure rolls back its fact and never exposes an unpersisted aggregate', async () => {
   const { Room } = await loadRoom();
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-candidate-rollback', nowMs: DISPATCH_NOW_MS
+    roomName: 'qa', nowMs: DISPATCH_NOW_MS
   }));
   const a1 = reliableSocket(h, { pid: '700001', deviceId: DISPATCH_IDS.a1 });
   h.room.persistDelivery = async () => {};
@@ -1105,7 +1105,7 @@ test('candidate ACK persistence failure rolls back its fact and never exposes an
 test('Core saved confirmation precedes canonical mirror and an idempotent retry recovers a failed private write', async () => {
   const { Room } = await loadRoom();
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-classic-mirror', nowMs: DISPATCH_NOW_MS
+    roomName: 'qa', nowMs: DISPATCH_NOW_MS
   }));
   let events = [];
   const player = reliableSocket(h, {
@@ -1188,7 +1188,7 @@ test('Core saved confirmation precedes canonical mirror and an idempotent retry 
 test('a Core ACK saved before reconnect probing is backfilled after the exact probe ACK', async () => {
   const { Room } = await loadRoom();
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-reconnect-classic-backfill', nowMs: DISPATCH_NOW_MS
+    roomName: 'qa', nowMs: DISPATCH_NOW_MS
   }));
   reliableSocket(h, {
     pid: '700001', deviceId: DISPATCH_IDS.canonical
@@ -1251,7 +1251,7 @@ test('a Core ACK saved before reconnect probing is backfilled after the exact pr
 test('dispatch persistence failure leaves the already persisted and broadcast Core command intact while rolling private state back', async () => {
   const { Room } = await loadRoom();
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-dispatch-rollback', nowMs: DISPATCH_NOW_MS
+    roomName: 'qa', nowMs: DISPATCH_NOW_MS
   }));
   const events = [];
   reliableSocket(h, {
@@ -1286,7 +1286,7 @@ test('dispatch persistence failure leaves the already persisted and broadcast Co
 test('dispatch derives QA only from the Core-bound room and rebinds contaminated private room state', async () => {
   const { Room } = await loadRoom();
   const qa = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-core-bound-dispatch', nowMs: DISPATCH_NOW_MS
+    roomName: 'qa', nowMs: DISPATCH_NOW_MS
   }));
   reliableSocket(qa, { pid: '700001', deviceId: DISPATCH_IDS.a1 });
   qa.room.delivery.roomName = 'operation-room';
@@ -1300,11 +1300,11 @@ test('dispatch derives QA only from the Core-bound room and rebinds contaminated
   assert.equal(qa.room.delivery.commands[0].targets.length, 1);
 
   const operation = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-operation-fixture', nowMs: DISPATCH_NOW_MS
+    roomName: 'qa', nowMs: DISPATCH_NOW_MS
   }));
   reliableSocket(operation, { pid: '700001', deviceId: DISPATCH_IDS.a1 });
   operation.room.roomName = 'operation-room';
-  operation.room.delivery.roomName = 'qa-kvk-forged-private-state';
+  operation.room.delivery.roomName = 'qa';
   let privateWrites = 0;
   operation.room.persistDelivery = async () => { privateWrites += 1; };
   operation.room.scheduleExpiry = async () => {};
@@ -1319,7 +1319,7 @@ test('dispatch derives QA only from the Core-bound room and rebinds contaminated
 test('probe activation persistence failure rolls pending targets back before any aggregate broadcast', async () => {
   const { Room } = await loadRoom();
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-probe-rollback', nowMs: DISPATCH_NOW_MS
+    roomName: 'qa', nowMs: DISPATCH_NOW_MS
   }));
   const player = reliableSocket(h, {
     pid: '700001', deviceId: DISPATCH_IDS.a1,
@@ -1360,7 +1360,7 @@ test('probe activation persistence failure rolls pending targets back before any
 test('Core rejection paths never reach the Reliable mirror', async () => {
   const { Room } = await loadRoom();
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-mirror-rejections', nowMs: DISPATCH_NOW_MS
+    roomName: 'qa', nowMs: DISPATCH_NOW_MS
   }));
   const player = reliableSocket(h, {
     pid: '700001', deviceId: DISPATCH_IDS.a1
@@ -1513,7 +1513,7 @@ test('the single Durable Object alarm chooses every source exactly once and bump
 
   for (const item of cases) {
     const h = installDispatchRoom(createRoomHarness(Room, {
-      roomName: `qa-kvk-alarm-${item.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-$/g, '')}`,
+      roomName: 'qa',
       nowMs: 100_000
     }), 100_000);
     const calls = [];
@@ -1533,12 +1533,12 @@ test('the single Durable Object alarm chooses every source exactly once and bump
 test('forged private QA and attachment flags cannot move an operation-room alarm', async () => {
   const { Room } = await loadRoom();
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-forged-alarm', nowMs: 100_000
+    roomName: 'qa', nowMs: 100_000
   }), 100_000);
   h.room.roomName = 'operation-room';
   h.room.room.live.commands = { 1: { expiresUTC: 200 }, 2: null };
   h.room.delivery = {
-    v: 1, roomName: 'qa-kvk-forged-private',
+    v: 1, roomName: 'qa',
     commands: [pendingDeliveryRecord({ nextRetryAtMs: 100_100 })]
   };
   h.room.writeSocketAttachment(h.ws, { roomName: 'operation-room', qa: true });
@@ -1561,7 +1561,7 @@ test('forged private QA and attachment flags cannot move an operation-room alarm
 test('a cold unknown QA delivery bundle preserves an existing mixed-surface alarm', async () => {
   const { Room } = await loadRoom();
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-cold-private-alarm', nowMs: 100_000,
+    roomName: 'qa', nowMs: 100_000,
     useRealSchedule: true
   }), 100_000);
   h.room.scheduleExpiry = Room.prototype.scheduleExpiry.bind(h.room);
@@ -1583,7 +1583,7 @@ test('alarm sends only the 0/500/1500 retries as one byte-identical immutable fr
   const { Room } = await loadRoom();
   let nowMs = DISPATCH_NOW_MS;
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-alarm-raw-retries', nowMs
+    roomName: 'qa', nowMs
   }), nowMs);
   h.room.nowMs = () => nowMs;
   const player = reliableSocket(h, {
@@ -1623,7 +1623,7 @@ test('a failed retry persistence sends nothing, backs off 500ms, and recovery st
   const { Room } = await loadRoom();
   let nowMs = DISPATCH_NOW_MS;
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-retry-persist-backoff', nowMs
+    roomName: 'qa', nowMs
   }), nowMs);
   h.room.nowMs = () => nowMs;
   const player = reliableSocket(h, {
@@ -1677,7 +1677,7 @@ test('an expired challenge clears the probe and armed lease before a due retry w
   const { Room } = await loadRoom();
   let nowMs = DISPATCH_NOW_MS;
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-expired-challenge', nowMs
+    roomName: 'qa', nowMs
   }), nowMs);
   h.room.nowMs = () => nowMs;
   const player = reliableSocket(h, {
@@ -1718,7 +1718,7 @@ test('lease equality disarms before a same-millisecond retry and issues exactly 
   const { Room } = await loadRoom();
   let nowMs = DISPATCH_NOW_MS;
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-lease-probe-equality', nowMs
+    roomName: 'qa', nowMs
   }), nowMs);
   h.room.nowMs = () => nowMs;
   const player = reliableSocket(h, {
@@ -1757,7 +1757,7 @@ test('history-prune equality schedules next millisecond, persists the prune, the
   const { Room } = await loadRoom();
   let nowMs = 100_000;
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-history-prune', nowMs
+    roomName: 'qa', nowMs
   }), nowMs);
   h.room.nowMs = () => nowMs;
   h.room.delivery.commands = [pendingDeliveryRecord({
@@ -1791,7 +1791,7 @@ test('repeated prune persistence failures use bounded exponential spacing instea
   const { Room } = await loadRoom();
   let nowMs = 100_000;
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-prune-persist-backoff', nowMs
+    roomName: 'qa', nowMs
   }), nowMs);
   h.room.nowMs = () => nowMs;
   h.room.delivery.commands = [pendingDeliveryRecord({
@@ -1838,7 +1838,7 @@ test('a Reliable persist failure at the same wake cannot suppress Classic expiry
   const { Room } = await loadRoom();
   const nowMs = 1_000_000;
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-alarm-failure-isolation', nowMs
+    roomName: 'qa', nowMs
   }), nowMs);
   h.room.nowMs = () => nowMs;
   h.room.room.live = {
@@ -1895,7 +1895,7 @@ test('readiness loss still clears an expired challenge and lease without renewin
   const { Room } = await loadRoom();
   let nowMs = 100_000;
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-unready-probe-cleanup', nowMs
+    roomName: 'qa', nowMs
   }), nowMs);
   h.room.nowMs = () => nowMs;
   const player = reliableSocket(h, {
@@ -1940,7 +1940,7 @@ test('an active delivery readiness recovery schedules once and a duplicate heart
   const { Room } = await loadRoom();
   const nowMs = 180_000;
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-active-readiness-recovery', nowMs
+    roomName: 'qa', nowMs
   }), nowMs);
   const player = reliableSocket(h, {
     pid: '700001', deviceId: DISPATCH_IDS.a1,
@@ -1996,7 +1996,7 @@ test('an active delivery readiness recovery schedules once and a duplicate heart
 test('a first-dispatch alarm failure leaves an attachment retry flag without resending the command', async () => {
   const { Room } = await loadRoom();
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-first-dispatch-alarm-retry', nowMs: DISPATCH_NOW_MS
+    roomName: 'qa', nowMs: DISPATCH_NOW_MS
   }));
   const target = reliableSocket(h, {
     pid: '700001', deviceId: DISPATCH_IDS.a1,
@@ -2061,7 +2061,7 @@ test('a first-dispatch alarm failure leaves an attachment retry flag without res
 test('dispatch never admits an armed Reliable socket that is already CLOSING', async () => {
   const { Room } = await loadRoom();
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-closing-dispatch-target', nowMs: DISPATCH_NOW_MS
+    roomName: 'qa', nowMs: DISPATCH_NOW_MS
   }));
   const closing = reliableSocket(h, {
     pid: '700001', deviceId: DISPATCH_IDS.a1,
@@ -2082,7 +2082,7 @@ test('dispatch never admits an armed Reliable socket that is already CLOSING', a
 async function proveReadinessRecovery(Room, messageType) {
   const nowMs = 200_000;
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: `qa-kvk-${messageType.toLowerCase()}-readiness-recovery`, nowMs
+    roomName: 'qa', nowMs
   }), nowMs);
   h.room.nowMs = () => nowMs;
   const player = reliableSocket(h, {
@@ -2131,7 +2131,7 @@ test('ready Classic-only observations never add a Reliable alarm write', async (
   const { Room } = await loadRoom();
   for (const messageType of ['deviceStatus', 'hb']) {
     const h = installDispatchRoom(createRoomHarness(Room, {
-      roomName: `qa-kvk-${messageType.toLowerCase()}-classic-only`, nowMs: 300_000
+      roomName: 'qa', nowMs: 300_000
     }), 300_000);
     const player = reliableSocket(h, {
       pid: '700001', deviceId: DISPATCH_IDS.classicOnly,
@@ -2159,7 +2159,7 @@ test('Core readiness persists once while an identical heartbeat stays transient 
   let nowMs = 400_000;
   const events = [];
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-readiness-schedule-retry', nowMs
+    roomName: 'qa', nowMs
   }), nowMs);
   h.room.nowMs = () => nowMs;
   const player = reliableSocket(h, {
@@ -2199,7 +2199,7 @@ test('Core readiness persists once while an identical heartbeat stays transient 
 test('Cancel keeps the exact Classic-first prefix, captures the original command id, persists, and then sends one exact cancel frame', async () => {
   const { Room } = await loadRoom();
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-classic-first-cancel', nowMs: DISPATCH_NOW_MS
+    roomName: 'qa', nowMs: DISPATCH_NOW_MS
   }));
   const events = [];
   const player = reliableSocket(h, {
@@ -2255,7 +2255,7 @@ test('Cancel keeps the exact Classic-first prefix, captures the original command
 test('cancel private persistence failure leaves Classic removed but rolls back the Reliable record and sends no cancel', async () => {
   const { Room } = await loadRoom();
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-cancel-persist-failure', nowMs: DISPATCH_NOW_MS
+    roomName: 'qa', nowMs: DISPATCH_NOW_MS
   }));
   const player = reliableSocket(h, {
     pid: '700001', deviceId: DISPATCH_IDS.a1
@@ -2299,7 +2299,7 @@ test('a Core-bound challenged reconnect receives one original byte-identical env
   const { Room } = await loadRoom();
   let nowMs = DISPATCH_NOW_MS;
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-bound-reconnect', nowMs
+    roomName: 'qa', nowMs
   }), nowMs);
   h.room.nowMs = () => nowMs;
   const original = reliableSocket(h, {
@@ -2351,7 +2351,7 @@ test('unbound, unchallenged, cutoff-equality, and expired reconnect paths stay c
   const { Room } = await loadRoom();
   let nowMs = DISPATCH_NOW_MS;
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-reconnect-silence', nowMs
+    roomName: 'qa', nowMs
   }), nowMs);
   h.room.nowMs = () => nowMs;
   const original = reliableSocket(h, {
@@ -2420,7 +2420,7 @@ test('unbound, unchallenged, cutoff-equality, and expired reconnect paths stay c
 test('deliveryShadow mutations share the canonical FIFO with command delivery persistence', async () => {
   const { Room } = await loadRoom();
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-shadow-command-fifo', nowMs: DISPATCH_NOW_MS
+    roomName: 'qa', nowMs: DISPATCH_NOW_MS
   }));
   const player = reliableSocket(h, {
     pid: '700001', deviceId: DISPATCH_IDS.a1,
@@ -2463,7 +2463,7 @@ test('deliveryShadow mutations share the canonical FIFO with command delivery pe
 test('a Rally fetch cannot run the Triple gate inside a concurrent canonical config transaction', async () => {
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room, {
-    roomName: 'qa-kvk-fetch-gate-fifo', nowMs: DISPATCH_NOW_MS
+    roomName: 'qa', nowMs: DISPATCH_NOW_MS
   });
   let releaseFetchLoad;
   let markFetchLoadStarted;
@@ -2488,7 +2488,7 @@ test('a Rally fetch cannot run the Triple gate inside a concurrent canonical con
   };
 
   const fetchPromise = Room.prototype.fetch.call(h.room,
-    new Request('https://qa-kvk.invalid/api/ws?surface=rally'));
+    new Request('https://coordination.test.invalid/api/ws?surface=rally'));
   await fetchLoadStarted;
   const configPromise = h.room.webSocketMessage(h.ws, JSON.stringify({
     t: 'setConfig', password: 'separate-master-override',
@@ -2513,7 +2513,7 @@ test('every private delivery alarm failure uses bounded exponential backoff and 
   const { Room } = await loadRoom();
   let nowMs = 100_000;
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-delivery-load-backoff', nowMs,
+    roomName: 'qa', nowMs,
     useRealSchedule: true
   }), nowMs);
   h.room.nowMs = () => nowMs;
@@ -2543,7 +2543,7 @@ test('an earlier sibling alarm cannot reread a failed private bundle before its 
   const { Room } = await loadRoom();
   let nowMs = 100_000;
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-delivery-load-sibling-alarm', nowMs,
+    roomName: 'qa', nowMs,
     useRealSchedule: true
   }), nowMs);
   h.room.nowMs = () => nowMs;
@@ -2572,7 +2572,7 @@ test('a failed Core expiry persist cannot starve due private delivery or create 
   const { Room } = await loadRoom();
   let nowMs = 100_000;
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-core-private-alarm-isolation', nowMs,
+    roomName: 'qa', nowMs,
     useRealSchedule: true
   }), nowMs);
   h.room.nowMs = () => nowMs;
@@ -2629,7 +2629,7 @@ test('a failing due probe attachment cannot bypass private delivery backoff with
   const { Room } = await loadRoom();
   const nowMs = 100_000;
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-probe-attachment-backoff', nowMs,
+    roomName: 'qa', nowMs,
     useRealSchedule: true
   }), nowMs);
   h.room.scheduleExpiry = Room.prototype.scheduleExpiry.bind(h.room);
@@ -2661,7 +2661,7 @@ test('an earlier sibling alarm cannot rerun a failed private probe before its ba
   const { Room } = await loadRoom();
   let nowMs = 100_000;
   const h = installDispatchRoom(createRoomHarness(Room, {
-    roomName: 'qa-kvk-probe-sibling-alarm', nowMs,
+    roomName: 'qa', nowMs,
     useRealSchedule: true
   }), nowMs);
   h.room.nowMs = () => nowMs;
@@ -2703,7 +2703,7 @@ for (const failingAlarmOperation of ['getAlarm', 'setAlarm']) {
   test(`a committed Rally command survives one ${failingAlarmOperation} failure and still broadcasts and dispatches`, async () => {
     const { Room } = await loadRoom();
     const h = installDispatchRoom(createRoomHarness(Room, {
-      roomName: `qa-kvk-command-${failingAlarmOperation.toLowerCase()}-repair`,
+      roomName: 'qa',
       nowMs: DISPATCH_NOW_MS, useRealSchedule: true
     }));
     const target = reliableSocket(h, {

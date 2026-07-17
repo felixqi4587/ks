@@ -1,9 +1,13 @@
+/* Rally command and role domain. */
 (function (root, factory) {
   const api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
-  else root.KvkRally = api;
+  else {
+    root.RallyDomain = api;
+    root.KvkRally = api;
+  }
 }(typeof globalThis !== 'undefined' ? globalThis : this, function () {
-  const BUILD = 2026071603;
+  const BUILD = 2026071701;
 
   function isRallyCommand(command) {
     return !!command && (command.type === 'double_rally' || command.type === 'triple_rally');

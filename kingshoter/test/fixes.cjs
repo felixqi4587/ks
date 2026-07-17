@@ -1,7 +1,7 @@
 require('./support/legacy-kvk-script-guard.cjs')(__filename);
 // review-fix verification: pick-role invariant (no double-main), cancel kills pre-booked beeps + room-wide cue
 const { chromium } = require("playwright");
-const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard } = require('./support/qa-kvk.cjs');
+const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard } = require('./support/qa-coordination.cjs');
 (async () => {
   const HOST = process.argv[2] || "https://kingshoter.com";
   const RM = makeQaRoom('fixes'), base = qaRoomUrl(HOST, RM, { notour: 1 });

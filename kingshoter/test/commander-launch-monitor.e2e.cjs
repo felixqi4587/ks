@@ -6,7 +6,7 @@ const {
   qaRoomUrl,
   installQaWebSocketGuard,
   localQaBaseURL
-} = require('./support/qa-kvk.cjs');
+} = require('./support/qa-coordination.cjs');
 
 const CAPTAINS = [
   { pid: '910000001', march: 34 },

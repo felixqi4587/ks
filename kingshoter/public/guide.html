@@ -6,88 +6,65 @@
 <meta name="theme-color" content="#f8f8f0">
 <title>kingshoter · KvK 打法 & 词汇</title>
 <link rel="icon" href="/favicon.svg">
-<link rel="stylesheet" href="app.css?v=15">
+<link rel="stylesheet" href="app.css?v=2026071701">
 <style>
   .term{margin-bottom:14px}
-  .term h2{display:flex;align-items:baseline;gap:8px;margin:0 0 2px}
+  .term h2{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 8px;margin:0 0 2px;overflow-wrap:anywhere}
   .term h2 .en{font-size:12px;color:var(--brown3);font-weight:700}
   .scene{background:radial-gradient(circle at 55% 40%,#eafaf7,#d7f1ec);border:2px solid #bfeee7;border-radius:var(--r);overflow:hidden;margin:8px 0}
   .scene svg{display:block;width:100%;height:auto}
-  .term .def{font-size:13px;color:var(--brown2);line-height:1.6}
+  .term .def{font-size:13px;color:var(--brown2);line-height:1.6;overflow-wrap:anywhere}
   .term .def b{color:var(--brown)}
-  .term .cap{text-align:center;font:800 12px/1.4 var(--font);color:var(--mint-deep);min-height:18px;margin-top:4px}
-  .lead-in{font-size:13.5px;color:var(--brown2);line-height:1.7}
+  .term .cap{text-align:center;font:800 12px/1.4 var(--font);color:var(--mint-deep);min-height:18px;margin-top:4px;overflow-wrap:anywhere}
+  .lead-in{font-size:13.5px;color:var(--brown2);line-height:1.7;overflow-wrap:anywhere}
   .legend-cap{font-size:12.5px;color:var(--brown2);font-weight:700;line-height:1.55;margin:0 0 6px}
+  .guide-actions{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;margin:6px 0 14px}
+  .guide-actions .btn{display:flex;align-items:center;justify-content:center;min-width:0;min-height:48px;text-decoration:none;text-align:center;white-space:normal;line-height:1.3;overflow-wrap:anywhere}
+  .guide-actions .defense-action{background:linear-gradient(180deg,#eef1ff,#dfe5fb);border-color:#aab7e8;color:#485b9f;box-shadow:0 8px 20px -10px rgba(72,91,159,.45)}
+  .guide-page .langbtn{min-width:44px;min-height:44px}
+  @media (min-width:520px){.guide-actions{grid-template-columns:repeat(2,minmax(0,1fr))}}
   text{font-family:var(--font)}
 </style>
 </head>
-<body>
+<body class="supporting-page guide-page">
 <div class="wrap"><main>
   <div class="top"><div><h1 id="h1">KvK 打法 & 词汇</h1><div class="sub" id="sub">看动画，秒懂集结 / 反集结 / refill</div></div>
     <div class="clock"><span id="utc">--:--:--</span><small><span data-i18n="utc_local">UTC · 本地</span> <span id="loc">--:--:--</span></small></div></div>
-  <div class="viewtabs">
-    <a href="index.html" data-i18n="nav_home">🏠 首页</a><a href="kvk.html" data-i18n="nav_kvk">⚔️ KvK 指挥</a>
-    <a href="codes.html" data-i18n="nav_codes">🎁 礼包码</a><a class="on" data-i18n="nav_guide">📖 词汇</a>
-  </div>
+  <nav class="supporting-nav" aria-label="Primary">
+    <a href="/" data-i18n="nav_home">🏠 首页</a><a href="/rally" data-i18n="nav_rally">⚔️ 集结</a>
+    <a href="/defense" data-i18n="nav_defense">🛡️ 防守</a><a href="/codes" data-i18n="nav_codes">🎁 礼包码</a>
+  </nav>
   <div class="homebar"><div id="langtoggle" class="langtoggle"></div></div>
   <div class="card"><p class="lead-in" id="leadin"></p></div>
   <div class="card" id="legend"></div>
   <div id="terms"></div>
-  <a class="btn amber full" href="kvk.html" id="goRoom" style="margin:6px 0 14px">⚔️ 去 KvK 指挥室</a>
+  <section class="guide-actions" aria-label="Battle coordination tools">
+    <a class="btn amber supporting-control" href="/rally" id="goRally">⚔️ 去集结协调</a>
+    <a class="btn defense-action supporting-control" href="/defense" id="goDefense">🛡️ 去防守协调</a>
+  </section>
   <p class="foot" data-i18n="foot">Kingshot 玩家自制工具 · 非官方 ⚔️🐟</p>
 </main></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
-<script src="app.js?v=8"></script>
+<script src="app.js?v=2026071701"></script>
 <script>
 (function () {
   var L = function () { return lang === "en"; };
   var NS = "http://www.w3.org/2000/svg";
   function E(t, a) { var e = document.createElementNS(NS, t); for (var k in a) e.setAttribute(k, a[k]); return e; }
-  function triPts(cx, cy, W) { return cx + "," + (cy + W * 1.05) + " " + (cx - W) + "," + (cy - W * 0.78) + " " + (cx + W) + "," + (cy - W * 0.78); }
-
-  // ── actor factory ── side=shape (●ally / ▼enemy), role=size+crown. Body at origin; animate by tweening the group x/y.
+  // The Guide and both battle surfaces share one color-blind-safe actor/castle vocabulary.
   function unit(svg, x, y, o) {
-    var g = E("g", {});
-    if (o.side === "ally") {
-      var r = o.role === "captain" ? 11 : 6;
-      g.appendChild(E("circle", { cx: 0, cy: 0, r: r, fill: "#19c8b9", stroke: "#fbf7ec", "stroke-width": 2 }));
-      if (o.role === "captain") {
-        g.appendChild(E("circle", { cx: 0, cy: 0, r: 8.5, fill: "none", stroke: "#0fa193", "stroke-width": 1.5 }));
-        g.appendChild(E("rect", { x: -7, y: -20, width: 14, height: 3, rx: 1.5, fill: "#794f27" }));
-        [[-6, -20, 2], [0, -22, 2.4], [6, -20, 2]].forEach(function (c) { g.appendChild(E("circle", { cx: c[0], cy: c[1], r: c[2], fill: "#794f27" })); });
-      }
-    } else {
-      g.appendChild(E("polygon", { points: o.role === "captain" ? "0,11.5 -11,-8.6 11,-8.6" : "0,6.6 -6.3,-4.9 6.3,-4.9", fill: "#e05a5a", stroke: "#fbf7ec", "stroke-width": 2, "stroke-linejoin": "round" }));
-      if (o.role === "captain") {
-        g.appendChild(E("polygon", { points: "0,8 -7.5,-5.6 7.5,-5.6", fill: "none", stroke: "#b23b3b", "stroke-width": 1.5, "stroke-linejoin": "round" }));
-        g.appendChild(E("polygon", { points: "-7,-15 -4,-21 -1,-15 0,-22 1,-15 4,-21 7,-15", fill: "#794f27" }));
-      }
-    }
-    svg.appendChild(g); g._sx = x; g._sy = y;
-    if (window.gsap) gsap.set(g, { x: x, y: y }); else g.setAttribute("transform", "translate(" + x + "," + y + ")");
-    return g;
+    return window.ksActor(svg, x, y, o);
   }
-
-  // ── castle ── ownership: resident shape (circle/triangle/none) + stroke + fill tint
   function castle(svg, cx, cy, owner) {
-    var g = E("g", {});
-    var body = E("rect", { x: cx - 20, y: cy - 16, width: 40, height: 32, rx: 8, fill: "#fce3b8", stroke: "#794f27", "stroke-width": 3 });
-    g.appendChild(body);
-    var merlons = [-20, -6, 8].map(function (dx) { var m = E("rect", { x: cx + dx + 1, y: cy - 23, width: 8, height: 9, rx: 2, fill: "#794f27" }); g.appendChild(m); return m; });
-    var rAlly = E("circle", { cx: cx, cy: cy + 2, r: 5, fill: "#19c8b9", stroke: "#fbf7ec", "stroke-width": 2, opacity: 0 });
-    var rEnemy = E("polygon", { points: triPts(cx, cy + 2, 5), fill: "#e05a5a", stroke: "#fbf7ec", "stroke-width": 2, "stroke-linejoin": "round", opacity: 0 });
-    g.appendChild(rAlly); g.appendChild(rEnemy); svg.appendChild(g);
-    var COL = { ally: "#5a9e1e", enemy: "#e05a5a", neutral: "#794f27" }, FILL = { ally: "#dff3c8", enemy: "#fbe0de", neutral: "#fce3b8" };
-    function tint(fill, stroke) { body.setAttribute("fill", fill); body.setAttribute("stroke", stroke); merlons.forEach(function (m) { m.setAttribute("fill", stroke); }); }
-    function setOwner(o) { tint(FILL[o], COL[o]); rAlly.setAttribute("opacity", o === "ally" ? 1 : 0); rEnemy.setAttribute("opacity", o === "enemy" ? 1 : 0); }
-    setOwner(owner || "neutral");
-    return { g: g, tint: tint, setOwner: setOwner };
+    return window.ksCastle(svg, cx, cy, owner);
   }
 
   var FX = function (i, t) { return t._sx; }, FY = function (i, t) { return t._sy; };
   function reset(tl, arr) { tl.set(arr, { x: FX, y: FY, opacity: 1, scale: 1 }); return tl; }
   var PULSE = { duration: .17, scale: 1.13, yoyo: true, repeat: 1, transformOrigin: "center" };
+  var motionMedia = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
+  var motionReduced = !!(motionMedia && motionMedia.matches);
 
   var TERMS = [
     { zh: "集结", en: "Rally", icon: "⚔️",
@@ -220,11 +197,12 @@
 
   function renderHeader() {
     document.getElementById("h1").textContent = L() ? "KvK Playbook & Glossary" : "KvK 打法 & 词汇";
-    document.getElementById("sub").textContent = L() ? "Watch the animation — get rally / counter / refill instantly" : "看动画，秒懂集结 / 反集结 / refill";
+    document.getElementById("sub").textContent = L() ? "See rally / counter / refill at a glance" : "看图，秒懂集结 / 反集结 / refill";
     document.getElementById("leadin").innerHTML = L()
-      ? "KvK is won at the <b>King's Castle</b>: whoever holds it scores. It's a tug-of-war of <b>rallies</b>. First learn the cast below, then each term is a short animation — leaders and members share the same words."
-      : "KvK 的胜负在<b>王城</b>:谁占着谁得分。整场就是一波波<b>集结</b>的拉锯。先认下面的「人」,再看每个词的动画,指挥和队员都用同一套话。";
-    document.getElementById("goRoom").textContent = L() ? "⚔️ Go to the KvK command room" : "⚔️ 去 KvK 指挥室";
+      ? "KvK is won at the <b>King's Castle</b>: whoever holds it scores. It's a tug-of-war of <b>rallies</b>. First learn the cast below, then use the Rally or Defense tool for your role."
+      : "KvK 的胜负在<b>王城</b>:谁占着谁得分。整场就是一波波<b>集结</b>的拉锯。先认下面的「人」,再按你的职责进入集结或防守工具。";
+    document.getElementById("goRally").textContent = L() ? "⚔️ Open Rally Coordination" : "⚔️ 去集结协调";
+    document.getElementById("goDefense").textContent = L() ? "🛡️ Open Defense Coordination" : "🛡️ 去防守协调";
   }
 
   function renderLegend() {
@@ -233,7 +211,7 @@
     cap.innerHTML = L() ? "<b>Meet the cast.</b> Works even color-blind: ● circle = us, ▼ triangle = them; big + crown = the rally captain."
       : "<b>先认人。</b>色盲也能分:● 圆=我方,▼ 三角=对方;大号+皇冠=集结者(发起人)。";
     box.appendChild(cap);
-    var wrap = document.createElement("div"); wrap.className = "scene"; var svg = E("svg", { viewBox: "0 0 320 158" }); wrap.appendChild(svg); box.appendChild(wrap);
+    var wrap = document.createElement("div"); wrap.className = "scene"; var svg = E("svg", { viewBox: "0 0 320 158", "aria-hidden": "true", focusable: "false" }); wrap.appendChild(svg); box.appendChild(wrap);
     [["ally", "captain", 42, L() ? ["Ally", "captain"] : ["我方", "集结者"]],
      ["ally", "joiner", 116, L() ? ["Ally", "joiner"] : ["我方", "加入者"]],
      ["enemy", "captain", 200, L() ? ["Enemy", "captain"] : ["对方", "集结者"]],
@@ -250,21 +228,38 @@
 
   function renderTerms() {
     var box = $("terms");
-    TERMS.forEach(function (term) {
-      var el = document.createElement("div"); el.className = "card term";
-      el.innerHTML = '<h2>' + term.icon + ' ' + (L() ? term.en : term.zh) + ' <span class="en">' + (L() ? term.zh : term.en) + '</span></h2>' +
-        '<div class="scene"><svg viewBox="0 0 320 130"></svg></div><div class="cap"></div>' +
+    TERMS.forEach(function (term, index) {
+      var el = document.createElement("section"); el.className = "card term"; el.setAttribute("aria-labelledby", "termTitle" + index);
+      el.innerHTML = '<h2 id="termTitle' + index + '">' + term.icon + ' ' + (L() ? term.en : term.zh) + ' <span class="en">' + (L() ? term.zh : term.en) + '</span></h2>' +
+        '<div class="scene"><svg viewBox="0 0 320 130" aria-hidden="true" focusable="false"></svg></div><div class="cap"></div>' +
         '<div class="def">' + (L() ? term.defEn : term.defZh) + '</div>';
       box.appendChild(el);
       var svg = el.querySelector("svg"), capEl = el.querySelector(".cap"), caps = L() ? term.capEn : term.capZh;
-      if (!window.gsap) { capEl.textContent = caps[0]; return; }
       var play = term.build(svg), tl = null;
+      if (motionReduced || !window.gsap || !window.IntersectionObserver) {
+        el.dataset.motion = "static";
+        capEl.textContent = caps[0];
+        return;
+      }
+      el.dataset.motion = "animated";
       var io = new IntersectionObserver(function (es) { es.forEach(function (e) { if (e.isIntersecting) { if (!tl) tl = play(capEl, caps); else tl.play(); } else if (tl) tl.pause(); }); }, { threshold: .3 });
       io.observe(el); IOS.push(io); TLS.push({ kill: function () { if (tl) tl.kill(); } });
     });
   }
 
   function renderAll() { clearAll(); renderLegend(); renderTerms(); }
+  function onMotionChange(event) { motionReduced = event.matches === true; renderAll(); }
+  function destroyGuide() {
+    clearAll();
+    if (!motionMedia) return;
+    if (typeof motionMedia.removeEventListener === "function") motionMedia.removeEventListener("change", onMotionChange);
+    else if (typeof motionMedia.removeListener === "function") motionMedia.removeListener(onMotionChange);
+  }
+  if (motionMedia) {
+    if (typeof motionMedia.addEventListener === "function") motionMedia.addEventListener("change", onMotionChange);
+    else if (typeof motionMedia.addListener === "function") motionMedia.addListener(onMotionChange);
+  }
+  window.addEventListener("pagehide", destroyGuide, { once: true });
   window.onLangChange = function () { renderHeader(); renderAll(); };
   renderHeader(); renderAll(); initI18n(); startClock();
 })();

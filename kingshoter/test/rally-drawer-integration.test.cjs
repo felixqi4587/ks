@@ -5,8 +5,8 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const ROOT = path.join(__dirname, '..');
-const HTML_PATH = path.join(ROOT, 'public', 'kvk.html');
-const SCRIPT_PATH = path.join(ROOT, 'public', 'kvk.js');
+const HTML_PATH = path.join(ROOT, 'public', 'rally.html');
+const SCRIPT_PATH = path.join(ROOT, 'public', 'rally-controller.js');
 const CSS_PATH = path.join(ROOT, 'public', 'app.css');
 const html = fs.readFileSync(HTML_PATH, 'utf8');
 const source = fs.readFileSync(SCRIPT_PATH, 'utf8');
@@ -135,11 +135,11 @@ test('Rally loads the shared battle shell and drawer before its controller', () 
   const scripts = tags.filter(record => record.tag === 'script' && record.attributes.src);
   const battleStyle = styles.filter(record => resourcePath(record.attributes.href) === '/battle-ui.css');
   const battleDrawer = scripts.filter(record => resourcePath(record.attributes.src) === '/battle-drawer.js');
-  const rallyController = scripts.filter(record => resourcePath(record.attributes.src) === '/kvk.js');
+  const rallyController = scripts.filter(record => resourcePath(record.attributes.src) === '/rally-controller.js');
 
   assert.equal(battleStyle.length, 1, 'battle-ui.css must be loaded exactly once');
   assert.equal(battleDrawer.length, 1, 'battle-drawer.js must be loaded exactly once');
-  assert.equal(rallyController.length, 1, 'kvk.js must be loaded exactly once');
+  assert.equal(rallyController.length, 1, 'rally-controller.js must be loaded exactly once');
   assert.ok(battleDrawer[0].start < rallyController[0].start, 'BattleDrawer must exist before the Rally controller starts');
 });
 

@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const source = fs.readFileSync(path.join(__dirname, '../public/kvk.js'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, '../public/rally-controller.js'), 'utf8');
 
 function sliceFunction(startName, endName) {
   const start = source.indexOf(`function ${startName}`);

@@ -5,7 +5,7 @@ const {
   makeQaRoom,
   qaRoomUrl,
   installQaWebSocketGuard
-} = require('./support/qa-kvk.cjs');
+} = require('./support/qa-coordination.cjs');
 
 const base = process.env.BASE || process.argv[2] || 'http://127.0.0.1:8791';
 const mainRoom = makeQaRoom('classic-delivery');

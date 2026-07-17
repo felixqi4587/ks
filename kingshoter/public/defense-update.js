@@ -12,7 +12,7 @@
   }
 }(typeof globalThis !== "undefined" ? globalThis : this, function (shared) {
   "use strict";
-  var BUILD = 2026071603;
+  var BUILD = 2026071701;
   if (!shared || typeof shared.createSurface !== "function") {
     return Object.freeze({ BUILD: BUILD, install: function () { return null; } });
   }

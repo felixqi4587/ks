@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const source = fs.readFileSync(path.join(__dirname, '../public/kvk.js'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, '../public/rally-controller.js'), 'utf8');
 const audioSource = fs.readFileSync(path.join(__dirname, '../public/battle-audio.js'), 'utf8');
 
 function extractFunction(name) {
@@ -306,6 +306,20 @@ test('same-generation open, state, and audio triggers publish one green and hear
   assert.equal(h.sent.filter(message => message.t === 'deviceStatus' && message.soundReady === true).length, 1);
   assert.equal(h.sent.filter(message => message.t === 'hb').length, 10);
   assert.ok(h.sent.filter(message => message.t === 'hb').every(message => message.soundReady === true));
+});
+
+test('routine same-generation state refreshes cannot postpone a pending green forever', () => {
+  const h = statusPublisherHarness();
+  h.sandbox.sendDeviceStatus('deviceStatus'); // onOpen
+  h.advance(300);
+  h.sandbox.sendDeviceStatus('deviceStatus'); // state snapshot
+  h.advance(300);
+  h.sandbox.sendDeviceStatus('deviceStatus'); // another room broadcast
+  h.advance(299);
+  assert.deepEqual(h.sent, []);
+  h.advance(1);
+  assert.deepEqual(h.sent.map(message => message.soundReady), [true],
+    'unchanged room broadcasts must coalesce behind the original 900ms stability gate');
 });
 
 test('repeated green edges replace the stability timer instead of publishing early', () => {

@@ -726,7 +726,7 @@ test('profileGeneration protects manager edit/remove and manager code has no aud
   });
   assert.deepEqual(h.sent.at(-1), {
     t: 'removeDefensePlayer', password: 'qa', mutationId: 'mutation-2',
-    pid: 'p001', profileGeneration: 2, baseRevision: 0
+    pid: 'p001', profileGeneration: 2, baseRevision: 4
   });
   h.controller.handleMessage({
     t: 'error', source: 'removeDefensePlayer', mutationId: 'mutation-2',

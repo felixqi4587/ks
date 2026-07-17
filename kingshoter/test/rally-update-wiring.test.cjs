@@ -5,7 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const root = path.join(__dirname, '..');
-const BUILD = '2026071603';
+const BUILD = '2026071701';
 
 function read(relative) {
   return fs.readFileSync(path.join(root, relative), 'utf8');
@@ -16,7 +16,7 @@ test('canonical Rally page uses the coherent Rally updater before the unchanged 
   const shared = html.indexOf(`/battle-update.js?v=${BUILD}`);
   const updater = html.indexOf(`/rally-update.js?v=${BUILD}`);
   const app = html.indexOf(`/app.js?v=${BUILD}`);
-  const runtime = html.indexOf(`/kvk.js?v=${BUILD}`);
+  const runtime = html.indexOf(`/rally-controller.js?v=${BUILD}`);
   assert.ok(shared >= 0 && shared < updater && updater < app && app < runtime);
   assert.doesNotMatch(html, /\/kvk-update\.js/);
   assert.equal((html.match(/id="updateGate"/g) || []).length, 1);

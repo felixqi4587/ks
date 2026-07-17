@@ -163,13 +163,13 @@ function queueSuccessfulSync(harness, offsetMs = 250) {
 test('constructs a surface-scoped WebSocket URL and rejects unknown surfaces', () => {
   const rally = createRuntime();
   const connection = BattleConnection.createRoomConnection({
-    room: 'qa room/name', surface: 'rally', clientBuild: 2026071603
+    room: 'qa room/name', surface: 'rally', clientBuild: 2026071701
   }, rally.runtime);
 
   assert.equal(rally.sockets.length, 0, 'creation is inert until start');
   connection.start();
   assert.equal(rally.sockets[0].url,
-    'wss://example.test/api/ws?room=qa%20room%2Fname&surface=rally&clientBuild=2026071603');
+    'wss://example.test/api/ws?room=qa%20room%2Fname&surface=rally&clientBuild=2026071701');
 
   const defense = createRuntime();
   BattleConnection.createRoomConnection({
@@ -187,12 +187,12 @@ test('uses ws rather than wss when the page is served over HTTP', () => {
   const h = createRuntime();
   h.runtime.location.protocol = 'http:';
   const connection = BattleConnection.createRoomConnection({
-    room: 'qa', surface: 'rally', clientBuild: 2026071603, manageClock: false
+    room: 'qa', surface: 'rally', clientBuild: 2026071701, manageClock: false
   }, h.runtime);
 
   connection.start();
   assert.equal(h.sockets[0].url,
-    'ws://example.test/api/ws?room=qa&surface=rally&clientBuild=2026071603');
+    'ws://example.test/api/ws?room=qa&surface=rally&clientBuild=2026071701');
 });
 
 test('orders connection callbacks around messages and ignores obsolete generations', () => {

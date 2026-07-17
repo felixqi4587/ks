@@ -4,11 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#f8f8f0">
-<title>kingshoter · KvK</title>
+<title>kingshoter · Rally</title>
 <link rel="icon" href="/favicon.svg">
-<link rel="stylesheet" href="app.css?v=2026071603">
-<link rel="stylesheet" href="/battle-ui.css?v=2026071603">
-<link rel="stylesheet" href="/rally.css?v=2026071603">
+<link rel="stylesheet" href="app.css?v=2026071701">
+<link rel="stylesheet" href="/battle-ui.css?v=2026071701">
+<link rel="stylesheet" href="/rally.css?v=2026071701">
 <style>
   .pond{position:relative;background:radial-gradient(circle at 50% 42%,#e8fbf8,#cdf2ec 55%,#b6ebe2);border:2px solid #bfeee7;border-radius:var(--r-lg);overflow:hidden;margin-bottom:12px;box-shadow:inset 0 2px 10px rgba(15,161,147,.12)}
   .pond svg{display:block;width:100%;height:auto}
@@ -22,18 +22,18 @@
   .hr{border:0;border-top:1px dashed var(--line);margin:14px 0}
 </style>
 </head>
-<body class="kvk-page battle-page">
+<body class="rally-page kvk-page battle-page">
 <div id="updateGate" class="update-gate" role="status" aria-live="assertive" aria-atomic="true" hidden>
   <div class="update-card">Updating…</div>
 </div>
-<div class="wrap kvk-wrap battle-shell">
+<div class="wrap rally-wrap kvk-wrap battle-shell">
   <div class="top">
     <span class="sig" style="color:var(--mint)" aria-hidden="true"><svg viewBox="0 0 64 48" width="28" height="20"><path d="M40 24 C40 12 22 10 12 16 C4 21 4 27 12 32 C22 38 40 36 40 24 Z" fill="currentColor"/><path d="M40 24 L58 12 L54 24 L58 36 Z" fill="currentColor"/></svg></span>
-    <div><h1 data-i18n="k_h1">KvK 实时指挥</h1><div class="sub" id="roomlabel">—</div></div>
+    <div><h1 data-i18n="rally_h1">集结协调</h1><div class="sub" id="roomlabel">—</div></div>
     <div id="langtoggle" class="langtoggle" style="margin-left:auto"></div>
   </div>
   <div class="viewtabs">
-    <a href="index.html" data-i18n="nav_home">🏠 首页</a><a class="on" data-i18n="nav_kvk">⚔️ KvK</a>
+    <a href="index.html" data-i18n="nav_home">🏠 首页</a><a class="on" data-i18n="nav_rally">⚔️ 集结</a>
     <a href="codes.html" data-i18n="nav_codes">🎁 礼包码</a><a href="guide.html" data-i18n="nav_guide">📖 词汇</a>
   </div>
 
@@ -42,7 +42,7 @@
     <h2 id="t_join">进入房间</h2>
     <div id="lastWrap" class="hide"><button class="btn amber full" id="lastBtn" style="margin-bottom:6px"></button><p class="hint" id="t_ornew" style="text-align:center;margin:0 0 10px">或进别的房间</p></div>
     <p class="hint" id="t_joinhint">填一个房间名就行（和队友约定同一个）。</p>
-    <div class="mwrap" style="gap:8px"><span class="hint" id="t_room" style="margin:0;width:54px">房间名</span><input id="jr" style="flex:1" placeholder="kvk1406"></div>
+    <div class="mwrap" style="gap:8px"><span class="hint" id="t_room" style="margin:0;width:54px">房间名</span><input id="jr" style="flex:1" placeholder="qa"></div>
     <button class="btn amber full" id="joinBtn" style="margin-top:10px" id_t="t_enter">进入</button>
   </div>
 
@@ -80,13 +80,8 @@
 
     <div class="youchip hide" id="youChip"><div class="yn" id="youName"></div><div class="ym" id="youMarch"></div><button class="yedit" id="editBtn" id_t="t_edit">改</button></div>
 
-    <!-- ⚔️ attack / 🛡️ defense view switch (attack = a few captains; defense = everyone) -->
-    <div class="viewseg" id="viewToggle">
-      <button data-v="attack" class="on" id="tabAtk">⚔️ <span id="t_tab_atk">进攻</span></button>
-      <button data-v="defense" id="tabDef">🛡️ <span id="t_tab_def">防守</span><span class="dbadge hide" id="defBadge"></span></button>
-    </div>
-    <!-- ATTACK view: launch countdown + rally radar/timeline -->
-    <div id="attackView">
+    <!-- Rally view: launch countdown + rally radar/timeline -->
+    <div id="rallyView">
       <!-- player HERO: hidden except when time-sensitive (staged/live/refill) — idle status lives in #youChip instead -->
       <div class="phero hide" id="phero">
         <div class="kick" id="pheroKick"></div>
@@ -100,24 +95,6 @@
       <div class="situation" id="situation">
         <div id="lanes" class="lanes"></div>
         <div class="pond"><span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span><span class="rally-map-scale" id="mapScaleLabel"></span><svg viewBox="0 0 360 270" id="radar" preserveAspectRatio="xMidYMid slice" aria-hidden="true"></svg><span class="rally-map-message" id="mapMessage"></span><span class="rally-map-legend" id="mapLegend"></span></div>
-      </div>
-    </div>
-
-    <!-- DEFENSE view: per enemy-whale refill-timing calculator (self-serve; for everyone) -->
-    <div id="defenseView" class="hide">
-      <div class="demotruth" id="defenseDemoNote" role="note">演练动画 · 非实时战况</div>
-      <div class="whalechips" id="whaleChips" style="display:none"></div>
-      <div class="pond">
-        <span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
-        <div class="phaselab" id="dphaselab"></div>
-        <div class="leg" id="dleg"></div>
-        <svg viewBox="0 0 360 210" id="dsvg"></svg>
-      </div>
-      <div class="ctrl"><button id="dpp" aria-label="播放演练">▶</button><input type="range" id="dscrub" min="0" max="1000" value="0" aria-label="演练进度"></div>
-      <div class="card">
-        <h2 id="t_dpanel">🛡️ 补兵时机</h2>
-        <p class="hint" id="t_dpanelhint"></p>
-        <div id="dstrips"></div>
       </div>
     </div>
 
@@ -167,6 +144,11 @@
       </section>
       <section class="commander-drawer-pane hide" id="commanderManagePane" aria-label="Rally management">
       <button type="button" class="battle-control commander-manage-back" id="commanderManageBack" data-drawer-focus>返回发令视图</button>
+      <div class="rally-manage-tabs" id="rallyManageTabs" role="tablist" aria-label="Rally management sections">
+        <button type="button" class="battle-tab" id="rallyPlayersTab" role="tab" aria-selected="true" aria-controls="rallyPlayersPanel">Players</button>
+        <button type="button" class="battle-tab" id="rallyRoomTab" role="tab" aria-selected="false" aria-controls="rallyRoomPanel" tabindex="-1">Room</button>
+      </div>
+      <div id="rallyPlayersPanel" role="tabpanel" aria-labelledby="rallyPlayersTab">
       <div class="roster-search hide" id="rosterSearchWrap"><input id="rosterSearch" type="search" autocomplete="off" aria-label="Search players"></div>
       <div class="hint hide" id="duplicateHint" role="note"></div>
       <div class="roster" id="roster" role="list"></div>
@@ -190,15 +172,45 @@
           <button type="submit" class="btn green full" id="commanderMarchSave"></button>
         </div>
       </form>
-      <!-- defense: publish the incoming enemy whales — folded by default, it's pre-battle setup not fight-time -->
-      <details class="cdefense" id="cdefense">
-        <summary class="cstep" id="cstep_def">🛡️ 设敌鲸 → 发布</summary>
-        <p class="hint" id="t_defsethint" style="margin:6px 0 4px"></p>
-        <div id="enemyList"></div>
-        <button class="add" id="addEnemy">＋ <span id="t_addenemy">加敌鲸</span></button>
-        <button class="btn green full" id="pubWhales" style="margin-top:8px"><span id="t_pubwhales">📣 发布敌鲸给全队</span></button>
-        <div class="hint" id="pubMsg" style="margin-top:6px;text-align:center"></div>
-      </details>
+      </div>
+      <div class="rally-room-panel hide" id="rallyRoomPanel" role="tabpanel" aria-labelledby="rallyRoomTab" hidden>
+        <div class="rally-room-summary">
+          <span id="connectedWebsiteDevicesLabel">Connected website devices</span>
+          <strong id="connectedWebsiteDevices" class="battle-time">0</strong>
+        </div>
+        <div class="rally-room-kingdoms">
+          <form class="rally-room-kingdom" id="kingdomNameForm1" data-kingdom="1" novalidate>
+            <h3 id="kingdomRoomTitle1">Kingdom 1</h3>
+            <label for="kingdomName1" id="kingdomNameLabel1">Kingdom display name</label>
+            <div class="rally-room-name-row">
+              <input id="kingdomName1" type="text" autocomplete="off" aria-describedby="kingdomNameStatus1">
+              <button type="submit" class="battle-control" id="kingdomNameSave1">Save</button>
+            </div>
+            <div class="rally-room-inline-status" id="kingdomNameStatus1" role="status" aria-live="polite"></div>
+            <label class="rally-room-mode" for="roomTripleMode1">
+              <span id="roomRallyModeLabel1">Triple Rally</span>
+              <input id="roomTripleMode1" type="checkbox" role="switch" aria-describedby="roomRallyModeStatus1">
+            </label>
+            <div class="rally-room-inline-status" id="roomRallyModeStatus1" role="status" aria-live="polite"></div>
+          </form>
+          <form class="rally-room-kingdom" id="kingdomNameForm2" data-kingdom="2" novalidate>
+            <h3 id="kingdomRoomTitle2">Kingdom 2</h3>
+            <label for="kingdomName2" id="kingdomNameLabel2">Kingdom display name</label>
+            <div class="rally-room-name-row">
+              <input id="kingdomName2" type="text" autocomplete="off" aria-describedby="kingdomNameStatus2">
+              <button type="submit" class="battle-control" id="kingdomNameSave2">Save</button>
+            </div>
+            <div class="rally-room-inline-status" id="kingdomNameStatus2" role="status" aria-live="polite"></div>
+            <label class="rally-room-mode" for="roomTripleMode2">
+              <span id="roomRallyModeLabel2">Triple Rally</span>
+              <input id="roomTripleMode2" type="checkbox" role="switch" aria-describedby="roomRallyModeStatus2">
+            </label>
+            <div class="rally-room-inline-status" id="roomRallyModeStatus2" role="status" aria-live="polite"></div>
+          </form>
+        </div>
+        <button type="button" class="battle-control copy-rally-room-link" id="copyRallyRoomLink">Copy Rally room link</button>
+        <div class="rally-room-inline-status" id="copyRallyRoomStatus" role="status" aria-live="polite"></div>
+      </div>
       </section>
       </div>
     </div>
@@ -234,19 +246,20 @@
 </div></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
-<script src="/battle-update.js?v=2026071603"></script>
-<script src="/rally-update.js?v=2026071603"></script>
-<script src="/battle-connection.js?v=2026071603"></script>
-<script src="/battle-status.js?v=2026071603"></script>
-<script src="/battle-audio.js?v=2026071603"></script>
-<script src="/battle-cues.js?v=2026071603"></script>
-<script src="/battle-identity.js?v=2026071603"></script>
-<script src="/battle-delivery.js?v=2026071603"></script>
-<script src="/battle-drawer.js?v=2026071603"></script>
-<script src="/rally-tactical.js?v=2026071603"></script>
-<script src="/app.js?v=2026071603"></script>
-<script src="/kvk-delivery-shadow.js?v=2026071603"></script>
-<script src="/kvk-rally.js?v=2026071603"></script>
-<script src="/kvk.js?v=2026071603"></script>
+<script src="/battle-update.js?v=2026071701"></script>
+<script src="/rally-update.js?v=2026071701"></script>
+<script src="/battle-connection.js?v=2026071701"></script>
+<script src="/battle-status.js?v=2026071701"></script>
+<script src="/battle-audio.js?v=2026071701"></script>
+<script src="/battle-cues.js?v=2026071701"></script>
+<script src="/battle-identity.js?v=2026071701"></script>
+<script src="/battle-delivery.js?v=2026071701"></script>
+<script src="/battle-drawer.js?v=2026071701"></script>
+<script src="/rally-tactical.js?v=2026071701"></script>
+<script src="/rally-room.js?v=2026071701"></script>
+<script src="/app.js?v=2026071701"></script>
+<script src="/rally-delivery-shadow.js?v=2026071701"></script>
+<script src="/rally-domain.js?v=2026071701"></script>
+<script src="/rally-controller.js?v=2026071701"></script>
 </body>
 </html>

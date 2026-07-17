@@ -5,7 +5,7 @@ const {
   makeQaRoom,
   qaRoomUrl,
   installQaWebSocketGuard
-} = require('./support/qa-kvk.cjs');
+} = require('./support/qa-coordination.cjs');
 
 const base = process.env.BASE || 'http://127.0.0.1:8791';
 const room = makeQaRoom('player-reconnect');

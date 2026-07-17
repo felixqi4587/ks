@@ -167,7 +167,7 @@ test('window.syncClock delegates through RoomSocket and preserves the legacy clo
       { rttMs: 50, offsetMs: 700 }
     ]
   });
-  new h.window.RoomSocket('qa', () => {}, { surface: 'rally', clientBuild: 2026071603 });
+  new h.window.RoomSocket('qa', () => {}, { surface: 'rally', clientBuild: 2026071701 });
 
   const result = await h.window.syncClock();
 

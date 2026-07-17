@@ -104,7 +104,7 @@ test('homepage exposes equal-level Rally and Defense room entries with localized
 });
 
 test('Rally join and resume actions generate canonical Rally room URLs directly', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'public/kvk.js'), 'utf8');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'public/rally-controller.js'), 'utf8');
   assert.match(source, /location\.href = "\/rally\?room=" \+ encodeURIComponent\(lr\.room\)/);
   assert.match(source, /location\.href = "\/rally\?room=" \+ encodeURIComponent\(r\)/);
   assert.doesNotMatch(source, /location\.href = "kvk\.html\?room="/);
@@ -112,15 +112,18 @@ test('Rally join and resume actions generate canonical Rally room URLs directly'
 
 test('package exposes only runnable Rally-named gates while keeping one-release KvK aliases unconditional', () => {
   const pkg = require('../package.json');
-  assert.equal(pkg.scripts['test:rally-core'], 'node test/kvk-core-multibrowser.e2e.cjs --project=chromium');
-  assert.equal(pkg.scripts['test:rally-core:all'], 'node test/kvk-core-multibrowser.e2e.cjs --project=all');
+  assert.equal(pkg.scripts['test:rally-core'], 'node test/rally-core-multibrowser.e2e.cjs --project=chromium');
+  assert.equal(pkg.scripts['test:rally-core:all'], 'node test/rally-core-multibrowser.e2e.cjs --project=all');
   assert.equal(pkg.scripts['test:kvk-core'], 'npm run test:rally-core');
   assert.equal(pkg.scripts['test:kvk-core:all'], 'npm run test:rally-core:all');
   assert.equal(pkg.scripts['test:rally-defense'],
     'node --test test/rally-*.test.cjs test/defense-*.test.cjs test/coordination-*.test.cjs');
-  assert.equal(pkg.scripts['test:load:defense'], undefined);
-  assert.equal(pkg.scripts['test:qa:rally-defense'], undefined);
-  assert.equal(fs.existsSync(path.join(__dirname, 'kvk-core-multibrowser.e2e.cjs')), true);
+  assert.equal(pkg.scripts['test:rally-defense:browser'],
+    'node test/supporting-pages-ui.e2e.cjs && node test/rally-defense-isolation.e2e.cjs && node test/defense-multibrowser.e2e.cjs && node test/coordination-accessibility.e2e.cjs');
+  assert.equal(pkg.scripts['test:load:defense'], 'node test/defense-load.e2e.mjs');
+  assert.equal(pkg.scripts['test:qa:rally-defense'],
+    'playwright test -c playwright.qa-rally-defense.config.cjs');
+  assert.equal(fs.existsSync(path.join(__dirname, 'rally-core-multibrowser.e2e.cjs')), true);
   for (const prefix of ['rally-', 'defense-', 'coordination-']) {
     assert.equal(fs.readdirSync(__dirname).some(name => name.startsWith(prefix) && name.endsWith('.test.cjs')), true);
   }

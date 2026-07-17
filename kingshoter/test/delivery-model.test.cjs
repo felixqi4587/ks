@@ -21,7 +21,7 @@ const command = {
 };
 
 const attachment = (pid, deviceId) => ({
-  v: 1, roomName: 'qa-kvk-model-a', qa: true, pid, deviceId,
+  v: 1, roomName: 'qa', qa: true, pid, deviceId,
   soundReady: true, view: 'player', shadow: true, audioArmed: true, armedUntilMs: 1_020_000,
   lastProbeId: '', probeExpiresAtMs: 0, nextProbeAtMs: 0
 });
@@ -31,12 +31,12 @@ test('the QA predicate rejects every operation or malformed room uniformly', asy
   for (const room of ['operation-room', 'demo', '_', '', 'qa-kvk-', 'qa-kvk-bad_', 'QA-KVK-UPPER']) {
     assert.equal(isQaRoomName(room), false, room);
   }
-  for (const room of ['qa-kvk-a', 'qa-kvk-20260713-7f3a']) assert.equal(isQaRoomName(room), true, room);
+  assert.equal(isQaRoomName('qa'), true);
 });
 
 test('one immutable record holds role-specific frozen timing and two devices for one pid', async () => {
   const mod = await load();
-  const state = mod.defaultDeliveryState('qa-kvk-model-a');
+  const state = mod.defaultDeliveryState('qa');
   state.commands.push(mod.createDeliveryRecord(command, 1_000_000));
   const a1 = mod.upsertDeliveryTarget(state, 'cmd-1', attachment('700001', '00000000-0000-4000-8000-000000000001'), 1_000_000);
   const a2 = mod.upsertDeliveryTarget(state, 'cmd-1', attachment('700001', '00000000-0000-4000-8000-000000000002'), 1_000_000);
@@ -88,7 +88,7 @@ test('target admission requires current sound readiness and a live armed lease',
     { ...attachment('700001', 'lease-expired'), armedUntilMs: 1_000_000 }
   ];
   const targets = invalidAttachments.map((candidate) => {
-    const state = mod.defaultDeliveryState('qa-kvk-model-a');
+    const state = mod.defaultDeliveryState('qa');
     state.commands.push(mod.createDeliveryRecord(command, 1_000_000));
     return mod.upsertDeliveryTarget(state, 'cmd-1', candidate, 1_000_000);
   });
@@ -97,7 +97,7 @@ test('target admission requires current sound readiness and a live armed lease',
 
 test('initial send and 500/1500ms retries reuse the exact envelope and stop at the cutoff', async () => {
   const mod = await load();
-  const state = mod.defaultDeliveryState('qa-kvk-model-a');
+  const state = mod.defaultDeliveryState('qa');
   state.commands.push(mod.createDeliveryRecord(command, 1_000_000));
   mod.upsertDeliveryTarget(state, 'cmd-1', attachment('700001', '00000000-0000-4000-8000-000000000001'), 1_000_000);
 
@@ -111,7 +111,7 @@ test('initial send and 500/1500ms retries reuse the exact envelope and stop at t
   assert.equal(new Set(bytes).size, 1);
   assert.deepEqual(mod.dueDeliveryTargets(state, 1_002_000), []);
 
-  const nearCutoff = mod.defaultDeliveryState('qa-kvk-model-a');
+  const nearCutoff = mod.defaultDeliveryState('qa');
   nearCutoff.commands.push(mod.createDeliveryRecord(command, 1_009_600));
   mod.upsertDeliveryTarget(nearCutoff, 'cmd-1', attachment('700001', 'dev-late'), 1_009_600);
   assert.deepEqual(mod.dueDeliveryTargets(nearCutoff, 1_009_600), []);
@@ -119,7 +119,7 @@ test('initial send and 500/1500ms retries reuse the exact envelope and stop at t
 
 test('a mirrored Core ACK must match the challenged socket identity and public output stays aggregate-only', async () => {
   const mod = await load();
-  const state = mod.defaultDeliveryState('qa-kvk-model-a');
+  const state = mod.defaultDeliveryState('qa');
   state.commands.push(mod.createDeliveryRecord(command, 1_000_000));
   mod.upsertDeliveryTarget(state, 'cmd-1', attachment('700001', '00000000-0000-4000-8000-000000000001'), 1_000_000);
   assert.equal(mod.recordClassicAck(state, attachment('700001', '00000000-0000-4000-8000-000000000001'), {
@@ -148,7 +148,7 @@ test('a mirrored Core ACK must match the challenged socket identity and public o
 
 test('public delivery evidence stays absent until a real shadow target exists', async () => {
   const mod = await load();
-  const state = mod.defaultDeliveryState('qa-kvk-model-a');
+  const state = mod.defaultDeliveryState('qa');
   state.commands.push(mod.createDeliveryRecord(command, 1_000_000));
 
   assert.deepEqual(mod.publicDeliverySummary(state, 1_000_001), {
@@ -167,7 +167,7 @@ test('public delivery evidence stays absent until a real shadow target exists', 
 
 test('duplicate ACKs do not downgrade a success, cancel is explicit, and history is bounded', async () => {
   const mod = await load();
-  const state = mod.defaultDeliveryState('qa-kvk-model-a');
+  const state = mod.defaultDeliveryState('qa');
   state.commands.push(mod.createDeliveryRecord(command, 1_000_000));
   mod.upsertDeliveryTarget(state, 'cmd-1', attachment('700001', '00000000-0000-4000-8000-000000000001'), 1_000_000);
   mod.recordShadowAck(state, attachment('700001', '00000000-0000-4000-8000-000000000001'), {
@@ -194,7 +194,7 @@ test('duplicate ACKs do not downgrade a success, cancel is explicit, and history
 
 test('history wake and pruning use the final useful ACK timestamp', async () => {
   const mod = await load();
-  const state = mod.defaultDeliveryState('qa-kvk-model-a');
+  const state = mod.defaultDeliveryState('qa');
   state.commands.push(mod.createDeliveryRecord(command, 1_000_000));
   mod.upsertDeliveryTarget(state, 'cmd-1', attachment('700001', '00000000-0000-4000-8000-000000000001'), 1_000_000);
   mod.recordShadowAck(state, attachment('700001', '00000000-0000-4000-8000-000000000001'), {

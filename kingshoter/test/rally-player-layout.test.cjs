@@ -3,8 +3,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 
-const html = fs.readFileSync(path.join(__dirname, '../public/kvk.html'), 'utf8');
-const source = fs.readFileSync(path.join(__dirname, '../public/kvk.js'), 'utf8');
+const html = fs.readFileSync(path.join(__dirname, '../public/rally.html'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, '../public/rally-controller.js'), 'utf8');
 const appCss = fs.readFileSync(path.join(__dirname, '../public/app.css'), 'utf8');
 const rallyCssPath = path.join(__dirname, '../public/rally.css');
 const rallyCss = fs.existsSync(rallyCssPath) ? fs.readFileSync(rallyCssPath, 'utf8') : '';
@@ -46,10 +46,10 @@ function functionSource(name) {
 
 test('Rally tactical projector and surface CSS load before the page controller', () => {
   const tactical = html.indexOf('/rally-tactical.js');
-  const controller = html.indexOf('/kvk.js');
+  const controller = html.indexOf('/rally-controller.js');
   assert.ok(tactical > 0, 'pure Rally tactical projector is loaded');
   assert.ok(tactical < controller, 'projector loads before the controller');
-  assert.match(html, /<link[^>]+href="\/rally\.css\?v=2026071603"/);
+  assert.match(html, /<link[^>]+href="\/rally\.css\?v=2026071701"/);
 });
 
 test('ordinary connection chrome does not expose room-wide online counts', () => {

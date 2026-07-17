@@ -6,7 +6,7 @@ const {
   localQaBaseURL,
   makeQaRoom,
   qaRoomUrl
-} = require('./support/qa-kvk.cjs');
+} = require('./support/qa-coordination.cjs');
 
 const base = localQaBaseURL(process.env.BASE || 'http://127.0.0.1:8791');
 const room = makeQaRoom('rally-tactical');

@@ -1,6 +1,6 @@
 // concurrent multi-kingdom: firing K2 must NOT wipe K1's live rally
 const { chromium } = require('playwright');
-const { makeQaRoom, qaRoomUrl, installQaWebSocketGuard, localQaBaseURL } = require('./support/qa-kvk.cjs');
+const { makeQaRoom, qaRoomUrl, installQaWebSocketGuard, localQaBaseURL } = require('./support/qa-coordination.cjs');
 
 (async () => {
   const host = localQaBaseURL(process.argv[2] || 'http://127.0.0.1:8791');

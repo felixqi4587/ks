@@ -1,18 +1,88 @@
 const assert = require('node:assert/strict');
-const { basename } = require('node:path');
+const fs = require('node:fs');
+const net = require('node:net');
+const os = require('node:os');
+const path = require('node:path');
+const { spawn } = require('node:child_process');
 const { chromium, firefox, webkit } = require('playwright');
 const {
   assertQaRoomName,
   makeQaRoom,
   qaRoomUrl,
   installQaWebSocketGuard,
-  localQaBaseURL
-} = require('./support/qa-kvk.cjs');
+  localQaBaseURL,
+  QA_PASSWORD
+} = require('./support/qa-coordination.cjs');
 
-const base = localQaBaseURL(process.env.BASE || 'http://127.0.0.1:8791');
-const suiteTitle = basename(__filename, '.cjs');
-const password = 'kvk-core-multibrowser-password';
+const root = path.join(__dirname, '..');
+const explicitBase = process.env.BASE ? localQaBaseURL(process.env.BASE) : null;
+let base = explicitBase;
+const suiteTitle = path.basename(__filename, '.cjs');
+const password = QA_PASSWORD;
 const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.unref();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const port = server.address().port;
+      server.close(error => error ? reject(error) : resolve(port));
+    });
+  });
+}
+
+async function startIsolatedWrangler() {
+  const port = await freePort();
+  const statePath = fs.mkdtempSync(path.join(os.tmpdir(), 'kingshoter-rally-core-'));
+  const child = spawn('npx', [
+    'wrangler', 'dev', '--local', '--ip', '127.0.0.1', '--port', String(port),
+    '--persist-to', statePath, '--var', 'TRIPLE_RALLY_ENABLED:0',
+    '--var', 'TRIPLE_RALLY_QA_ENABLED:1', '--log-level', 'warn'
+  ], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+  let logs = '';
+  const collect = chunk => { logs = (logs + String(chunk)).slice(-16_000); };
+  child.stdout.on('data', collect);
+  child.stderr.on('data', collect);
+  const baseURL = `http://127.0.0.1:${port}`;
+  const deadline = Date.now() + 90_000;
+  while (Date.now() < deadline) {
+    if (child.exitCode != null) throw new Error(`isolated Wrangler exited ${child.exitCode}\n${logs}`);
+    try {
+      const response = await fetch(`${baseURL}/api/time`);
+      if (response.ok) return { child, statePath, baseURL, logs: () => logs };
+    } catch (_) {}
+    await delay(200);
+  }
+  child.kill('SIGTERM');
+  throw new Error(`isolated Wrangler did not start\n${logs}`);
+}
+
+async function stopWrangler(server) {
+  if (!server) return;
+  if (server.child.exitCode == null) {
+    server.child.kill('SIGTERM');
+    await Promise.race([
+      new Promise(resolve => server.child.once('exit', resolve)),
+      delay(3_000)
+    ]);
+    if (server.child.exitCode == null) server.child.kill('SIGKILL');
+  }
+  fs.rmSync(server.statePath, { recursive: true, force: true });
+}
+
+async function installLocalOnlyRoutes(context) {
+  const localOrigin = new URL(base).origin;
+  await context.route('**/*', route => {
+    let requested;
+    try { requested = new URL(route.request().url()); }
+    catch (_) { return route.abort('blockedbyclient'); }
+    if (!['http:', 'https:'].includes(requested.protocol)) return route.continue();
+    if (requested.origin !== localOrigin) return route.abort('blockedbyclient');
+    return route.continue();
+  });
+}
 
 function stripDeliveryAggregate(message) {
   const snapshot = structuredClone(message);
@@ -64,6 +134,7 @@ function playerProfile(pid, name, march, profileKey) {
 async function seedCanonicalPlayers(browser, room, profiles) {
   assertQaRoomName(room);
   const context = await browser.newContext({ locale: 'en-US' });
+  await installLocalOnlyRoutes(context);
   await installQaWebSocketGuard(context, room, { expectedOrigin: base });
   const page = await context.newPage();
   try {
@@ -99,6 +170,90 @@ async function seedCanonicalPlayers(browser, room, profiles) {
         resolve();
       };
     }), { roomName: room, records: profiles });
+  } finally {
+    await context.close();
+  }
+}
+
+async function resetQaRallyState(browser, room) {
+  assertQaRoomName(room);
+  const context = await browser.newContext({ locale: 'en-US' });
+  await installLocalOnlyRoutes(context);
+  await installQaWebSocketGuard(context, room, { expectedOrigin: base });
+  const page = await context.newPage();
+  try {
+    await page.goto(qaRoomUrl(base, room, { notour: 1, lang: 'en' }), { waitUntil: 'domcontentloaded' });
+    await page.evaluate(({ roomName, roomPassword }) => new Promise((resolve, reject) => {
+      const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+      const socket = new WebSocket(`${protocol}://${location.host}/api/ws?room=${encodeURIComponent(roomName)}`);
+      const cancelled = new Set();
+      const cleared = new Set();
+      const removed = new Set();
+      const timer = setTimeout(() => {
+        try { socket.close(); } catch (_) {}
+        reject(new Error('Timed out resetting canonical QA Rally state'));
+      }, 8_000);
+      const finish = () => {
+        clearTimeout(timer);
+        socket.close();
+        resolve();
+      };
+      socket.onerror = () => {
+        clearTimeout(timer);
+        reject(new Error('Canonical QA Rally reset WebSocket failed'));
+      };
+      socket.onmessage = event => {
+        let message = null;
+        try { message = JSON.parse(String(event.data)); } catch (_) {}
+        if (message && message.t === 'error') {
+          clearTimeout(timer);
+          socket.close();
+          reject(new Error(`Canonical QA Rally reset failed: ${message.error || 'unknown_error'}`));
+          return;
+        }
+        const snapshot = message && message.t === 'state' && message.room;
+        if (!snapshot) return;
+        const commands = snapshot.live && snapshot.live.commands || {};
+        const activeKingdoms = [1, 2].filter(kingdom => commands[String(kingdom)]);
+        if (activeKingdoms.length) {
+          activeKingdoms.forEach(kingdom => {
+            const commandId = commands[String(kingdom)] && commands[String(kingdom)].id;
+            const key = `${kingdom}:${commandId || ''}`;
+            if (cancelled.has(key)) return;
+            cancelled.add(key);
+            socket.send(JSON.stringify({
+              t: 'cmd', password: roomPassword,
+              cmd: { type: 'cancel', kingdom }
+            }));
+          });
+          return;
+        }
+        const staged = snapshot.live && snapshot.live.staged || {};
+        const stagedKingdoms = [1, 2].filter(kingdom => staged[String(kingdom)]);
+        if (stagedKingdoms.length) {
+          stagedKingdoms.forEach(kingdom => {
+            const revision = snapshot.rallyModes && snapshot.rallyModes[String(kingdom)] &&
+              snapshot.rallyModes[String(kingdom)].revision;
+            const key = `${kingdom}:${revision}`;
+            if (cleared.has(key)) return;
+            cleared.add(key);
+            socket.send(JSON.stringify({
+              t: 'stage', password: roomPassword,
+              staged: { kingdom, modeRevision: revision, pairs: [] }
+            }));
+          });
+          return;
+        }
+        const playerIds = Object.keys(snapshot.players || {});
+        if (!playerIds.length) return finish();
+        const nextPlayerId = playerIds.find(pid => !removed.has(pid));
+        if (!nextPlayerId) return;
+        removed.add(nextPlayerId);
+        socket.send(JSON.stringify({
+          t: 'removePlayer', password: roomPassword, pid: nextPlayerId
+        }));
+      };
+    }), { roomName: room, roomPassword: password });
   } finally {
     await context.close();
   }
@@ -401,6 +556,7 @@ async function openRole(browser, options) {
   } = options;
   assertQaRoomName(room);
   const context = await browser.newContext({ viewport, locale: 'en-US' });
+  await installLocalOnlyRoutes(context);
   await installQaWebSocketGuard(context, room, {
     ...gateOptions(gate),
     expectedOrigin: base
@@ -839,6 +995,7 @@ async function runCoreScenario(browser, engineName) {
   const roles = [];
 
   try {
+    await resetQaRallyState(browser, room);
     await seedCanonicalPlayers(browser, room, [
       captainAProfile,
       captainBProfile,
@@ -1416,6 +1573,7 @@ async function runCompatibilityScenario(browser, engineName) {
     '92000000-0000-4000-8000-000000000003');
   const roles = [];
   try {
+    await resetQaRallyState(browser, room);
     await seedCanonicalPlayers(browser, room, [captainAProfile, captainBProfile, ordinaryProfile]);
     const opened = await Promise.all([
       openRole(browser, { room, label: 'compatibility-commander', gate: ignoredCommander, errors }),
@@ -1544,11 +1702,23 @@ async function runProject(engineName) {
 }
 
 (async () => {
-  assertCompatibilityTransform();
-  const projects = requestedProjects(process.argv.slice(2));
-  const results = [];
-  for (const project of projects) results.push(await runProject(project));
-  console.log(`\n${results.length}/${results.length} browser projects passed in generated qa-kvk-* rooms`);
+  let server = null;
+  try {
+    if (!base) {
+      server = await startIsolatedWrangler();
+      base = server.baseURL;
+    }
+    assertCompatibilityTransform();
+    const projects = requestedProjects(process.argv.slice(2));
+    const results = [];
+    for (const project of projects) results.push(await runProject(project));
+    console.log(`\n${results.length}/${results.length} browser projects passed in the fixed qa room`);
+  } catch (error) {
+    if (server) error.message += `\nIsolated Wrangler log:\n${server.logs()}`;
+    throw error;
+  } finally {
+    await stopWrangler(server);
+  }
 })().catch(error => {
   console.error(error.stack || error);
   process.exit(1);

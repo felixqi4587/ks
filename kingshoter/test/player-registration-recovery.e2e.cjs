@@ -6,7 +6,7 @@ const {
   qaRoomUrl,
   installQaWebSocketGuard,
   localQaBaseURL
-} = require('./support/qa-kvk.cjs');
+} = require('./support/qa-coordination.cjs');
 
 const base = localQaBaseURL(process.env.BASE || 'http://127.0.0.1:8791');
 const recoveryRoom = assertQaRoomName(makeQaRoom('registration-recovery'));

@@ -307,6 +307,29 @@ test('order creation freezes every profile and targets only connected valid prof
   assert.doesNotMatch(JSON.stringify(created.order), /profileKey|must-not-leak/);
 });
 
+test('one Defense order captures at most 100 deterministic website profiles from a 150-player roster', async () => {
+  const { mod, state } = await configuredState({ tapAnchorSeconds: 180, enemyMarchSeconds: 30 });
+  const pids = Array.from({ length: 101 }, (_, index) => `target_${String(index).padStart(3, '0')}`);
+  state.players = Object.fromEntries(pids.map(pid => [pid, player(pid, 30)]));
+
+  const created = mod.createDefenseOrder(state, {
+    mutationId: 'fire-target-cap', orderId: 'order-target-cap', configRevision: 1,
+    signalAtMs: 1_500_000, acceptedAtMs: 1_500_010, connectedPids: pids
+  });
+
+  assert.equal(created.ok, true);
+  assert.equal(created.order.rosterAtAcceptance.length, 101,
+    'the frozen roster still reports every registered profile');
+  assert.equal(created.order.audience.length, 100);
+  assert.deepEqual(created.order.audience.map(entry => entry.pid), pids.slice(0, 100));
+  assert.equal(created.order.rosterAtAcceptance.at(-1).connectedAtAcceptance, true,
+    'the overflow profile remains truthfully connected but waits for a later round');
+
+  const restored = mod.normalizeDefenseState(structuredClone(created.state));
+  assert.equal(restored.activeOrder && restored.activeOrder.audience.length, 100,
+    'the same capped audience survives canonical persistence normalization');
+});
+
 test('when every GO is late the order completes exactly three seconds after acceptance', async () => {
   const { mod, state } = await configuredState({ tapAnchorSeconds: 5, enemyMarchSeconds: 5 });
   state.players = { late: player('Late', 5, 0) };

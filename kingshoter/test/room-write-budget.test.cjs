@@ -366,3 +366,63 @@ test('idle QA readiness does not maintain a recurring probe alarm', async () => 
   assert.equal(metrics.setAlarms, 0);
   assert.equal(metrics.deleteAlarms, 1);
 });
+
+test('one hundred idle Defense defenders plus managers and Rally observers stay write and broadcast free', async () => {
+  const { Room } = await loadRoom();
+  const h = createRoomHarness(Room, {
+    roomName: 'qa', surface: 'defense', players: {}, nowMs: 50_000_000
+  });
+  await send(h.room, h.ws, { t: 'hello' });
+  h.room.defense.players = {};
+  h.room.defense.rosterRevision = 100;
+  h.room.defense.profileGenerationCounter = 100;
+
+  const defenders = [];
+  for (let index = 0; index < 100; index += 1) {
+    const pid = `defender-${String(index).padStart(3, '0')}`;
+    const deviceId = `30000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`;
+    h.room.defense.players[pid] = {
+      name: `Defender ${index}`, march: 5 + (index % 116), marchRevision: 0,
+      identityMode: 'nickname', lastSeen: new Date(h.room.nowMs()).toISOString(),
+      profileGeneration: index + 1
+    };
+    const socket = index === 0 ? { ws: h.ws, sent: h.sent } : h.addSocket('defense');
+    h.room.writeDefenseAttachment(socket.ws, {
+      defenseProfilePid: pid, pid, deviceId, soundReady: true, clockFresh: true,
+      lastSeenMs: h.room.nowMs()
+    });
+    defenders.push({ ...socket, pid, deviceId });
+  }
+  const managers = [0, 1].map(index => h.addSocket('defense', {
+    managerAuthorized: true,
+    managerDeviceId: `40000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+    managerClockFresh: true, managerStatusAtMs: h.room.nowMs(),
+    managerClockSampleAtMs: h.room.nowMs(), managerClockOffsetMs: 0
+  }));
+  const rally = [h.addSocket('rally'), h.addSocket('rally')];
+  assert.equal(h.room.liveDefenseSockets().length, 102);
+  assert.equal(h.room.liveCoreSockets().length, 2);
+
+  h.storageCalls.length = 0;
+  h.calls.length = 0;
+  for (const socket of defenders.concat(managers, rally)) socket.sent.length = 0;
+  for (let round = 0; round < 4; round += 1) {
+    for (const defender of defenders) {
+      await send(h.room, defender.ws, {
+        t: 'hb', pid: defender.pid, deviceId: defender.deviceId,
+        soundReady: true, clockFresh: true
+      });
+    }
+  }
+
+  assert.equal(h.storageCalls.filter(call => call.op === 'put').length, 0,
+    'steady Defense readiness never writes canonical Durable Object rows');
+  assert.equal(h.storageCalls.filter(call => call.op === 'setAlarm').length, 0,
+    'idle Defense readiness never creates a recurring alarm');
+  assert.equal(h.calls.includes('broadcast'), false,
+    'Defense heartbeats never enter the Rally full-room broadcast path');
+  for (const socket of defenders.concat(managers, rally)) {
+    assert.equal(socket.sent.some(frame => frame.t === 'defenseState' || frame.t === 'state'), false,
+      'unchanged heartbeats never emit periodic full-state frames');
+  }
+});

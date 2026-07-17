@@ -118,7 +118,8 @@ test('staging uses the core routing-key policy and rejects reserved or malformed
 test('QA gate never enables an operation room and the global gate enables all rooms', async () => {
   const { isTripleAllowed } = await load();
   const qaOnly = { TRIPLE_RALLY_ENABLED: '0', TRIPLE_RALLY_QA_ENABLED: '1' };
-  assert.equal(isTripleAllowed(qaOnly, 'qa-kvk-chromium-42'), true);
+  assert.equal(isTripleAllowed(qaOnly, 'qa'), true);
+  assert.equal(isTripleAllowed(qaOnly, 'qa-kvk-chromium-42'), false);
   assert.equal(isTripleAllowed(qaOnly, 'operation-room'), false);
   assert.equal(isTripleAllowed(qaOnly, 'practice-room'), false);
   assert.equal(isTripleAllowed({ TRIPLE_RALLY_ENABLED: '1' }, 'operation-room'), true);

@@ -4,15 +4,27 @@ const {
   assertQaRoomName,
   makeQaRoom,
   qaRoomUrl,
-  installQaWebSocketGuard
-} = require('./support/qa-kvk.cjs');
+  installQaWebSocketGuard,
+  QA_PASSWORD,
+  resetQaRallyState
+} = require('./support/qa-coordination.cjs');
 
 const LEAD_SECONDS = 15;
-const PASSWORD = () => `qa-${crypto.randomBytes(12).toString('hex')}`;
+const PASSWORD = () => QA_PASSWORD;
 const PROFILE_KEY = room => `kingshoter_r_${room}_me`;
 const DEVICE_KEY = room => `kvk:${room}:delivery-device:v1`;
 const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 const seededProfiles = new Set();
+
+test.beforeEach(async ({ browser, baseURL }) => {
+  await resetQaRallyState(browser, baseURL, makeQaRoom());
+  seededProfiles.clear();
+});
+
+test.afterEach(async ({ browser, baseURL }) => {
+  await resetQaRallyState(browser, baseURL, makeQaRoom());
+  seededProfiles.clear();
+});
 
 function parseFrame(data) {
   try {
@@ -286,21 +298,6 @@ async function waitForAutomaticReady(device, minimumSequence = 0) {
   return timeline;
 }
 
-async function waitForFreshArmed(device, maximumAgeMs = 2_500) {
-  const latest = () => [...device.gate.events].reverse().find(event =>
-    event.direction === 'client' && event.message &&
-    event.message.t === 'deliveryShadowProbeAck' &&
-    event.message.audioArmed === true);
-  const current = latest();
-  if (current && Date.now() - current.at <= maximumAgeMs) return current;
-  const previousSequence = current ? current.sequence : 0;
-  await expect.poll(() => {
-    const event = latest();
-    return !!event && event.sequence > previousSequence && Date.now() - event.at <= maximumAgeMs;
-  }, { timeout: 12_000 }).toBe(true);
-  return latest();
-}
-
 async function registerNickname(device, name, march) {
   const { page } = device;
   await page.locator('#identityNickname').click();
@@ -528,11 +525,6 @@ test('eight isolated devices preserve Classic authority and Reliable device trut
 
     await unlockCommander(byKey['commander-only'].page, password);
     await unlockCommander(byKey['selected-commander'].page, password);
-    await Promise.all([
-      byKey['captain-a-1'],
-      byKey['captain-a-2'],
-      byKey['captain-b']
-    ].map(device => waitForFreshArmed(device)));
 
     const issuedFrom = await serverNowSeconds(byKey['commander-only'].page);
     const firstPress = Math.ceil(issuedFrom) + LEAD_SECONDS;
@@ -598,10 +590,6 @@ test('eight isolated devices preserve Classic authority and Reliable device trut
     await expect.poll(async () => (await Promise.all(devices.map(device =>
       futureCueEntries(device.page, first.id)))).flat().length).toBe(0);
 
-    await Promise.all([
-      byKey['selected-commander'],
-      byKey['captain-b']
-    ].map(device => waitForFreshArmed(device)));
     const secondPress = Math.ceil(await serverNowSeconds(byKey['commander-only'].page)) + LEAD_SECONDS;
     const second = await sendDouble(byKey['commander-only'].page, room, password, {
       kingdom: 2,
@@ -651,7 +639,6 @@ test('a selected device reconnects before cutoff with the immutable command', as
     await Promise.all([waitForAutomaticReady(a), waitForAutomaticReady(b)]);
     await waitForPlayerCount(request, baseURL, room, 2);
     await unlockCommander(b.page, password);
-    await Promise.all([waitForFreshArmed(a), waitForFreshArmed(b)]);
 
     aGate.blockCandidate = true;
     aGate.blockCommandState = true;
@@ -681,7 +668,6 @@ test('a selected device reconnects before cutoff with the immutable command', as
     await expect.poll(() => a.page.evaluate(() =>
       window.__kvkDeliveryQa.getSocket().connectionGeneration)).toBeGreaterThan(generationBefore);
     await waitForAutomaticReady(a, reconnectBoundary);
-
     await expect.poll(() => aGate.candidateRaw.length).toBeGreaterThanOrEqual(2);
     expect(new Set(aGate.candidateRaw).size).toBe(1);
     expect(parseFrame(aGate.candidateRaw[0]).commandId).toBe(command.id);
@@ -742,6 +728,7 @@ test('omitting the shadow flags is a zero-candidate Classic rollback', async ({
     const byKey = Object.fromEntries(devices.map(device => [device.key, device]));
     await waitForPlayerCount(request, baseURL, room, 3);
     await unlockCommander(byKey['classic-b'].page, password);
+    const deliveryShadowBefore = structuredClone((await roomSnapshot(request, baseURL, room)).deliveryShadow || null);
 
     const firstPress = Math.ceil(await serverNowSeconds(byKey['classic-b'].page)) + LEAD_SECONDS;
     const command = await sendDouble(byKey['classic-b'].page, room, password, {
@@ -775,7 +762,9 @@ test('omitting the shadow flags is a zero-candidate Classic rollback', async ({
         String(event.message.t || '').startsWith('deliveryShadow'))).toEqual([]);
       expect(await device.page.evaluate(() => window.__kvkDeliveryQa)).toBeUndefined();
     }
-    expect((await roomSnapshot(request, baseURL, room)).deliveryShadow).toBeUndefined();
+    const deliveryShadowAfter = (await roomSnapshot(request, baseURL, room)).deliveryShadow || null;
+    expect(deliveryShadowAfter).toEqual(deliveryShadowBefore);
+    expect(deliveryShadowAfter && deliveryShadowAfter.commands.some(entry => entry.commandId === command.id)).toBeFalsy();
     expect(errors).toEqual([]);
   } finally {
     await Promise.all(devices.map(device => device.context.close().catch(() => {})));

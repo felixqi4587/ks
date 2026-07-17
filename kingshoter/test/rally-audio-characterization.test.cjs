@@ -4,8 +4,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const source = fs.readFileSync(path.join(__dirname, '../public/kvk.js'), 'utf8');
-const html = fs.readFileSync(path.join(__dirname, '../public/kvk.html'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, '../public/rally-controller.js'), 'utf8');
+const html = fs.readFileSync(path.join(__dirname, '../public/rally.html'), 'utf8');
 const audioSource = fs.readFileSync(path.join(__dirname, '../public/battle-audio.js'), 'utf8');
 const cuesSource = fs.readFileSync(path.join(__dirname, '../public/battle-cues.js'), 'utf8');
 const sfxDir = path.join(__dirname, '../public/sfx');
@@ -190,7 +190,7 @@ test('the background carrier, MediaSession, and readiness truth remain coupled',
   assert.match(audioSource, /nav\.mediaSession\.metadata/);
   assert.match(extractFunction(source, 'audioAlive'), /battleReadiness\(\)\.green/);
   assert.match(html, /id="soundGate"/);
-  assert.match(html, /battle-status\.js[\s\S]*battle-audio\.js[\s\S]*battle-cues\.js[\s\S]*kvk\.js/);
+  assert.match(html, /battle-status\.js[\s\S]*battle-audio\.js[\s\S]*battle-cues\.js[\s\S]*rally-controller\.js/);
 });
 
 test('cancel and clock correction retain stoppable Web Audio node wiring', () => {

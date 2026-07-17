@@ -9,7 +9,6 @@ export const DELIVERY_AUDIO_GRACE_MS = 150;
 export const DELIVERY_HISTORY_TTL_MS = 60_000;
 export const DELIVERY_MAX_COMMANDS = 32;
 
-const QA_ROOM_RE = /^qa-kvk-[a-z0-9](?:[a-z0-9-]{0,39}[a-z0-9])?$/;
 const RESULTS = new Set(['scheduled', 'would_schedule', 'audio_unarmed', 'expired', 'duplicate']);
 const SHADOW_RESULTS = new Set(['would_schedule', 'audio_unarmed', 'expired', 'duplicate']);
 const DELIVERY_MAX_TARGETS = 24;
@@ -21,7 +20,7 @@ const int = (value, fallback) => Math.trunc(finite(value, fallback));
 const role = (value) => value === 'main' ? 'main' : value === 'weak2' ? 'weak2' : 'weak';
 
 export function isQaRoomName(room) {
-  return typeof room === 'string' && room.length <= 48 && QA_ROOM_RE.test(room);
+  return room === 'qa';
 }
 
 export function defaultDeliveryState(roomName = '') {

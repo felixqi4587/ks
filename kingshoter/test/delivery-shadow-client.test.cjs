@@ -4,9 +4,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const SOURCE_PATH = path.join(__dirname, '../public/kvk-delivery-shadow.js');
+const SOURCE_PATH = path.join(__dirname, '../public/rally-delivery-shadow.js');
 const DEVICE_ID = 'abcdefab-cdef-4abc-8def-abcdefabcdef';
-const QA_ROOM = 'qa-kvk-client-a';
+const QA_ROOM = 'qa';
 
 const own = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
 const plain = (value) => JSON.parse(JSON.stringify(value));
@@ -51,7 +51,7 @@ function load(options = {}) {
     Object.defineProperty(sandbox, 'navigator', { configurable: true, value: navigator });
   }
   vm.runInNewContext(source, sandbox, { filename: SOURCE_PATH });
-  return { api: window.KvkDeliveryShadow, source, accesses };
+  return { api: window.RallyDeliveryShadow, source, accesses };
 }
 
 function identity(overrides = {}) {

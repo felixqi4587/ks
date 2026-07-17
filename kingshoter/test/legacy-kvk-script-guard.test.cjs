@@ -64,7 +64,7 @@ const localQaRunners = [
 function executableManualKvkScripts() {
   return fs.readdirSync(testDir)
     .filter(file => /\.(?:cjs|mjs|js)$/.test(file))
-    .filter(file => !/\.(?:test|e2e|spec)\.cjs$/.test(file))
+    .filter(file => !/\.(?:test|e2e|spec)\.(?:cjs|mjs|js)$/.test(file))
     .filter(file => {
       const source = fs.readFileSync(path.join(testDir, file), 'utf8');
       const canOpenNetwork = /require\(["']playwright["']\)|from\s+["']playwright["']|require\(["']ws["']\)|from\s+["']ws["']|new WebSocket\s*\(/.test(source);
@@ -95,11 +95,11 @@ test('every retained legacy KvK script is disabled before browser or WebSocket l
   }
 });
 
-test('every retained manual QA runner is locked to a generated room and exact local origin', () => {
+test('every retained manual QA runner is locked to the fixed qa room and exact local origin', () => {
   for (const file of localQaRunners) {
     const source = fs.readFileSync(path.join(testDir, file), 'utf8');
     assert.match(source, /localQaBaseURL/, `${file} must reject non-loopback origins`);
-    assert.match(source, /makeQaRoom/, `${file} must generate a qa-kvk-* room`);
+    assert.match(source, /makeQaRoom/, `${file} must request the fixed qa room`);
     assert.match(source, /installQaWebSocketGuard/, `${file} must guard its WebSocket room`);
     assert.match(source, /expectedOrigin\s*:/, `${file} must guard the exact WebSocket origin`);
   }
@@ -110,6 +110,6 @@ test('the legacy-script stop guard always fails closed with the safe replacement
   assert.throws(
     () => stop('/tmp/old-script.cjs'),
     error => /disabled legacy KvK script/i.test(error.message) &&
-      /npm run test:qa:(?:delivery|triple)/i.test(error.message)
+      /npm run test:qa:rally-defense/i.test(error.message)
   );
 });

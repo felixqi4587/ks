@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const { chromium } = require('playwright');
-const { makeQaRoom, qaRoomUrl, localQaBaseURL } = require('./support/qa-kvk.cjs');
+const { makeQaRoom, qaRoomUrl, localQaBaseURL } = require('./support/qa-coordination.cjs');
 
 const base = localQaBaseURL(process.env.BASE || 'http://127.0.0.1:8791');
 const room = makeQaRoom('audio-carrier-longrun');

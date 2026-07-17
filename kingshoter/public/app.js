@@ -34,7 +34,7 @@ window.LANG_KEY = "kingshoter_lang";
 window.lang = (() => { try { const s = localStorage.getItem(LANG_KEY); if (s === "zh" || s === "en") return s; } catch (e) {} return (String(navigator.language || "").toLowerCase().indexOf("zh") === 0) ? "zh" : "en"; })();
 window.I18N = {
   zh: {
-    nav_home: "🏠 首页", nav_kvk: "⚔️ KvK 指挥", nav_codes: "🎁 礼包码", nav_events: "📅 活动表", nav_guide: "📖 词汇", utc_local: "UTC · 本地",
+    nav_home: "🏠 首页", nav_rally: "⚔️ 集结", nav_defense: "🛡️ 防守", nav_kvk: "⚔️ KvK 指挥", nav_codes: "🎁 礼包码", nav_events: "📅 活动表", nav_guide: "📖 词汇", utc_local: "UTC · 本地",
     /* portal */
     site_tag: "每位车头只看自己的开车倒数 · Kingshot 玩家工具", soon: "敬请期待", sec_more: "更多工具",
     card_rally: "集结协调", card_rally_d: "同步双集结或三集结车头的个人发车倒数。",
@@ -44,8 +44,8 @@ window.I18N = {
     card_events: "活动 / 事件时间表", card_events_d: "竞技场、火龙、熊突、KvK 节点时间，自动换算你的时区。",
     card_guide: "KvK 打法 & 词汇", card_guide_d: "看动画秒懂 集结 / 双集结 / 反集结 / refill", card_calc: "战力计算器",
     foot: "Kingshot 玩家自制工具 · 非官方、与 Century Games 无关 · 不使用任何游戏素材 ⚔️🐟",
-    /* kvk shell */
-    k_h1: "KvK 实时指挥", k_join: "进入房间", k_room: "房间名",
+    /* Rally shell; k_h1 remains for the one-release legacy page. */
+    rally_h1: "集结协调", k_h1: "KvK 实时指挥", k_join: "进入房间", k_room: "房间名",
     k_join_hint: "填一个房间名就行（自己取，和队友约定同一个）。看公开，改要密码。",
     k_enter: "进入", k_net_off: "连接断开 · 重连中…", k_net_on: "● 已连接", k_presence: "{n} 人在线",
     /* role / onboarding */
@@ -74,7 +74,7 @@ window.I18N = {
     k_you_press: "🚗 你开车！", k_press_at: "{x} 开车", k_double_land: "双集结 · 落地 ~{x}"
   },
   en: {
-    nav_home: "🏠 Home", nav_kvk: "⚔️ KvK", nav_codes: "🎁 Codes", nav_events: "📅 Events", nav_guide: "📖 Guide", utc_local: "UTC · Local",
+    nav_home: "🏠 Home", nav_rally: "⚔️ Rally", nav_defense: "🛡️ Defense", nav_kvk: "⚔️ KvK", nav_codes: "🎁 Codes", nav_events: "📅 Events", nav_guide: "📖 Guide", utc_local: "UTC · Local",
     site_tag: "Every captain follows their own launch countdown · Kingshot player tools", soon: "coming soon", sec_more: "More tools",
     card_rally: "Rally Coordination", card_rally_d: "Synchronize personal launch countdowns for Double or Triple Rally captains.",
     card_defense: "Defense Coordination", card_defense_d: "Send personal voice countdowns to a large defender group.",
@@ -83,7 +83,7 @@ window.I18N = {
     card_events: "Event timetable", card_events_d: "Arena, dragon, bear, KvK times — auto-converted to your timezone.",
     card_guide: "KvK playbook & glossary", card_guide_d: "Animations that make rally / double / counter / refill click", card_calc: "Power calculator",
     foot: "Player-made Kingshot tool · unofficial, not affiliated with Century Games · no game assets used ⚔️🐟",
-    k_h1: "KvK Live Command", k_join: "Enter a room", k_room: "Room name",
+    rally_h1: "Rally Coordination", k_h1: "KvK Live Command", k_join: "Enter a room", k_room: "Room name",
     k_join_hint: "Just a room name (pick one, share it with your team). Anyone can view; editing needs the room password.",
     k_enter: "Enter", k_net_off: "Disconnected · reconnecting…", k_net_on: "● Connected", k_presence: "{n} online",
     k_you_player: "I'm a player", k_you_cmd: "I'm the commander",

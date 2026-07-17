@@ -62,6 +62,15 @@ import {
   transitionRallyMode,
   validateStagedPairs
 } from "./rally-mode.js";
+import {
+  inspectRallyMutation,
+  normalizeRallyRoomState,
+  projectRallyRoomState,
+  rallyMutationFingerprint,
+  rememberRallyMutation,
+  transitionKingdomName,
+  validateKingdomDisplayName
+} from "./rally-room-domain.js";
 import { buildTripleRallyCommand } from "./rally-targets.js";
 import { MIN_TRIPLE_BUILD, parseClientBuild, projectRoomForClient } from "./client-build.js";
 import {
@@ -114,9 +123,10 @@ function closeFailedSocket(ws) {
 function defaultRoom() {
   return {
     pwHash: null,
-    config: { castleName: "", rallyAllies: [], enemyWhales: [] },
+    config: { castleName: "", rallyAllies: [] },
     players: {},
     rallyModes: newRallyModes(),
+    rallyRoom: normalizeRallyRoomState(),
     // per-kingdom command + staged slots so two commanders (one per kingdom) never clobber each other
     live: { mode: "idle", commands: { 1: null, 2: null }, staged: { 1: null, 2: null }, sim: null },
     updatedAt: null,
@@ -162,7 +172,7 @@ const DEFENSE_ONLY_MESSAGE_TYPES = new Set([
   "defenseOrderAck"
 ]);
 const RALLY_CANONICAL_MESSAGE_TYPES = new Set([
-  "setRallyMode", "deviceStatus", "deliveryAck", "setMarch", "registerPlayer",
+  "setRallyMode", "setKingdomName", "deviceStatus", "deliveryAck", "setMarch", "registerPlayer",
   "updateOwnProfile", "updateOwnMarch", "setPlayerMarch", "removePlayer",
   "setConfig", "cmd", "stage", "ready", "sim", "hb"
 ]);
@@ -462,12 +472,12 @@ function sanitizeConfig(c) {
       role: (cap && cap.role) === "main" ? "main" : "weak"
     }))
   }));
-  const whales = (Array.isArray(c.enemyWhales) ? c.enemyWhales : []).slice(0, 30).map(w => ({
-    name: clampStr(w && w.name, 24),
-    mm: clampInt(w && w.mm, 0, 600),
-    ss: clampInt(w && w.ss, 0, 59)
-  }));
-  return { castleName: clampStr(c.castleName, 40), rallyAllies: allies, enemyWhales: whales };
+  return { castleName: clampStr(c.castleName, 40), rallyAllies: allies };
+}
+
+function roomForPersistence(room) {
+  if (!room || typeof room !== "object" || Array.isArray(room)) return room;
+  return { ...room, config: sanitizeConfig(room.config) };
 }
 
 function crossKingdomLiveCaptain(live, kingdom, pairs, nowSec) {
@@ -583,6 +593,7 @@ export class Room {
     l.mode = l.mode || "idle";
     if (!("sim" in l)) l.sim = null;
     this.room.rallyModes = normalizeRallyModes(this.room.rallyModes);
+    this.room.rallyRoom = normalizeRallyRoomState(this.room.rallyRoom);
   }
 
   async fetch(request) {
@@ -620,7 +631,15 @@ export class Room {
       this.attachSocket(server, this.roomName, RALLY_SURFACE);      // Hibernation API + merge-safe identity base
       this.initializeReliableAttachment(server);
       this.writeSocketAttachment(server, { clientBuild });
-      server.send(this.stateMsg(clientBuild));
+      const connectionSnapshot = this.snapshot();
+      server.send(this.stateMsg(clientBuild, connectionSnapshot));
+      for (const existing of this.liveCoreSockets()) {
+        if (existing === server) continue;
+        try {
+          const attachment = this.readSocketAttachment(existing);
+          existing.send(this.stateMsg(attachment.clientBuild, connectionSnapshot));
+        } catch (error) {}
+      }
       return new Response(null, { status: 101, webSocket: client });
     }
     // plain GET → public read-only snapshot (handy for debugging / SSR)
@@ -636,7 +655,13 @@ export class Room {
     for (const device of this.liveCoreDevices()) {
       if (Object.prototype.hasOwnProperty.call(players, device.pid)) players[device.pid].lastSeen = liveSeen;
     }
-    const r = { ...this.room, players, presence: sockets.length };
+    const r = {
+      ...this.room,
+      config: sanitizeConfig(this.room.config),
+      rallyRoom: projectRallyRoomState(this.room.rallyRoom, sockets.length),
+      players,
+      presence: sockets.length
+    };
     delete r.delivery;
     delete r.deliveryShadow;
     r.hasPw = !!r.pwHash; delete r.pwHash;   // clients only need "is this room claimed?" — never ship the hash itself
@@ -1044,11 +1069,11 @@ export class Room {
     this.broadcast();
     return true;
   }
-  async persist(room = this.room) { await this.state.storage.put("room", room); }
+  async persist(room = this.room) { await this.state.storage.put("room", roomForPersistence(room)); }
   async persistAll() {
     this.profileOwners = normalizeProfileOwners(this.profileOwners);
     await this.state.storage.put({
-      room: this.room,
+      room: roomForPersistence(this.room),
       devices: this.devices,
       deliveryAcks: this.deliveryAcks,
       [PROFILE_OWNERS_STORAGE_KEY]: this.profileOwners
@@ -2643,13 +2668,85 @@ export class Room {
 
   async handleRallyMessage(ws, m) {
 
+    if (m.t === "setKingdomName") {
+      const mutationId = normalizeMutationId(m.mutationId);
+      if (!(await this.authOK(m.password))) {
+        return ws.send(JSON.stringify({ t: "error", error: "bad_password", mutationId }));
+      }
+      if (!mutationId) {
+        return ws.send(JSON.stringify({ t: "error", error: "invalid_mutation" }));
+      }
+      const kingdom = Number(m.kingdom);
+      const validName = validateKingdomDisplayName(m.name);
+      if ((kingdom !== 1 && kingdom !== 2) || !validName.ok) {
+        return ws.send(JSON.stringify({
+          t: "error", error: "invalid_kingdom_name", mutationId, kingdom
+        }));
+      }
+      const fingerprint = rallyMutationFingerprint("kingdomName", [
+        kingdom, validName.name, m.baseRevision
+      ]);
+      const replay = inspectRallyMutation(this.room.rallyRoom, {
+        mutationId, type: "kingdomName", fingerprint
+      });
+      if (replay.status === "replay") {
+        return ws.send(JSON.stringify(replay.receipt));
+      }
+      if (replay.status === "conflict") {
+        return ws.send(JSON.stringify({
+          t: "error", error: replay.error, mutationId
+        }));
+      }
+      const result = transitionKingdomName(this.room.rallyRoom, {
+        kingdom, name: m.name, baseRevision: m.baseRevision
+      });
+      if (!result.ok) {
+        return ws.send(JSON.stringify({
+          t: "error", error: result.error, mutationId, kingdom,
+          ...(result.record ? { record: result.record } : {})
+        }));
+      }
+      const receipt = {
+        t: "kingdomNameSaved", mutationId, kingdom,
+        name: result.record.name, revision: result.record.revision
+      };
+      const previousRallyRoom = this.room.rallyRoom;
+      this.room.rallyRoom = rememberRallyMutation(result.rallyRoom, {
+        mutationId, type: "kingdomName", fingerprint, receipt
+      });
+      try {
+        await this.persist();
+      } catch (error) {
+        this.room.rallyRoom = previousRallyRoom;
+        throw error;
+      }
+      try { ws.send(JSON.stringify(receipt)); } catch (error) {}
+      this.broadcast();
+      return;
+    }
+
     if (m.t === "setRallyMode") {
       const mutationId = normalizeMutationId(m.mutationId);
       if (!(await this.authOK(m.password))) {
         return ws.send(JSON.stringify({ t: "error", error: "bad_password", mutationId }));
       }
-      await this.applyTripleGate();
       if (!mutationId) return ws.send(JSON.stringify({ t: "error", error: "invalid_mutation" }));
+      const kingdom = Number(m.kingdom);
+      const fingerprint = rallyMutationFingerprint("rallyMode", [
+        kingdom, m.mode, m.baseRevision
+      ]);
+      const replay = inspectRallyMutation(this.room.rallyRoom, {
+        mutationId, type: "rallyMode", fingerprint
+      });
+      if (replay.status === "replay") {
+        return ws.send(JSON.stringify(replay.receipt));
+      }
+      if (replay.status === "conflict") {
+        return ws.send(JSON.stringify({
+          t: "error", error: replay.error, mutationId
+        }));
+      }
+      await this.applyTripleGate();
       if (m.mode === "triple" && !isTripleAllowed(this.env, this.roomName)) {
         return ws.send(JSON.stringify({ t: "error", error: "triple_disabled", mutationId }));
       }
@@ -2667,23 +2764,27 @@ export class Room {
           kingdom: Number(m.kingdom), record: result.record || null
         }));
       }
+      const receipt = {
+        t: "rallyModeSaved", mutationId, kingdom,
+        mode: result.record.mode, revision: result.record.revision
+      };
       const previousModes = this.room.rallyModes;
       const previousStaged = this.room.live.staged;
+      const previousRallyRoom = this.room.rallyRoom;
       this.room.rallyModes = result.rallyModes;
       this.room.live.staged = result.staged;
+      this.room.rallyRoom = rememberRallyMutation(this.room.rallyRoom, {
+        mutationId, type: "rallyMode", fingerprint, receipt
+      });
       try {
         await this.persist();
       } catch (error) {
         this.room.rallyModes = previousModes;
         this.room.live.staged = previousStaged;
+        this.room.rallyRoom = previousRallyRoom;
         throw error;
       }
-      try {
-        ws.send(JSON.stringify({
-          t: "rallyModeSaved", mutationId, kingdom: Number(m.kingdom),
-          mode: result.record.mode, revision: result.record.revision
-        }));
-      } catch (e) {}
+      try { ws.send(JSON.stringify(receipt)); } catch (e) {}
       this.broadcast();
       return;
     }

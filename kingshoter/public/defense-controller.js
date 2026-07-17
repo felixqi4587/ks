@@ -1325,7 +1325,7 @@
     connection = win.BattleConnection.createRoomConnection({
       room: room,
       surface: "defense",
-      clientBuild: Number(options.clientBuild) || 2026071603,
+      clientBuild: Number(options.clientBuild) || 2026071701,
       onMessage: function (message) {
         if (controller) controller.handleMessage(message);
         if (managerPage) managerPage.handleMessage(message);

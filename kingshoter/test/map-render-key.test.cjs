@@ -4,7 +4,7 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
-const source = fs.readFileSync(path.join(__dirname, '../public/kvk.js'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, '../public/rally-controller.js'), 'utf8');
 const tacticalSource = fs.readFileSync(path.join(__dirname, '../public/rally-tactical.js'), 'utf8');
 
 function extractFunction(name) {

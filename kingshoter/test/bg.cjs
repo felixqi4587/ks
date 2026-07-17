@@ -1,6 +1,6 @@
 // background-audio engine: <audio> keep-alive + pre-scheduled beeps + self-test + voice-default-from-lang
 const { chromium } = require("playwright");
-const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard, localQaBaseURL } = require('./support/qa-kvk.cjs');
+const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard, localQaBaseURL } = require('./support/qa-coordination.cjs');
 (async () => {
   const HOST=localQaBaseURL(process.argv[2]||"http://127.0.0.1:8791"),RM=makeQaRoom('background-audio'),base=qaRoomUrl(HOST,RM,{k:"test",notour:1});
   const b=await chromium.launch({headless:true,channel:"chrome",args:["--autoplay-policy=no-user-gesture-required"]});

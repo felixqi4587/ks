@@ -327,7 +327,7 @@ body.battle-page {
   }
   .battle-drawer,
   .battle-drawer.is-settling {
-    transition: opacity 90ms linear !important;
+    transition: none !important;
   }
 }
 

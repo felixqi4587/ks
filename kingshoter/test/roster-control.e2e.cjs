@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const { chromium } = require('playwright');
-const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard } = require('./support/qa-kvk.cjs');
+const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard } = require('./support/qa-coordination.cjs');
 
 const base = process.env.BASE || 'http://127.0.0.1:8791';
 const room = makeQaRoom('roster-control');
@@ -110,9 +110,9 @@ async function assertLayout(page, width) {
     await page.locator('#pwGo').click();
     await page.locator('#console').waitFor({ state: 'visible' });
 
-    assert.equal(await page.locator('link[href="app.css?v=2026071603"]').count(), 1);
-    assert.equal(await page.locator('script[src="/app.js?v=2026071603"]').count(), 1);
-    assert.equal(await page.locator('script[src="/kvk.js?v=2026071603"]').count(), 1);
+    assert.equal(await page.locator('link[href="app.css?v=2026071701"]').count(), 1);
+    assert.equal(await page.locator('script[src="/app.js?v=2026071701"]').count(), 1);
+    assert.equal(await page.locator('script[src="/rally-controller.js?v=2026071701"]').count(), 1);
     await page.locator('#roster .roster-row').first().waitFor();
     assert.equal(await page.locator('#roster .roster-row').count(), 7);
     assert.equal(await page.locator('#rosterSearchWrap').isVisible(), true);

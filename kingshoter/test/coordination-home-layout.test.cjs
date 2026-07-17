@@ -4,8 +4,8 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
-const html = fs.readFileSync(path.join(__dirname, '../public/kvk.html'), 'utf8');
-const source = fs.readFileSync(path.join(__dirname, '../public/kvk.js'), 'utf8');
+const html = fs.readFileSync(path.join(__dirname, '../public/rally.html'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, '../public/rally-controller.js'), 'utf8');
 const tacticalSource = fs.readFileSync(path.join(__dirname, '../public/rally-tactical.js'), 'utf8');
 const css = fs.readFileSync(path.join(__dirname, '../public/app.css'), 'utf8');
 

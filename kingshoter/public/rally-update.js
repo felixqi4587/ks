@@ -7,9 +7,9 @@
   }
 }(typeof globalThis !== "undefined" ? globalThis : this, function (shared) {
   "use strict";
-  if (!shared || typeof shared.createSurface !== "function") return Object.freeze({ BUILD: 2026071603 });
+  if (!shared || typeof shared.createSurface !== "function") return Object.freeze({ BUILD: 2026071701 });
   return shared.createSurface({
-    build: 2026071603,
+    build: 2026071701,
     minBuildKey: "minRallyBuild",
     legacyMinBuildKey: "minKvkBuild",
     queryKey: "__rally_build"

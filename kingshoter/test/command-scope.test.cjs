@@ -6,10 +6,10 @@ const path = require('node:path');
 const root = path.join(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 
-test('the shipped KvK command room contains no standalone counter-rally workflow', () => {
+test('the shipped Rally command room contains no standalone counter-rally workflow', () => {
   const shipped = [
-    read('public/kvk.html'),
-    read('public/kvk.js'),
+    read('public/rally.html'),
+    read('public/rally-controller.js'),
     read('public/app.css'),
     read('public/app.js')
   ].join('\n');
@@ -35,20 +35,21 @@ test('the shipped KvK command room contains no standalone counter-rally workflow
 });
 
 test('the default command room keeps its normal controls and does not add the rejected SOP hint', () => {
-  const html = read('public/kvk.html');
-  const js = read('public/kvk.js');
+  const html = read('public/rally.html');
+  const js = read('public/rally-controller.js');
   const shipped = html + '\n' + js;
 
   assert.match(html, /id="lead"/);
   assert.match(html, /id="fireDouble"/);
   assert.match(html, /id="cancelBtn"/);
-  assert.match(html, /id="defenseDemoNote"/);
+  assert.doesNotMatch(html, /id="defenseDemoNote"/,
+    'static Defense controls remain isolated from the Rally page');
   assert.doesNotMatch(shipped, /敌开车约一分钟后联盟2开双集结/);
   assert.doesNotMatch(shipped, /enemy.{0,20}(one minute|1 minute).{0,30}(alliance 2|second alliance)/i);
 });
 
 test('personal staggered launch timing remains the default command model', () => {
-  const js = read('public/kvk.js');
+  const js = read('public/rally-controller.js');
 
   assert.match(js, /type:\s*["']double_rally["']/);
   assert.match(js, /type:\s*["']triple_rally["']/,

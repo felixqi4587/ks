@@ -825,11 +825,13 @@
       var profile = findPlayer(pid);
       if (!profile) return { ok: false, error: "player_not_found" };
       if (pendingPlayerMutation) return { ok: false, error: "operation_pending" };
+      var orderRevision = snapshot && finiteInteger(snapshot.orderRevision);
+      if (orderRevision == null || orderRevision < 0) return { ok: false, error: "state_unavailable" };
       var mutationId = randomUUID();
       var request = {
         t: "removeDefensePlayer", mutationId: mutationId,
         pid: profile.pid, profileGeneration: profile.profileGeneration,
-        baseRevision: Number(profile.revision) || 0
+        baseRevision: orderRevision
       };
       pendingPlayerMutation = { mutationId: mutationId, pid: profile.pid, kind: "remove", request: copy(request) };
       send(Object.assign({}, request, { password: password }));

@@ -11,7 +11,7 @@ vm.runInNewContext(fs.readFileSync(identityPath, 'utf8'), {
   Object, Array, String, Number, JSON, Math, RegExp, TypeError, Error
 }, { filename: identityPath });
 const BattleIdentity = identityModule.exports;
-const html = fs.readFileSync(path.join(__dirname, '../public/kvk.html'), 'utf8');
+const html = fs.readFileSync(path.join(__dirname, '../public/rally.html'), 'utf8');
 const plain = value => JSON.parse(JSON.stringify(value));
 
 test('BattleIdentity exposes the same frozen browser UMD surface', () => {
@@ -161,5 +161,5 @@ test('Defense prefill accepts legacy numeric Rally profiles without an identityM
 
 test('Rally identity input keeps its existing class and adds the shared 16px contract class', () => {
   assert.match(html, /<input\s+id="pid"\s+class="[^"]*\bidentityinput\b[^"]*\bbattle-identity-input\b[^"]*"/);
-  assert.match(html, /<script\s+src="\/battle-identity\.js\?v=2026071603"><\/script>/);
+  assert.match(html, /<script\s+src="\/battle-identity\.js\?v=2026071701"><\/script>/);
 });

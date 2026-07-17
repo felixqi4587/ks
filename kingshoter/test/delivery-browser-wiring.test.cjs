@@ -7,10 +7,10 @@ const vm = require('node:vm');
 
 const ROOT = path.join(__dirname, '..');
 const PUBLIC = path.join(ROOT, 'public');
-const HTML_PATH = path.join(PUBLIC, 'kvk.html');
-const SCRIPT_PATH = path.join(PUBLIC, 'kvk.js');
+const HTML_PATH = path.join(PUBLIC, 'rally.html');
+const SCRIPT_PATH = path.join(PUBLIC, 'rally-controller.js');
 const APP_PATH = path.join(PUBLIC, 'app.js');
-const SHADOW_PATH = path.join(PUBLIC, 'kvk-delivery-shadow.js');
+const SHADOW_PATH = path.join(PUBLIC, 'rally-delivery-shadow.js');
 const BATTLE_AUDIO_PATH = path.join(PUBLIC, 'battle-audio.js');
 const BATTLE_STATUS_PATH = path.join(PUBLIC, 'battle-status.js');
 const BATTLE_CUES_PATH = path.join(PUBLIC, 'battle-cues.js');
@@ -32,7 +32,7 @@ const battleStatus = read(BATTLE_STATUS_PATH);
 const battleCues = read(BATTLE_CUES_PATH);
 
 const DEVICE_ID = 'abcdefab-cdef-4abc-8def-abcdefabcdef';
-const QA_ROOM = 'qa-kvk-browser-a';
+const QA_ROOM = 'qa';
 const BLOCK_START = '/* ---------- reliable delivery shadow QA ---------- */';
 const BLOCK_END = '/* ---------- reliable delivery shadow QA end ---------- */';
 const plain = value => JSON.parse(JSON.stringify(value));
@@ -90,7 +90,7 @@ function loadTask5Api() {
   context.window = context;
   context.globalThis = context;
   vm.runInNewContext(shadow, context, { filename: SHADOW_PATH });
-  return context.KvkDeliveryShadow;
+  return context.RallyDeliveryShadow;
 }
 
 function createTimers() {
@@ -258,7 +258,12 @@ function createHarness(config = {}) {
   };
   context.window = context;
   context.globalThis = context;
-  context.KvkDeliveryShadow = context.__api;
+  context.RallyDeliveryShadow = context.__api;
+  context.kingdomNameMutation = {
+    connected() {}, disconnected() {}, handleState() {}, handleMessage() { return false; }
+  };
+  context.handleKingdomNameMessage = () => false;
+  context.sendPendingRallyMode = () => {};
   context.RoomSocket = makeSocketClass(state);
   context.serverNow = () => {
     state.calls.now = (state.calls.now || 0) + 1;
@@ -406,13 +411,13 @@ function sentType(state, type) {
 }
 
 test('the updater bootstrap and isolated delivery controller load in one build generation', () => {
-  const updateIndex = html.indexOf('<script src="/kvk-update.js?v=2026071603"></script>');
-  const appIndex = html.indexOf('<script src="/app.js?v=2026071603"></script>');
-  const shadowTag = '<script src="/kvk-delivery-shadow.js?v=2026071603"></script>';
+  const updateIndex = html.indexOf('<script src="/rally-update.js?v=2026071701"></script>');
+  const appIndex = html.indexOf('<script src="/app.js?v=2026071701"></script>');
+  const shadowTag = '<script src="/rally-delivery-shadow.js?v=2026071701"></script>';
   const shadowIndex = html.indexOf(shadowTag);
-  const rallyTag = '<script src="/kvk-rally.js?v=2026071603"></script>';
+  const rallyTag = '<script src="/rally-domain.js?v=2026071701"></script>';
   const rallyIndex = html.indexOf(rallyTag);
-  const kvkIndex = html.indexOf('<script src="/kvk.js?v=2026071603"></script>');
+  const kvkIndex = html.indexOf('<script src="/rally-controller.js?v=2026071701"></script>');
 
   assert.ok(updateIndex >= 0, 'supported-build updater loads');
   assert.ok(appIndex > updateIndex, 'shared app loads after the updater');
@@ -428,8 +433,8 @@ test('the updater bootstrap and isolated delivery controller load in one build g
 test('KvK cache assertions move atomically to the supported build', () => {
   const cacheSources = [html, ...CACHE_TEST_PATHS.map(read)];
   for (const source of cacheSources) {
-    assert.equal(source.includes('kvk.js?v=41') || source.includes('kvk\\.js\\?v=41'), false);
-    assert.equal(source.includes('kvk.js?v=2026071603') || source.includes('kvk\\.js\\?v=2026071603'), true);
+    assert.equal(source.includes('rally-controller.js?v=41') || source.includes('kvk\\.js\\?v=41'), false);
+    assert.equal(source.includes('rally-controller.js?v=2026071701') || source.includes('kvk\\.js\\?v=2026071701'), true);
   }
 });
 
@@ -948,7 +953,7 @@ test('injected boundaries use only current Core identity, live socket, strict tr
 });
 
 test('protected Core/audio/identity authorities contain no shadow wiring', () => {
-  assert.equal(digest(app), '39b6c538e353e99bbaac60b236f9aa0daa340a6daa8383e33d884eecdc364820',
+  assert.equal(digest(app), '2b095e8d32740d84057185863b734f99779dd462b32e6ca07b616fb8f947d1b6',
     'app.js contains only the approved coordination-card copy change outside the protected delivery seam');
   for (const name of [
     'handleSocketMessage',
@@ -961,7 +966,7 @@ test('protected Core/audio/identity authorities contain no shadow wiring', () =>
     'stopCue'
   ]) {
     assert.doesNotMatch(extractFunction(script, name),
-      /deliveryShadow|KvkDeliveryShadow|__kvkDeliveryQa/,
+      /deliveryShadow|RallyDeliveryShadow|KvkDeliveryShadow|__kvkDeliveryQa/,
       `${name} stays outside the additive shadow path`);
   }
   assert.equal((script.match(/\bt\s*:\s*["']deliveryAck["']/g) || []).length, 1,
@@ -976,10 +981,10 @@ test('protected Core/audio/identity authorities contain no shadow wiring', () =>
   for (const [name, sharedSource] of [
     ['BattleAudio', battleAudio], ['BattleStatus', battleStatus], ['BattleCues', battleCues]
   ]) {
-    assert.doesNotMatch(sharedSource, /deliveryShadow|KvkDeliveryShadow|__kvkDeliveryQa|deliveryAck/,
+    assert.doesNotMatch(sharedSource, /deliveryShadow|RallyDeliveryShadow|KvkDeliveryShadow|__kvkDeliveryQa|deliveryAck/,
       `${name} remains independent of Rally delivery and QA wiring`);
   }
   assert.match(html,
-    /battle-status\.js[\s\S]*battle-audio\.js[\s\S]*battle-cues\.js[\s\S]*kvk\.js/,
+    /battle-status\.js[\s\S]*battle-audio\.js[\s\S]*battle-cues\.js[\s\S]*rally-controller\.js/,
     'shared readiness, audio, and cues load before the Rally adapter');
 });

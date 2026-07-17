@@ -9,6 +9,7 @@ import {
 
 const DEFENSE_VERSION = 1;
 const MAX_PLAYERS = 150;
+const MAX_ORDER_TARGETS = 100;
 const MAX_RECENT_MUTATIONS = 64;
 
 const own = (object, key) => Object.prototype.hasOwnProperty.call(object || {}, key);
@@ -171,7 +172,7 @@ function normalizeActiveOrder(value) {
   const audience = [];
   const audiencePids = new Set();
   const rawAudience = Array.isArray(source.audience) ? source.audience : [];
-  if (rawAudience.length > MAX_PLAYERS) return null;
+  if (rawAudience.length > MAX_ORDER_TARGETS) return null;
   for (const raw of rawAudience) {
     const entry = normalizeAudienceEntry(raw);
     if (!entry || audiencePids.has(entry.pid) || !rosterPids.has(entry.pid)) return null;
@@ -187,6 +188,7 @@ function normalizeActiveOrder(value) {
   }
   const expectedAudiencePids = rosterAtAcceptance
     .filter(profile => profile.connectedAtAcceptance && profile.validAtAcceptance)
+    .slice(0, MAX_ORDER_TARGETS)
     .map(profile => profile.pid);
   if (expectedAudiencePids.length !== audience.length ||
       expectedAudiencePids.some(pid => !audiencePids.has(pid))) return null;
@@ -518,7 +520,8 @@ export function createDefenseOrder(stateValue, input) {
     const player = state.players[pid];
     const profile = orderProfile(pid, player, connected.has(pid));
     rosterAtAcceptance.push(profile);
-    if (!profile.connectedAtAcceptance || !profile.validAtAcceptance) continue;
+    if (!profile.connectedAtAcceptance || !profile.validAtAcceptance ||
+        audience.length >= MAX_ORDER_TARGETS) continue;
     const goAtMs = enemyImpactAtMs - profile.march * 1000;
     if (!Number.isSafeInteger(goAtMs)) return failure(state, 'invalid_time', { mutationId });
     const tooLate = goAtMs <= acceptedAtMs;

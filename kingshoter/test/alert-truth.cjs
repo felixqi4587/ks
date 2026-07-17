@@ -1,6 +1,6 @@
 const { chromium } = require('playwright');
 const { basename } = require('node:path');
-const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard, localQaBaseURL } = require('./support/qa-kvk.cjs');
+const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard, localQaBaseURL } = require('./support/qa-coordination.cjs');
 
 (async () => {
   const host = localQaBaseURL(process.argv[2] || 'http://127.0.0.1:8791');

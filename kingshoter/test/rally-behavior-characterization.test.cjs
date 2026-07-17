@@ -4,11 +4,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const rallySource = fs.readFileSync(path.join(__dirname, '../public/kvk-rally.js'), 'utf8');
+const rallySource = fs.readFileSync(path.join(__dirname, '../public/rally-domain.js'), 'utf8');
 const rallySandbox = { module: { exports: {} }, exports: {} };
 vm.runInNewContext(rallySource, rallySandbox);
 const rally = rallySandbox.module.exports;
-const clientSource = fs.readFileSync(path.join(__dirname, '../public/kvk.js'), 'utf8');
+const clientSource = fs.readFileSync(path.join(__dirname, '../public/rally-controller.js'), 'utf8');
 const roomSource = fs.readFileSync(path.join(__dirname, '../src/room.js'), 'utf8');
 const plain = value => JSON.parse(JSON.stringify(value));
 

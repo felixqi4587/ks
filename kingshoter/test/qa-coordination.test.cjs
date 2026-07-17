@@ -30,41 +30,92 @@ function createWebSocketRouteHarness(url) {
   };
 }
 
-test('QA rooms are generated safely and every non-QA room is rejected', () => {
+test('QA room is fixed and every non-QA room is rejected', () => {
   const {
     assertQaRoomName,
     makeQaRoom,
     qaRoomUrl
-  } = require('./support/qa-kvk.cjs');
+  } = require('./support/qa-coordination.cjs');
 
   const room = makeQaRoom({ title: 'Classic ACK / commander silence' });
-  assert.match(room, /^qa-kvk-[a-z0-9-]+$/);
+  assert.equal(room, 'qa');
   assert.equal(assertQaRoomName(room), room);
-  assert.throws(() => assertQaRoomName('operation-room'), /qa-kvk/);
-  assert.throws(() => assertQaRoomName('alerts-123'), /qa-kvk/);
-  assert.throws(() => assertQaRoomName('qa_kvk_wrong'), /qa-kvk/);
+  assert.throws(() => assertQaRoomName('operation-room'), /expected qa/);
+  assert.throws(() => assertQaRoomName('qa-kvk-old'), /expected qa/);
+  assert.throws(() => assertQaRoomName('QA'), /expected qa/);
 
   const url = new URL(qaRoomUrl('http://127.0.0.1:8791', room, { notour: '1', lang: 'en' }));
-  assert.equal(url.pathname, '/kvk.html');
+  assert.equal(url.pathname, '/rally');
   assert.equal(url.searchParams.get('room'), room);
   assert.equal(url.searchParams.get('notour'), '1');
   assert.equal(url.searchParams.get('lang'), 'en');
 });
 
+test('QA Rally cleanup follows the normal commander protocol in convergence order', () => {
+  const { nextQaRallyCleanupActions } = require('./support/qa-coordination.cjs');
+  const nextId = (() => {
+    let value = 0;
+    return () => `cleanup-${++value}`;
+  })();
+
+  const active = nextQaRallyCleanupActions({
+    live: { commands: { 1: { id: 'command-one' }, 2: { id: 'command-two' } }, staged: {} },
+    rallyModes: { 1: { mode: 'triple', revision: 4 }, 2: { mode: 'triple', revision: 7 } },
+    players: { alpha: {}, bravo: {} }
+  }, 'qa', 'qa', nextId);
+  assert.deepEqual(active.map(action => action.message), [
+    { t: 'cmd', password: 'qa', cmd: { type: 'cancel', kingdom: 1 } },
+    { t: 'cmd', password: 'qa', cmd: { type: 'cancel', kingdom: 2 } }
+  ]);
+
+  const staged = nextQaRallyCleanupActions({
+    live: { commands: {}, staged: { 1: { pairs: [{ pid: 'alpha', role: 'weak' }] }, 2: { pairs: [{ pid: 'bravo', role: 'main' }] } } },
+    rallyModes: { 1: { mode: 'triple', revision: 4 }, 2: { mode: 'triple', revision: 7 } },
+    players: { alpha: {}, bravo: {} }
+  }, 'qa', 'qa', nextId);
+  assert.deepEqual(staged.map(action => action.message), [
+    { t: 'stage', password: 'qa', staged: { kingdom: 1, modeRevision: 4, pairs: [] } },
+    { t: 'stage', password: 'qa', staged: { kingdom: 2, modeRevision: 7, pairs: [] } }
+  ]);
+
+  const modes = nextQaRallyCleanupActions({
+    live: { commands: {}, staged: {} },
+    rallyModes: { 1: { mode: 'triple', revision: 4 }, 2: { mode: 'double', revision: 7 } },
+    players: { alpha: {}, bravo: {} }
+  }, 'qa', 'qa', nextId);
+  assert.deepEqual(modes.map(action => action.message), [{
+    t: 'setRallyMode', mutationId: 'cleanup-1', password: 'qa', kingdom: 1, mode: 'double', baseRevision: 4
+  }]);
+
+  const players = nextQaRallyCleanupActions({
+    live: { commands: {}, staged: {} },
+    rallyModes: { 1: { mode: 'double', revision: 5 }, 2: { mode: 'double', revision: 7 } },
+    players: { bravo: {}, alpha: {} }
+  }, 'qa', 'qa', nextId);
+  assert.deepEqual(players.map(action => action.message), [{
+    t: 'removePlayer', password: 'qa', pid: 'alpha' 
+  }], 'cleanup removes one player, then waits for a confirming snapshot before choosing again');
+
+  assert.deepEqual(nextQaRallyCleanupActions({
+    live: { commands: {}, staged: {} },
+    rallyModes: { 1: { mode: 'double', revision: 5 }, 2: { mode: 'double', revision: 7 } },
+    players: {}
+  }, 'qa', 'qa', nextId), []);
+});
+
 test('Room harness preserves the exact QA room in its URL and socket attachment', async () => {
   const { loadRoom, createRoomHarness } = require('./room-harness.cjs');
   const { Room } = await loadRoom();
-  const h = createRoomHarness(Room, { roomName: 'qa-kvk-unit' });
-  assert.equal(h.roomName, 'qa-kvk-unit');
-  assert.equal(h.room.state.id.name, 'qa-kvk-unit');
-  assert.equal(new URL(h.fetchURL).searchParams.get('room'), 'qa-kvk-unit');
-  assert.equal(h.ws.deserializeAttachment().roomName, 'qa-kvk-unit');
-  assert.throws(() => createRoomHarness(Room, { roomName: 'operation-room' }), /qa-kvk/);
+  const h = createRoomHarness(Room);
+  assert.equal(h.roomName, 'qa');
+  assert.equal(h.room.state.id.name, 'qa');
+  assert.equal(new URL(h.fetchURL).searchParams.get('room'), 'qa');
+  assert.equal(h.ws.deserializeAttachment().roomName, 'qa');
 });
 
 test('QA WebSocket guard preserves raw frames and optionally transforms server frames', async () => {
-  const { installQaWebSocketGuard } = require('./support/qa-kvk.cjs');
-  const room = 'qa-kvk-guard-unit';
+  const { installQaWebSocketGuard } = require('./support/qa-coordination.cjs');
+  const room = 'qa';
   const url = `ws://127.0.0.1:8791/api/ws?room=${room}`;
   const rawClientFrame = Buffer.from('{"t":"client"}');
   const rawServerFrame = Buffer.from('{"t":"server"}');

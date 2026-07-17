@@ -4,12 +4,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.join(__dirname, '..');
-const html = fs.readFileSync(path.join(root, 'public', 'kvk.html'), 'utf8');
-const kvk = fs.readFileSync(path.join(root, 'public', 'kvk.js'), 'utf8');
-const BUILD = '2026071603';
+const html = fs.readFileSync(path.join(root, 'public', 'rally.html'), 'utf8');
+const kvk = fs.readFileSync(path.join(root, 'public', 'rally-controller.js'), 'utf8');
+const BUILD = '2026071701';
 const rallyModule = { exports: {} };
 require('node:vm').runInNewContext(
-  fs.readFileSync(path.join(root, 'public', 'kvk-rally.js'), 'utf8'),
+  fs.readFileSync(path.join(root, 'public', 'rally-domain.js'), 'utf8'),
   { module: rallyModule, exports: rallyModule.exports, globalThis: {} }
 );
 const rally = rallyModule.exports;
@@ -40,22 +40,22 @@ function extractFunction(source, name) {
   assert.fail(`unterminated ${name}`);
 }
 
-function loadRallyAdapter(KvkRally, KvkUpdate) {
+function loadRallyAdapter(RallyDomain, RallyUpdate) {
   const start = kvk.indexOf('var fallbackRallyApi =');
   const end = kvk.indexOf('// Captains receive', start);
   assert.ok(start >= 0 && end > start, 'rally adapter must remain extractable');
-  const context = { window: { KvkRally, KvkUpdate }, Number };
+  const context = { window: { RallyDomain, RallyUpdate }, Number };
   require('node:vm').runInNewContext(kvk.slice(start, end), context);
   return context;
 }
 
-test('the shared rally generation loads exactly once before the KvK runtime', () => {
+test('the shared Rally domain loads exactly once before the Rally controller', () => {
   const connectionTag = `<script src="/battle-connection.js?v=${BUILD}"></script>`;
-  const tag = `<script src="/kvk-rally.js?v=${BUILD}"></script>`;
+  const tag = `<script src="/rally-domain.js?v=${BUILD}"></script>`;
   const connection = html.indexOf(connectionTag);
   const app = html.indexOf(`<script src="/app.js?v=${BUILD}"></script>`);
   const rally = html.indexOf(tag);
-  const runtime = html.indexOf(`<script src="/kvk.js?v=${BUILD}"></script>`);
+  const runtime = html.indexOf(`<script src="/rally-controller.js?v=${BUILD}"></script>`);
   assert.equal(count(html, connectionTag), 1);
   assert.equal(count(html, tag), 1);
   assert.ok(connection >= 0 && connection < app,
@@ -74,7 +74,7 @@ test('optional rally loading fails closed while a complete runtime advertises it
   assert.match(kvk, /function myTarget\([^)]*\)\s*\{[^}]*rallyApi\.targetFor/);
   assert.match(kvk, /new window\.RoomSocket\(ROOM, onState, \{ clientBuild: advertisedKvkBuild, surface: ["']rally["'] \}\)/);
   const connect = kvk.slice(kvk.indexOf('function connect()'), kvk.indexOf('function onState('));
-  assert.match(connect, /var advertisedKvkBuild = 0[\s\S]{0,240}window\.KvkUpdate[\s\S]{0,240}tripleClientAvailable[\s\S]{0,240}advertisedKvkBuild = updateBuild/);
+  assert.match(connect, /var advertisedKvkBuild = 0[\s\S]{0,240}window\.RallyUpdate[\s\S]{0,240}tripleClientAvailable[\s\S]{0,240}advertisedKvkBuild = updateBuild/);
 });
 
 test('only an exact same-generation rally module enables canonical Triple', () => {
@@ -87,17 +87,17 @@ test('only an exact same-generation rally module enables canonical Triple', () =
     selectPlayer: rally.selectPlayer,
     movePlayerToRole: rally.movePlayerToRole
   });
-  assert.equal(loadRallyAdapter(complete(2026071603), { BUILD: 2026071603 }).tripleClientAvailable, true);
-  assert.equal(loadRallyAdapter(complete(2026071302), { BUILD: 2026071603 }).tripleClientAvailable, false);
-  assert.equal(loadRallyAdapter({ ...complete(2026071603), BUILD: undefined }, { BUILD: 2026071603 }).tripleClientAvailable, false);
-  const hostile = complete(2026071603);
+  assert.equal(loadRallyAdapter(complete(2026071701), { BUILD: 2026071701 }).tripleClientAvailable, true);
+  assert.equal(loadRallyAdapter(complete(2026071302), { BUILD: 2026071701 }).tripleClientAvailable, false);
+  assert.equal(loadRallyAdapter({ ...complete(2026071701), BUILD: undefined }, { BUILD: 2026071701 }).tripleClientAvailable, false);
+  const hostile = complete(2026071701);
   Object.defineProperty(hostile, 'BUILD', { get() { throw new Error('mixed rally cache'); } });
-  assert.equal(loadRallyAdapter(hostile, { BUILD: 2026071603 }).tripleClientAvailable, false);
+  assert.equal(loadRallyAdapter(hostile, { BUILD: 2026071701 }).tripleClientAvailable, false);
 });
 
 test('myTarget rejects hostile module return shapes and uses the safe canonical fallback', () => {
   const hostile = {
-    BUILD: 2026071603,
+    BUILD: 2026071701,
     isRallyCommand: rally.isRallyCommand,
     targetFor() { return { anchor: '12', mine: true, role: 'weak2' }; },
     rolesForMode: rally.rolesForMode,
@@ -105,7 +105,7 @@ test('myTarget rejects hostile module return shapes and uses the safe canonical 
     selectPlayer: rally.selectPlayer,
     movePlayerToRole: rally.movePlayerToRole
   };
-  const context = loadRallyAdapter(hostile, { BUILD: 2026071603 });
+  const context = loadRallyAdapter(hostile, { BUILD: 2026071701 });
   context.myPid = 'captain';
   require('node:vm').runInNewContext(`${extractFunction(kvk, 'myTarget')}`, context);
   const command = {
@@ -117,17 +117,17 @@ test('myTarget rejects hostile module return shapes and uses the safe canonical 
 });
 
 test('socket build advertisement is current only for a complete shared runtime', () => {
-  function advertised(tripleClientAvailable, KvkUpdate, rallyClientBuild = 2026071603) {
+  function advertised(tripleClientAvailable, RallyUpdate, rallyClientBuild = 2026071701) {
     let options = null;
     const context = {
-      ROOM: 'qa-kvk-rally-build',
-      KvkUpdate,
+      ROOM: 'qa',
+      RallyUpdate,
       tripleClientAvailable,
       rallyClientBuild,
       initDeliveryShadow() {},
       onState() {},
       window: {
-        KvkUpdate,
+        RallyUpdate,
         RoomSocket: class {
           constructor(room, onState, value) {
             options = value;
@@ -139,11 +139,11 @@ test('socket build advertisement is current only for a complete shared runtime',
     return options.clientBuild;
   }
 
-  assert.equal(advertised(true, { BUILD: 2026071603 }), 2026071603);
-  assert.equal(advertised(false, { BUILD: 2026071603 }), 0);
-  assert.equal(advertised(true, { BUILD: 2026071603 }, 2026071302), 0);
+  assert.equal(advertised(true, { BUILD: 2026071701 }), 2026071701);
+  assert.equal(advertised(false, { BUILD: 2026071701 }), 0);
+  assert.equal(advertised(true, { BUILD: 2026071701 }, 2026071302), 0);
   assert.equal(advertised(true, null), 0);
-  assert.equal(advertised(true, { BUILD: '2026071603' }), 0);
+  assert.equal(advertised(true, { BUILD: '2026071701' }), 0);
   const hostile = {};
   Object.defineProperty(hostile, 'BUILD', { get() { throw new Error('mixed cache'); } });
   assert.equal(advertised(true, hostile), 0);

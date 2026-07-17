@@ -4,13 +4,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const source = fs.readFileSync(path.join(__dirname, '../public/kvk.js'), 'utf8');
-const html = fs.readFileSync(path.join(__dirname, '../public/kvk.html'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, '../public/rally-controller.js'), 'utf8');
+const html = fs.readFileSync(path.join(__dirname, '../public/rally.html'), 'utf8');
 
 test('Rally profile persistence is a compatibility adapter over BattleIdentity', () => {
-  assert.match(html, /battle-identity\.js\?v=2026071603/);
+  assert.match(html, /battle-identity\.js\?v=2026071701/);
   assert.ok(
-    html.indexOf('/battle-identity.js?v=2026071603') < html.indexOf('/kvk.js?v=2026071603'),
+    html.indexOf('/battle-identity.js?v=2026071701') < html.indexOf('/rally-controller.js?v=2026071701'),
     'identity module loads before the Rally controller'
   );
   assert.match(source, /BattleIdentity\.createIdentityStore\(\{[\s\S]{0,240}room:\s*ROOM[\s\S]{0,240}surface:\s*["']rally["']/);
@@ -93,6 +93,7 @@ function profileAckHarness() {
     pendingMarchMutation: pending,
     settlements: 0,
     handlePlayerRegistrationAck() { return false; },
+    handleKingdomNameMessage() { return false; },
     handleRallyModeMessage() { return false; },
     handleStageSuperseded() { return false; },
     handleDeviceStatusSaved() { return false; },
@@ -129,6 +130,7 @@ function profileSettlementHarness() {
     controls: [],
     toasts: [],
     handlePlayerRegistrationAck() { return false; },
+    handleKingdomNameMessage() { return false; },
     handleRallyModeMessage() { return false; },
     handleStageSuperseded() { return false; },
     handleDeviceStatusSaved() { return false; },

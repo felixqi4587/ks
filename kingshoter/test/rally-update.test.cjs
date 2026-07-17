@@ -33,7 +33,7 @@ function metadata(update, overrides = {}) {
 
 test('Rally update gate uses only the Rally floor and supports one-cycle minKvk compatibility', () => {
   const update = loadRallyUpdate();
-  assert.equal(update.BUILD, 2026071603);
+  assert.equal(update.BUILD, 2026071701);
   assert.equal(update.MIN_BUILD_KEY, 'minRallyBuild');
   assert.equal(update.QUERY_KEY, '__rally_build');
   assert.equal(update.shouldReload(metadata(update)), true);

@@ -5,7 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 function loadRally() {
-  const source = fs.readFileSync(path.join(__dirname, '../public/kvk-rally.js'), 'utf8');
+  const source = fs.readFileSync(path.join(__dirname, '../public/rally-domain.js'), 'utf8');
   const module = { exports: {} };
   vm.runInNewContext(source, { module, exports: module.exports, globalThis: {} });
   return module.exports;
@@ -15,7 +15,7 @@ const rally = loadRally();
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
 test('shared rally semantics identify their exact supported build generation', () => {
-  assert.equal(rally.BUILD, 2026071603);
+  assert.equal(rally.BUILD, 2026071701);
 });
 
 test('Double, Triple, and projected legacy Triple are rally commands', () => {

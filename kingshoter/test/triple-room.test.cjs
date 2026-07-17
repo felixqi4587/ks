@@ -79,7 +79,7 @@ test('Triple stage and Fire require the current mode revision and freeze canonic
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room, {
     env: { TRIPLE_RALLY_ENABLED: '1' },
-    roomName: 'qa-kvk-triple-dispatch',
+    roomName: 'qa',
     players: {
       a: { name: 'A', march: 20, marchRevision: 1 },
       b: { name: 'B', march: 40, marchRevision: 2 },
@@ -134,7 +134,7 @@ test('Triple Fire rejects a captain already live in the other kingdom without mu
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room, {
     env: { TRIPLE_RALLY_ENABLED: '1' },
-    roomName: 'qa-kvk-triple-cross-kingdom-live',
+    roomName: 'qa',
     nowMs: 1_000_000,
     players: {
       a: { name: 'A', march: 20, marchRevision: 0 },
@@ -180,10 +180,10 @@ test('Triple disabled makes no mutation', async () => {
   assert.deepEqual(h.calls, []);
 });
 
-test('QA-only gate permits generated QA rooms but normalizes an operation-room state', async () => {
+test('QA-only gate permits the fixed qa room but normalizes an operation-room state', async () => {
   const { Room } = await loadRoom();
   const env = { TRIPLE_RALLY_ENABLED: '0', TRIPLE_RALLY_QA_ENABLED: '1' };
-  const qa = createRoomHarness(Room, { env, roomName: 'qa-kvk-unit-gate' });
+  const qa = createRoomHarness(Room, { env, roomName: 'qa' });
   await claimRoom(qa);
   await qa.room.webSocketMessage(qa.ws, JSON.stringify({
     t: 'setRallyMode', mutationId: 'm-qa', password: 'commander-secret',
@@ -191,7 +191,7 @@ test('QA-only gate permits generated QA rooms but normalizes an operation-room s
   }));
   assert.equal(qa.room.room.rallyModes[1].mode, 'triple');
 
-  const operation = createRoomHarness(Room, { env, roomName: 'qa-kvk-unit-operation-simulation' });
+  const operation = createRoomHarness(Room, { env, roomName: 'qa' });
   operation.room.roomName = 'operation-room';
   operation.room.room.rallyModes[1] = { mode: 'triple', revision: 2 };
   await operation.room.applyTripleGate();
@@ -202,7 +202,7 @@ test('a stale QA socket attachment cannot enable Triple for an operation-room Du
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room, {
     env: { TRIPLE_RALLY_ENABLED: '0', TRIPLE_RALLY_QA_ENABLED: '1' },
-    roomName: 'qa-kvk-stale-attachment'
+    roomName: 'qa'
   });
   await claimRoom(h);
   h.room.roomName = 'operation-room';
@@ -227,7 +227,7 @@ test('Core device delivery is not blocked by a pending Triple rollback persisten
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room, {
     env: { TRIPLE_RALLY_ENABLED: '0', TRIPLE_RALLY_QA_ENABLED: '0' },
-    roomName: 'qa-kvk-core-gate-isolation',
+    roomName: 'qa',
     nowMs: 2_000_000
   });
   h.room.room.rallyModes[1] = { mode: 'triple', revision: 4 };
@@ -246,7 +246,7 @@ test('cancel, refill, and ping remain independent of Triple rollback persistence
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room, {
     env: { TRIPLE_RALLY_ENABLED: '0', TRIPLE_RALLY_QA_ENABLED: '0' },
-    roomName: 'qa-kvk-core-command-isolation', nowMs: 2_000_000
+    roomName: 'qa', nowMs: 2_000_000
   });
   await claimRoom(h);
   h.room.room.rallyModes[1] = { mode: 'triple', revision: 4 };
@@ -278,7 +278,7 @@ test('cancel, refill, and ping remain independent of Triple rollback persistence
 test('gate and mode persistence failures restore their complete in-memory state', async () => {
   const { Room } = await loadRoom();
   const rollback = createRoomHarness(Room, {
-    env: { TRIPLE_RALLY_ENABLED: '0' }, roomName: 'qa-kvk-gate-rollback'
+    env: { TRIPLE_RALLY_ENABLED: '0' }, roomName: 'qa'
   });
   const staged = { kingdom: 1, pairs: [{ pid: '001', role: 'weak2' }] };
   rollback.room.room.rallyModes[1] = { mode: 'triple', revision: 4 };
@@ -291,7 +291,7 @@ test('gate and mode persistence failures restore their complete in-memory state'
   assert.deepEqual(rollback.calls, []);
 
   const mode = createRoomHarness(Room, {
-    env: { TRIPLE_RALLY_ENABLED: '1' }, roomName: 'qa-kvk-mode-rollback'
+    env: { TRIPLE_RALLY_ENABLED: '1' }, roomName: 'qa'
   });
   await claimRoom(mode);
   mode.room.persist = async () => { throw new Error('mode persist failed'); };
@@ -306,7 +306,7 @@ test('gate and mode persistence failures restore their complete in-memory state'
 
 test('real broadcast projects by socket build and merge-safe attachments retain room identity', async () => {
   const { Room } = await loadRoom();
-  const h = createRoomHarness(Room, { env: { TRIPLE_RALLY_ENABLED: '1' }, roomName: 'qa-kvk-build-broadcast' });
+  const h = createRoomHarness(Room, { env: { TRIPLE_RALLY_ENABLED: '1' }, roomName: 'qa' });
   function socket(build, deviceId, failSend = false) {
     const messages = [];
     let attachment = null;
@@ -325,7 +325,7 @@ test('real broadcast projects by socket build and merge-safe attachments retain 
   }
   const legacy = socket(0, '00000000-0000-4000-8000-000000000010');
   socket(0, '00000000-0000-4000-8000-000000000012', true);
-  const current = socket(2026071603, '00000000-0000-4000-8000-000000000011');
+  const current = socket(2026071701, '00000000-0000-4000-8000-000000000011');
   h.room.room.live.commands[1] = {
     id: 'c', type: 'triple_rally', kingdom: 1,
     payload: { pairs: [{ pid: 'a', role: 'weak' }, { pid: 'b', role: 'weak2' }, { pid: 'c', role: 'main' }] }
@@ -342,7 +342,7 @@ test('real broadcast projects by socket build and merge-safe attachments retain 
   assert.equal(Object.prototype.hasOwnProperty.call(h.room.snapshot(), 'capabilities'), false);
   const attachment = h.room.readSocketAttachment(current.ws);
   assert.equal(attachment.roomName, h.roomName);
-  assert.equal(attachment.clientBuild, 2026071603);
+  assert.equal(attachment.clientBuild, 2026071701);
   assert.equal(attachment.lastProbeId, 'probe-1');
   assert.equal(attachment.deviceId, '00000000-0000-4000-8000-000000000011');
 });
@@ -350,7 +350,7 @@ test('real broadcast projects by socket build and merge-safe attachments retain 
 test('fetch binds the canonical room, client build, and Reliable defaults before its first state send', async () => {
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room, {
-    env: { TRIPLE_RALLY_ENABLED: '1' }, roomName: 'qa-kvk-fetch-build'
+    env: { TRIPLE_RALLY_ENABLED: '1' }, roomName: 'qa'
   });
   let server;
   let attachmentAtFirstSend = null;
@@ -382,7 +382,7 @@ test('fetch binds the canonical room, client build, and Reliable defaults before
     h.room.ensureDeliveryLoaded = async () => {};
     await h.room.fetch({
       headers: { get: (name) => name === 'Upgrade' ? 'websocket' : null },
-      url: 'https://qa-kvk.invalid/api/ws?room=operation-room&clientBuild=2026071603'
+      url: 'https://coordination.test.invalid/api/ws?room=operation-room&clientBuild=2026071701'
     });
   } finally {
     globalThis.WebSocketPair = originalPair;
@@ -391,7 +391,7 @@ test('fetch binds the canonical room, client build, and Reliable defaults before
 
   assert.ok(server);
   assert.equal(attachmentAtFirstSend.roomName, h.roomName);
-  assert.equal(attachmentAtFirstSend.clientBuild, 2026071603);
+  assert.equal(attachmentAtFirstSend.clientBuild, 2026071701);
   assert.equal(attachmentAtFirstSend.v, 1);
   assert.equal(attachmentAtFirstSend.qa, true);
   assert.equal(attachmentAtFirstSend.view, 'player');
@@ -405,7 +405,7 @@ test('rollback normalizes future mode without mutating an active Triple command'
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room, {
     env: { TRIPLE_RALLY_ENABLED: '0', TRIPLE_RALLY_QA_ENABLED: '0' },
-    roomName: 'qa-kvk-rollback'
+    roomName: 'qa'
   });
   const active = { id: 'live-triple', type: 'triple_rally', expiresUTC: 2_000_000_000, payload: { pairs: [] } };
   h.room.room.rallyModes[1] = { mode: 'triple', revision: 4 };
@@ -430,7 +430,7 @@ test('rollback normalizes future mode without mutating an active Triple command'
 test('expiry equality permits a legacy Double request after a Double mode revision', async () => {
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room, {
-    env: { TRIPLE_RALLY_ENABLED: '1' }, roomName: 'qa-kvk-double-equality', nowMs: 1_000_000
+    env: { TRIPLE_RALLY_ENABLED: '1' }, roomName: 'qa', nowMs: 1_000_000
   });
   await claimRoom(h);
   await h.room.webSocketMessage(h.ws, JSON.stringify({

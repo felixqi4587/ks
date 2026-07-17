@@ -33,7 +33,7 @@ function metadata(update, overrides = {}) {
 
 test('Defense update gate uses only the Defense floor and the Defense query key', () => {
   const update = loadDefenseUpdate();
-  assert.equal(update.BUILD, 2026071603);
+  assert.equal(update.BUILD, 2026071701);
   assert.equal(update.MIN_BUILD_KEY, 'minDefenseBuild');
   assert.equal(update.QUERY_KEY, '__defense_build');
   assert.equal(update.shouldReload(metadata(update)), true);

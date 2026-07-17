@@ -31,11 +31,11 @@ test('legacy projection preserves canonical state and all three personal targets
 test('build metadata contains monotonic numeric versions and no secrets', async () => {
   const mod = await load();
   assert.deepEqual(mod.buildMetadata(false, true), {
-    currentBuild: 2026071603,
-    minKvkBuild: 2026071603,
-    minRallyBuild: 2026071603,
-    minDefenseBuild: 2026071603,
-    minTripleBuild: 2026071603,
+    currentBuild: 2026071701,
+    minKvkBuild: 2026071701,
+    minRallyBuild: 2026071701,
+    minDefenseBuild: 2026071701,
+    minTripleBuild: 2026071701,
     tripleEnabled: false,
     tripleQaEnabled: true
   });
@@ -44,7 +44,11 @@ test('build metadata contains monotonic numeric versions and no secrets', async 
   assert.equal(mod.MIN_RALLY_BUILD, mod.CURRENT_KVK_BUILD);
   assert.equal(mod.MIN_DEFENSE_BUILD, mod.CURRENT_KVK_BUILD);
   assert.equal(mod.MIN_TRIPLE_BUILD, mod.CURRENT_KVK_BUILD);
-  assert.equal(mod.parseClientBuild('2026071603'), 2026071603);
+  assert.ok(mod.parseClientBuild('2026071603') < mod.MIN_RALLY_BUILD,
+    'the previous production Rally client must be forced to refresh');
+  assert.ok(mod.parseClientBuild('2026071603') < mod.MIN_DEFENSE_BUILD,
+    'the previous production Defense client must be forced to refresh');
+  assert.equal(mod.parseClientBuild('2026071701'), 2026071701);
   for (const value of ['bad', '', '0', '-1', '1.5', null, undefined, Infinity]) {
     assert.equal(mod.parseClientBuild(value), 0, String(value));
   }

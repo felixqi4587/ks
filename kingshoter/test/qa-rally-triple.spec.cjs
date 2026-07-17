@@ -4,8 +4,10 @@ const {
   assertQaRoomName,
   makeQaRoom,
   qaRoomUrl,
-  installQaWebSocketGuard
-} = require('./support/qa-kvk.cjs');
+  installQaWebSocketGuard,
+  QA_PASSWORD,
+  resetQaRallyState
+} = require('./support/qa-coordination.cjs');
 
 const PROFILE_KEY = room => `kingshoter_r_${room}_me`;
 const DEVICE_KEY = room => `kvk:${room}:delivery-device:v1`;
@@ -14,7 +16,7 @@ const profile = (pid, name, march) => ({
   pid, playerId: pid, name, march, marchRevision: 0, identityMode: 'playerId',
   profileKey: crypto.randomUUID(), editable: true
 });
-const password = () => `qa-${crypto.randomBytes(12).toString('hex')}`;
+const password = () => QA_PASSWORD;
 const deviceId = index => `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
 
 function parseFrame(data) {
@@ -135,7 +137,7 @@ async function openActor(browser, baseURL, room, options) {
     page.on('pageerror', error => options.errors.push(`${options.key}: ${error.message}`));
     await page.goto(qaRoomUrl(baseURL, room, { notour: '1', lang: 'en' }), { waitUntil: 'domcontentloaded' });
     await page.locator('#soundGate').click();
-    await page.waitForFunction(() => window.__ac && window.__ac.state === 'running');
+    await page.waitForFunction(() => window.__ac && window.__ac.state === 'running', null, { timeout: 15_000 });
     await page.locator('#youChip').waitFor({ state: 'visible' });
     await page.locator('#youName').filter({ hasText: options.profile.name }).waitFor();
     await expect.poll(() => gate.events.some(event => event.direction === 'server' && event.message &&
@@ -182,18 +184,51 @@ async function unlock(page, value) {
   await page.locator('#pwInput').fill(value);
   await page.locator('#pwGo').click();
   await page.locator('#console').waitFor({ state: 'visible' });
+  await expect(page.locator('#commanderCommandPane')).toBeVisible();
+  await expect(page.locator('#commanderManageOpen')).toBeVisible();
+}
+
+async function openManage(page) {
+  const managePane = page.locator('#commanderManagePane');
+  if (await managePane.isHidden()) {
+    await expect(page.locator('#commanderManageOpen')).toBeVisible();
+    await page.locator('#commanderManageOpen').click();
+  }
+  await expect(managePane).toBeVisible();
+  await expect(page.locator('#commanderManageBack')).toBeVisible();
+  await expect(page.locator('#rallyPlayersPanel')).toBeVisible();
+  await expect(page.locator('#roster')).toBeVisible();
+}
+
+async function returnToCommand(page) {
+  const commandPane = page.locator('#commanderCommandPane');
+  if (await commandPane.isHidden()) {
+    await expect(page.locator('#commanderManageBack')).toBeVisible();
+    await page.locator('#commanderManageBack').click();
+  }
+  await expect(commandPane).toBeVisible();
+  await expect(page.locator('#commanderManageOpen')).toBeVisible();
 }
 
 async function setTriple(commander, observer, request, baseURL, room, enabled) {
+  await returnToCommand(commander);
+  await returnToCommand(observer);
   const input = commander.locator('#tripleMode');
+  await expect(input).toBeVisible();
   await expect(input).toBeChecked({ checked: !enabled });
   await input.click();
   await expect.poll(async () => (await roomState(request, baseURL, room)).rallyModes['1'].mode).toBe(enabled ? 'triple' : 'double');
-  await expect(observer.locator('#tripleMode')).toBeChecked({ checked: enabled });
+  const observedInput = observer.locator('#tripleMode');
+  await expect(observedInput).toBeVisible();
+  await expect(observedInput).toBeChecked({ checked: enabled });
 }
 
 async function selectCaptain(commander, observer, pid) {
-  await commander.locator(`#roster .rp[data-pid="${pid}"]`).click();
+  await openManage(commander);
+  const player = commander.locator(`#roster .rp[data-pid="${pid}"]`);
+  await expect(player).toBeVisible();
+  await player.click();
+  if (commander === observer) await returnToCommand(commander);
   await expect(observer.locator(`#pickSlots .slot[data-pid="${pid}"]`)).toBeVisible();
 }
 
@@ -252,6 +287,8 @@ function combatFields(command) {
 }
 
 async function fire(page, leadSeconds) {
+  await returnToCommand(page);
+  await expect(page.locator('#fireDouble')).toBeVisible();
   await page.locator(`#lead button[data-v="${leadSeconds}"]`).click();
   await expect(page.locator('#fireDouble')).toBeEnabled();
   await page.locator('#fireDouble').click();
@@ -259,13 +296,20 @@ async function fire(page, leadSeconds) {
   await page.locator('#fireDouble').click();
 }
 
-test.beforeEach(async ({ request }) => {
+test.beforeEach(async ({ browser, baseURL, request }) => {
+  await resetQaRallyState(browser, baseURL, makeQaRoom());
+  seededProfiles.clear();
   const response = await request.get('/api/build');
   expect(response.ok()).toBe(true);
   const metadata = await response.json();
   expect(metadata.tripleQaEnabled).toBe(true);
   const expectedGlobal = process.env.EXPECT_TRIPLE_GLOBAL ?? (process.env.QA_BASE_URL ? '' : '0');
   if (expectedGlobal !== '') expect(metadata.tripleEnabled).toBe(expectedGlobal === '1');
+});
+
+test.afterEach(async ({ browser, baseURL }) => {
+  await resetQaRallyState(browser, baseURL, makeQaRoom());
+  seededProfiles.clear();
 });
 
 test('ordinary-player homepage preserves typography while showing six selected captains', async ({ browser, baseURL, request }, testInfo) => {
@@ -294,29 +338,44 @@ test('ordinary-player homepage preserves typography while showing six selected c
     await waitForPlayerCount(request, baseURL, room, 8);
 
     await unlock(commander.page, secret);
-    await commander.page.locator('#kingdomPick button[data-k="1"]').click();
-    await expect(commander.page.locator('#tripleMode')).not.toBeChecked();
-    await commander.page.locator('#tripleMode').click();
+    const kingdomOne = commander.page.locator('#kingdomPick button[data-k="1"]');
+    const tripleMode = commander.page.locator('#tripleMode');
+    await expect(kingdomOne).toBeVisible();
+    await kingdomOne.click();
+    await expect(tripleMode).toBeVisible();
+    await expect(tripleMode).not.toBeChecked();
+    await tripleMode.click();
     await expect.poll(async () => (await roomState(request, baseURL, room)).rallyModes['1'].mode).toBe('triple');
+    await openManage(commander.page);
     for (let index = 0; index < 3; index += 1) {
-      await commander.page.locator(`#roster .rp[data-pid="${players[index].pid}"]`).click();
+      const player = commander.page.locator(`#roster .rp[data-pid="${players[index].pid}"]`);
+      await expect(player).toBeVisible();
+      await player.click();
       await expect.poll(async () => {
         const staged = (await roomState(request, baseURL, room)).live.staged['1'];
         return staged && staged.pairs.map(pair => pair.pid);
       }).toEqual(players.slice(0, index + 1).map(player => player.pid));
     }
 
-    await commander.page.locator('#kingdomPick button[data-k="2"]').click();
-    await expect(commander.page.locator('#tripleMode')).not.toBeChecked();
-    await commander.page.locator('#tripleMode').click();
+    await returnToCommand(commander.page);
+    const kingdomTwo = commander.page.locator('#kingdomPick button[data-k="2"]');
+    await expect(kingdomTwo).toBeVisible();
+    await kingdomTwo.click();
+    await expect(tripleMode).toBeVisible();
+    await expect(tripleMode).not.toBeChecked();
+    await tripleMode.click();
     await expect.poll(async () => (await roomState(request, baseURL, room)).rallyModes['2'].mode).toBe('triple');
+    await openManage(commander.page);
     for (let index = 3; index < 6; index += 1) {
-      await commander.page.locator(`#roster .rp[data-pid="${players[index].pid}"]`).click();
+      const player = commander.page.locator(`#roster .rp[data-pid="${players[index].pid}"]`);
+      await expect(player).toBeVisible();
+      await player.click();
       await expect.poll(async () => {
         const staged = (await roomState(request, baseURL, room)).live.staged['2'];
         return staged && staged.pairs.map(pair => pair.pid);
       }).toEqual(players.slice(3, index + 1).map(player => player.pid));
     }
+    await returnToCommand(commander.page);
 
     await expect.poll(async () => {
       const state = await roomState(request, baseURL, room);
@@ -483,25 +542,30 @@ test('Triple lifecycle synchronizes roles, timing, delivery truth, audience, and
     const weak2 = await add({ key: 'weak2', profile: p.weak2, deviceId: deviceId(2), gate: weak2Gate });
     const main = await add({ key: 'main', profile: p.main, deviceId: deviceId(3) });
     const fourth = await add({ key: 'fourth', profile: p.fourth, deviceId: deviceId(4) });
+    await closeActor(fourth);
     const member = await add({ key: 'member', profile: p.member, deviceId: deviceId(5) });
     const commanderA = await add({ key: 'commander-a', profile: deliveryOnlyProfile(p.weak), deviceId: deviceId(6) });
     const commanderB = await add({ key: 'commander-b', profile: p.observer, deviceId: deviceId(7) });
     await waitForPlayerCount(request, baseURL, room, 6);
-    await closeActor(fourth);
 
     await unlock(commanderA.page, secret);
     await unlock(commanderB.page, secret);
+    await openManage(commanderA.page);
     await expect(commanderA.page.locator('#roster .rp')).toHaveCount(6);
+    const untouchedKingdomTwoMode = { ...(await roomState(request, baseURL, room)).rallyModes['2'] };
     await setTriple(commanderA.page, commanderB.page, request, baseURL, room, true);
     let state = await roomState(request, baseURL, room);
-    expect(state.rallyModes['2']).toEqual({ mode: 'double', revision: 0 });
+    expect(untouchedKingdomTwoMode.mode).toBe('double');
+    expect(state.rallyModes['2']).toEqual(untouchedKingdomTwoMode);
 
     await selectCaptain(commanderA.page, commanderB.page, p.weak.pid);
     await selectCaptain(commanderA.page, commanderB.page, p.weak2.pid);
     await selectCaptain(commanderA.page, commanderB.page, p.main.pid);
     await expect(commanderB.page.locator('#pickCnt')).toHaveText('3/3');
 
-    await commanderA.page.locator(`#roster .rp[data-pid="${p.fourth.pid}"]`).click();
+    const fourthPlayer = commanderA.page.locator(`#roster .rp[data-pid="${p.fourth.pid}"]`);
+    await expect(fourthPlayer).toBeVisible();
+    await fourthPlayer.click();
     await expect(commanderA.page.locator('#replaceOvl')).toBeVisible();
     await expect(commanderA.page.locator('#replaceWeak2')).toBeVisible();
     await expectNoHorizontalOverflow(commanderA.page, 320, ['#console', '#roster', '#pickSlots', '#fireDock', '#replaceOvl .ob']);
@@ -509,7 +573,9 @@ test('Triple lifecycle synchronizes roles, timing, delivery truth, audience, and
     await expect(commanderB.page.locator(`#pickSlots .slot[data-pid="${p.fourth.pid}"]`)).toBeVisible();
     await expect(commanderB.page.locator(`#pickSlots .slot[data-pid="${p.weak2.pid}"]`)).toHaveCount(0);
 
-    await commanderA.page.locator(`#roster .rp[data-pid="${p.weak2.pid}"]`).click();
+    const weakTwoPlayer = commanderA.page.locator(`#roster .rp[data-pid="${p.weak2.pid}"]`);
+    await expect(weakTwoPlayer).toBeVisible();
+    await weakTwoPlayer.click();
     await expect(commanderA.page.locator('#replaceOvl')).toBeVisible();
     await commanderA.page.locator('#replaceWeak2').click();
     await expect(commanderB.page.locator(`#pickSlots .slot[data-pid="${p.weak2.pid}"]`)).toBeVisible();
@@ -523,6 +589,7 @@ test('Triple lifecycle synchronizes roles, timing, delivery truth, audience, and
     await expect(commanderB.page.locator(`#pickSlots .slot[data-pid="${p.weak2.pid}"]`)).toHaveCount(0);
     await setTriple(commanderA.page, commanderB.page, request, baseURL, room, true);
     await selectCaptain(commanderA.page, commanderB.page, p.weak2.pid);
+    await returnToCommand(commanderA.page);
     await expect(commanderA.page.locator('#fireDouble')).toBeEnabled();
 
     const beforeFrames = commanderA.gate.events.length;
@@ -611,7 +678,7 @@ test('an active Triple command projects safely to a rally-module-missing target'
     const fallbackGate = createGate();
     const fallback = await add({
       key: 'cache-fallback-target', profile: deliveryOnlyProfile(p.target), deviceId: deviceId(17), gate: fallbackGate,
-      blockScripts: ['kvk-rally.js']
+      blockScripts: ['rally-domain.js']
     });
     await expect.poll(() => !!latestProjectedState(fallbackGate, before.id), { timeout: 12_000 }).toBe(true);
     const projectedEvent = latestProjectedState(fallbackGate, before.id);
@@ -623,7 +690,7 @@ test('an active Triple command projects safely to a rally-module-missing target'
     expect(projected.type).toBe('double_rally');
     expect(projected.payload.rallySize).toBe(3);
     expect(projected.payload.pairs.map(pair => pair.pid).sort()).toEqual([p.weak.pid, p.target.pid, p.main.pid].sort());
-    expect(await fallback.page.evaluate(() => ({ rally: window.KvkRally, update: window.KvkUpdate && window.KvkUpdate.BUILD })))
+    expect(await fallback.page.evaluate(() => ({ rally: window.RallyDomain, update: window.RallyUpdate && window.RallyUpdate.BUILD })))
       .toEqual({ rally: undefined, update: expect.any(Number) });
 
     await expectCueBases(fallback.page, before.id, [`${before.id}-me`]);
@@ -657,7 +724,7 @@ test('missing optional rally and updater scripts retain default Double Fire and 
   };
 
   try {
-    const blocked = ['kvk-rally.js', 'kvk-update.js'];
+    const blocked = ['rally-domain.js', 'rally-update.js'];
     const commander = await add({ key: 'fallback-commander', profile: p.weak, deviceId: deviceId(21), blockScripts: blocked });
     const main = await add({ key: 'fallback-main', profile: p.main, deviceId: deviceId(22), blockScripts: blocked });
     await waitForPlayerCount(request, baseURL, room, 2);

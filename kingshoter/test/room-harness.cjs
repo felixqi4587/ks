@@ -11,10 +11,8 @@ async function loadRoom() {
 
 function createRoomHarness(Room, options = {}) {
   const calls = [];
-  const requestedRoomName = options.roomName || 'qa-kvk-harness';
-  const roomName = requestedRoomName === 'qa'
-    ? 'qa'
-    : require('./support/qa-kvk.cjs').assertQaRoomName(requestedRoomName);
+  const roomName = String(options.roomName || 'qa');
+  if (!roomName) throw new Error('Room harness requires a room name');
   let currentNowMs = Number.isFinite(options.nowMs) ? options.nowMs : Date.now();
   const sockets = [];
   const storage = options.storage instanceof Map
@@ -115,7 +113,7 @@ function createRoomHarness(Room, options = {}) {
   const primary = addSocket(options.surface || 'rally', options.attachment || {});
   const ws = primary.ws;
   const sent = primary.sent;
-  const fetchURL = new URL('/api/ws', 'https://qa-kvk.invalid');
+  const fetchURL = new URL('/api/ws', 'https://coordination.test.invalid');
   fetchURL.searchParams.set('room', roomName);
   return {
     room,

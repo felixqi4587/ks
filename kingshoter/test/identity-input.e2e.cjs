@@ -4,7 +4,7 @@ const {
   makeQaRoom,
   qaRoomUrl,
   installQaWebSocketGuard
-} = require('./support/qa-kvk.cjs');
+} = require('./support/qa-coordination.cjs');
 
 const base = process.env.BASE || 'http://127.0.0.1:8791';
 const room = makeQaRoom('identity-input');
@@ -279,9 +279,9 @@ async function broadcastDeviceStatus(page, pid) {
     await Promise.all([racePage.goto(url), retryPage.goto(url), abortPage.goto(url), pendingPage.goto(url)]);
     await Promise.all([enableSound(racePage), enableSound(retryPage), enableSound(abortPage), enableSound(pendingPage)]);
 
-    assert.equal(await racePage.locator('link[href="app.css?v=2026071603"]').count(), 1, 'the identity CSS cache version is exact');
-    assert.equal(await racePage.locator('script[src="/app.js?v=2026071603"]').count(), 1, 'the shared socket cache version is exact');
-    assert.equal(await racePage.locator('script[src="/kvk.js?v=2026071603"]').count(), 1, 'the identity script cache version is exact');
+    assert.equal(await racePage.locator('link[href="app.css?v=2026071701"]').count(), 1, 'the identity CSS cache version is exact');
+    assert.equal(await racePage.locator('script[src="/app.js?v=2026071701"]').count(), 1, 'the shared socket cache version is exact');
+    assert.equal(await racePage.locator('script[src="/rally-controller.js?v=2026071701"]').count(), 1, 'the identity script cache version is exact');
     assert.equal(await racePage.locator('#identityMode').getAttribute('role'), 'radiogroup');
     assert.match(await racePage.locator('#identityMode').getAttribute('aria-label'), /Identity/i);
     assert.equal(await racePage.locator('#identityPlayerId').getAttribute('role'), 'radio');

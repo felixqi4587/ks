@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const { basename } = require('node:path');
 const { chromium } = require('playwright');
-const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard } = require('./support/qa-kvk.cjs');
+const { assertQaRoomName, makeQaRoom, qaRoomUrl, installQaWebSocketGuard } = require('./support/qa-coordination.cjs');
 
 const base = process.env.BASE || 'http://127.0.0.1:8791';
 const room = makeQaRoom({ title: basename(__filename, '.cjs') });
@@ -290,9 +290,9 @@ const profileKey = '30000000-0000-4000-8000-000000000001';
       const state = window.__roomStates[window.__roomStates.length - 1];
       return state && !state.players['001'] && state.players.kimchi;
     }, null, { timeout: 5000 });
-    assert.equal(await manager.locator('link[href="app.css?v=2026071603"]').count(), 1);
-    assert.equal(await manager.locator('script[src="/app.js?v=2026071603"]').count(), 1);
-    assert.equal(await manager.locator('script[src="/kvk.js?v=2026071603"]').count(), 1);
+    assert.equal(await manager.locator('link[href="app.css?v=2026071701"]').count(), 1);
+    assert.equal(await manager.locator('script[src="/app.js?v=2026071701"]').count(), 1);
+    assert.equal(await manager.locator('script[src="/rally-controller.js?v=2026071701"]').count(), 1);
     assert.deepEqual(errors, []);
     console.log(`✓ removal actions, retry, reconnect, and inline synchronization (${room})`);
   } finally {

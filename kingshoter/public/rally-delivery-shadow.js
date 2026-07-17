@@ -1,3 +1,4 @@
+/* Rally delivery-shadow compatibility adapter. */
 (function (root) {
   'use strict';
 
@@ -5,7 +6,6 @@
   var MAX_FACTS = 32;
   var MAX_CANCELLED = 32;
   var MAX_OBSERVATIONS = 200;
-  var QA_ROOM_RE = /^qa-kvk-[a-z0-9](?:[a-z0-9-]{0,39}[a-z0-9])?$/;
   var PID_RE = /^[A-Za-z0-9_-]+$/;
   var DEVICE_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
   var BASE_OFFSETS = Object.freeze([10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0]);
@@ -17,7 +17,7 @@
   var CANCEL_KEYS = Object.freeze(['t', 'v', 'shadow', 'commandId', 'cancelledAtMs']);
 
   function isQaRoomName(room) {
-    return typeof room === 'string' && room.length <= 48 && QA_ROOM_RE.test(room);
+    return room === 'qa';
   }
 
   function hasExactKeys(value, expected) {
@@ -330,8 +330,10 @@
     });
   }
 
-  root.KvkDeliveryShadow = Object.freeze({
+  var api = Object.freeze({
     isQaRoomName: isQaRoomName,
     create: create
   });
+  root.RallyDeliveryShadow = api;
+  root.KvkDeliveryShadow = api;
 })(typeof window !== 'undefined' ? window : globalThis);

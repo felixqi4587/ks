@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const { basename } = require('node:path');
 const { chromium } = require('playwright');
-const { makeQaRoom, qaRoomUrl, installQaWebSocketGuard } = require('./support/qa-kvk.cjs');
+const { makeQaRoom, qaRoomUrl, installQaWebSocketGuard } = require('./support/qa-coordination.cjs');
 
 const base = process.env.BASE || 'http://127.0.0.1:8791';
 const room = makeQaRoom({ title: basename(__filename, '.cjs') });

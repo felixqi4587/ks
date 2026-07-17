@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const { chromium } = require('playwright');
-const { makeQaRoom, qaRoomUrl, installQaWebSocketGuard, assertQaRoomName } = require('./support/qa-kvk.cjs');
+const { makeQaRoom, qaRoomUrl, installQaWebSocketGuard, assertQaRoomName } = require('./support/qa-coordination.cjs');
 
 const base = process.env.BASE || 'http://127.0.0.1:8791';
 const room = makeQaRoom('march-sync');
@@ -173,9 +173,9 @@ async function enableAndUnlock(page, pageUrl = url) {
       player.goto(url)
     ]);
 
-    assert.equal(await commanderA.locator('link[href="app.css?v=2026071603"]').count(), 1);
-    assert.equal(await commanderA.locator('script[src="/app.js?v=2026071603"]').count(), 1);
-    assert.equal(await commanderA.locator('script[src="/kvk.js?v=2026071603"]').count(), 1);
+    assert.equal(await commanderA.locator('link[href="app.css?v=2026071701"]').count(), 1);
+    assert.equal(await commanderA.locator('script[src="/app.js?v=2026071701"]').count(), 1);
+    assert.equal(await commanderA.locator('script[src="/rally-controller.js?v=2026071701"]').count(), 1);
 
     const canonicalBeforeLegacy = await readRoom(bootstrap);
     const legacyRoom = structuredClone(canonicalBeforeLegacy);

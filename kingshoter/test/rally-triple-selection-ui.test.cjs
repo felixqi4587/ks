@@ -5,9 +5,9 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const root = path.join(__dirname, '..');
-const html = fs.readFileSync(path.join(root, 'public', 'kvk.html'), 'utf8');
+const html = fs.readFileSync(path.join(root, 'public', 'rally.html'), 'utf8');
 const css = fs.readFileSync(path.join(root, 'public', 'app.css'), 'utf8');
-const source = fs.readFileSync(path.join(root, 'public', 'kvk.js'), 'utf8');
+const source = fs.readFileSync(path.join(root, 'public', 'rally-controller.js'), 'utf8');
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -128,8 +128,8 @@ test('mode and stage messages preserve the existing reconnect-safe state machine
   const handle = extractFunction('handleSocketMessage');
   assert.match(handle, /handleRallyModeMessage\(message\)/);
   const connect = extractFunction('connect');
-  assert.match(connect, /sock\.onClose\s*=\s*function[\s\S]*clearPendingRallyMode\(\)/,
-    'mode cleanup must be composed into, not replace, the existing close handler');
+  assert.match(connect, /sock\.onClose\s*=\s*function[\s\S]*pendingRallyMode\.status\s*=\s*["']retry["']/,
+    'mode state must survive reconnect and replay rather than being discarded');
   assert.match(connect, /handleRallyModeError\(m\)[\s\S]*handleRallyStageConflict\(m\)/);
   assert.ok(connect.indexOf('handleRallyModeError(m)') < connect.indexOf('if (m && m.mutationId) return'),
     'mode errors must not be swallowed by the generic mutation guard');

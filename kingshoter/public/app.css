@@ -27,6 +27,7 @@
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 .sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
 html,body{margin:0;touch-action:manipulation}   /* kill accidental double-tap-to-zoom (pinch-zoom + scroll still work) */
+:where(a,button,input,select,textarea,[tabindex]):focus-visible{outline:3px solid var(--mint-deep);outline-offset:3px}
 body{
   background:
     radial-gradient(120% 60% at 50% -10%, #d7f5f0 0%, transparent 55%),
@@ -70,14 +71,14 @@ body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;opa
 .viewtabs{display:flex;gap:8px;margin-bottom:16px}
 .viewtabs button,.viewtabs a{flex:1;border:2px solid var(--line);background:var(--paper);color:var(--brown2);
   border-radius:var(--r);padding:12px 4px;cursor:pointer;font:800 13px/1.1 var(--font);transition:.16s;
-  text-align:center;text-decoration:none;display:flex;align-items:center;justify-content:center;gap:5px}
+  min-height:44px;text-align:center;text-decoration:none;display:flex;align-items:center;justify-content:center;gap:5px}
 .viewtabs button:active,.viewtabs a:active{transform:translateY(1px)}
 .viewtabs .on{border-color:var(--mint);background:linear-gradient(180deg,#eafaf7,var(--mint-bg));color:var(--mint-deep);
   box-shadow:0 6px 16px -8px rgba(25,200,185,.6)}
 
 /* ---- language toggle (中/EN) ---- */
 .langtoggle{display:inline-flex;border:2px solid var(--line);border-radius:999px;overflow:hidden;background:var(--paper);flex:0 0 auto}
-.langtoggle .langbtn{border:0;background:none;cursor:pointer;font:800 12px/1 var(--font);color:var(--brown3);padding:7px 11px;transition:.14s}
+.langtoggle .langbtn{min-width:44px;border:0;background:none;cursor:pointer;font:800 12px/1 var(--font);color:var(--brown3);padding:7px 11px;transition:.14s}
 .langtoggle .langbtn.on{background:linear-gradient(180deg,#eafaf7,var(--mint-bg));color:var(--mint-deep)}
 .langtoggle .langbtn:active{transform:translateY(1px)}
 .homebar{display:flex;justify-content:flex-end;margin-bottom:6px}
@@ -112,7 +113,7 @@ textarea{font-weight:500;font-size:13.5px;line-height:1.6;min-height:62px;resize
 
 /* ---- buttons ---- */
 .btn{border:0;border-radius:var(--r);background:var(--cream);border:2px solid var(--line);color:var(--brown);
-  font:800 14.5px/1 var(--font);padding:13px;cursor:pointer;transition:.15s}
+  min-height:44px;font:800 14.5px/1 var(--font);padding:13px;cursor:pointer;transition:.15s}
 .btn:active{transform:translateY(1px)}
 .btn.amber{background:linear-gradient(180deg,var(--mint-hi),var(--mint));border:0;color:#fff;
   box-shadow:0 8px 20px -7px rgba(25,200,185,.65)}
@@ -187,6 +188,27 @@ details summary:before{content:"▸ ";color:var(--mint)} details[open] summary:b
 @keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
 .top,.statusbar,.viewtabs,main>*,.wrap>.card,.wrap>details{animation:rise .5s cubic-bezier(.2,.7,.2,1) both}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ---- supporting pages: the same mobile interaction grammar as Rally / Defense ---- */
+.supporting-page .wrap{padding-inline:max(12px,env(safe-area-inset-left));padding-right:max(12px,env(safe-area-inset-right))}
+.supporting-control{min-height:44px;touch-action:manipulation}
+.supporting-page input:not([type="range"],[type="checkbox"],[type="radio"]){font-size:16px;min-height:44px}
+.coordination-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;margin-bottom:16px}
+.coordination-grid .card{margin:0;min-height:104px}
+.supporting-nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:14px}
+.supporting-nav a{min-width:0;min-height:44px;padding:10px 8px;border:2px solid var(--line);border-radius:14px;background:var(--paper);color:var(--brown2);text-decoration:none;text-align:center;font:800 13px/1.2 var(--font);display:flex;align-items:center;justify-content:center}
+.supporting-nav a[aria-current="page"]{border-color:var(--mint);background:var(--mint-bg);color:var(--mint-deep)}
+.supporting-status{min-height:24px;color:var(--brown2);font:700 12.5px/1.5 var(--font)}
+@media (max-width:340px){.supporting-nav{grid-template-columns:minmax(0,1fr)}}
+@media (prefers-reduced-transparency:reduce){
+  body,.card,.chrome,.statusbar,.supporting-nav a{background-color:var(--cream)!important;background-image:none!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+  body::before{display:none!important}
+}
+@media (prefers-contrast:more){
+  :root{--line:#8f7d63;--line-hi:#6b5e4a;--brown2:#3f3528;--brown3:#655947}
+  .card,.supporting-nav a,input,button{border-width:2px}
+  :where(a,button,input,select,textarea,[tabindex]):focus-visible{outline-width:4px;outline-color:#006f65}
+}
 
 /* ============================================================
    COMMAND LAYER — Apple-grade legibility inside the cozy theme.
@@ -336,7 +358,7 @@ details summary:before{content:"▸ ";color:var(--mint)} details[open] summary:b
 .identityinput{flex:1 1 0;min-width:0}
 .mstep{flex:0 0 auto;width:44px;height:44px;border:2px solid var(--line);background:var(--paper);color:var(--mint-deep);border-radius:13px;font:900 22px/1 var(--font);cursor:pointer}
 .mstep:active{background:var(--mint-bg);transform:scale(.94)}
-.mwrap input[type=range]{flex:1;-webkit-appearance:none;appearance:none;height:9px;border-radius:6px;background:linear-gradient(90deg,var(--mint),#bfeee7);outline:none}
+.mwrap input[type=range]{flex:1;-webkit-appearance:none;appearance:none;height:44px;border-radius:6px;background:linear-gradient(90deg,var(--mint),#bfeee7) center/100% 9px no-repeat;outline:none}
 .mwrap input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:30px;height:30px;border-radius:50%;background:#fff;border:3px solid var(--mint);box-shadow:0 3px 9px rgba(15,161,147,.55);cursor:pointer}
 .mwrap input[type=range]::-moz-range-thumb{width:26px;height:26px;border-radius:50%;background:#fff;border:3px solid var(--mint);cursor:pointer}
 .mbig{font:900 30px/1 var(--mono);color:var(--mint-deep);text-align:center;font-variant-numeric:tabular-nums;margin-top:2px}
@@ -431,60 +453,6 @@ body.cmdmode .situation .pond svg{height:200px;max-height:200px}
 .fire{min-height:62px;padding:0 16px;font-size:18px;border-radius:18px}
 #cancelBtn{background:none;border:0;color:var(--coral);font:800 13px/1 var(--font);text-decoration:underline;text-underline-offset:3px;padding:12px;width:100%;box-shadow:none;margin-top:0}
 
-/* ============================================================
-   DEFENSE view (merged from saltyfish defense.html) — ⚔️/🛡️ toggle,
-   enemy-whale refill-timing strips (d-prefixed so they never collide with the
-   attack .lane timeline), and the pond radar height override.
-   ============================================================ */
-/* ⚔️ 进攻 | 🛡️ 防守 toggle */
-.viewseg{display:flex;gap:8px;margin-bottom:12px}
-.viewseg button{flex:1;position:relative;border:2px solid var(--line);background:var(--paper);color:var(--brown2);border-radius:16px;padding:12px 8px;font:900 15px/1 var(--font);cursor:pointer;transition:.15s;min-height:48px;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:manipulation}
-.viewseg button:active{transform:translateY(1px)}
-.viewseg #tabAtk.on{border-color:var(--mint);background:linear-gradient(180deg,#eafaf7,var(--mint-bg));color:var(--mint-deep);box-shadow:0 6px 16px -8px rgba(25,200,185,.6)}
-.viewseg #tabDef.on{border-color:var(--coral);background:linear-gradient(180deg,#fdeeee,#fbe3e3);color:var(--coral);box-shadow:0 6px 16px -8px rgba(224,90,90,.5)}
-.dbadge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;margin-left:6px;border-radius:9px;background:var(--coral);color:#fff;font:900 11px/1 var(--mono);vertical-align:middle}
-/* commander's enemy-whale editor block */
-/* whale editor folds away by default — pre-battle setup, not fight-time UI (override the generic details card skin) */
-details.cdefense{background:none;border:0;border-radius:0;box-shadow:none;padding:12px 0 0;margin:14px 0 0;border-top:1.5px dashed var(--line-hi)}
-details.cdefense summary{min-height:44px;display:flex;align-items:center;padding:0}
-.cdefense .cstep{color:var(--coral);font-size:13px;margin:0}
-.demotruth{display:inline-flex;align-items:center;gap:6px;margin:0 0 10px;padding:6px 10px;border:1.5px solid #e0a92c;border-radius:999px;background:#fff6dd;color:#8a6810;font:900 11.5px/1.2 var(--font)}
-/* whale focus chips (above the defense radar) */
-.whalechips{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px}
-.whalechips .wchip{border:2px solid var(--line);background:var(--paper);color:var(--brown2);border-radius:999px;padding:7px 14px;font:800 12.5px/1 var(--font);cursor:pointer;transition:.14s}
-.whalechips .wchip.on{border-color:var(--coral);background:linear-gradient(180deg,#fdeeee,#fbe3e3);color:var(--coral);box-shadow:0 4px 12px -6px rgba(224,90,90,.55)}
-.whalechips .wchip:active{transform:translateY(1px)}
-/* ONE time-line per whale: ABOVE the axis = 敌方 (amber/coral), BELOW = 我方 (green/mint); same x = same moment */
-.dblk{border:2px solid var(--line);border-radius:20px;padding:8px;margin-bottom:16px;background:linear-gradient(180deg,#fffdf6,#fbf7ec);box-shadow:var(--shadow-sm)}
-.dblk:has(.dlane.focused){border-color:#bfeee7;box-shadow:0 6px 18px -8px rgba(25,200,185,.5)}
-.dblk .erow{margin-bottom:0}
-.dlane{position:relative;min-height:114px;padding:22px 12px 6px;cursor:pointer}
-.dlane .dnm{position:absolute;top:3px;left:0;font:800 12px/1.2 var(--font);color:var(--brown);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
-.dlane .daxis{position:absolute;left:0;right:0;top:54px;height:3px;border-radius:2px;background:var(--brown2);opacity:.5}
-.dlane .drt{position:absolute;left:0;font-size:8.5px;font-weight:900;color:#fff;padding:1px 5px;border-radius:6px;z-index:5}
-.dlane .drt.enemy{top:41px;background:var(--coral)} .dlane .drt.our{top:58px;background:var(--green)}
-/* --- 敌方 ABOVE the axis --- */
-.dlane .dgb{position:absolute;top:43px;height:11px;left:0;border-radius:5px 5px 0 0;border:1.5px solid rgba(245,195,28,.6);border-bottom:0;z-index:1;background:repeating-linear-gradient(45deg,rgba(245,195,28,.4) 0 6px,rgba(245,195,28,.14) 6px 12px)}
-.dlane .def{position:absolute;top:45px;height:9px;border-radius:5px 5px 0 0;background:rgba(224,90,90,.32);z-index:1}
-.dlane .dgbl{position:absolute;top:22px;transform:translateX(-50%);font-size:9.5px;font-weight:800;color:#b88a08;white-space:nowrap}
-.dlane .del{position:absolute;transform:translateX(-50%);font-size:9.5px;font-weight:900;white-space:nowrap}
-.dlane .del.land{top:22px;color:var(--coral)} .dlane .del.dep{top:34px;color:var(--brown2);font-weight:800;font-size:9px}
-.dlane .ded{position:absolute;top:42px;transform:translateX(-50%);z-index:3}
-.dlane .ded .d{display:block;width:14px;height:14px;border-radius:50%;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.18);background:var(--coral)}
-.dlane .ddepv{position:absolute;top:41px;transform:translateX(-50%);z-index:2}
-.dlane .ddepv i{display:block;width:2px;height:16px;background:var(--brown2);opacity:.55;margin:0 auto}
-/* --- 我方 BELOW the axis --- */
-.dlane .dms{position:absolute;top:57px;height:11px;border-radius:0 0 5px 5px;background:rgba(111,186,44,.24);border:1.5px solid rgba(111,186,44,.5);border-top:0;z-index:1}
-.dlane .dod{position:absolute;top:57px;transform:translateX(-50%);z-index:3}
-.dlane .dod .d{display:block;width:14px;height:14px;border-radius:50%;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.18)}
-.dlane .dod.send .d{background:var(--green)} .dlane .dod.refill .d{background:var(--mint)}
-.dlane .dml{position:absolute;top:71px;transform:translateX(-50%);font-size:9px;font-weight:900;color:var(--green-deep);background:var(--paper);padding:0 5px;border-radius:7px;white-space:nowrap;z-index:4}
-.dlane .dol{position:absolute;top:85px;transform:translateX(-50%);font-size:9.5px;font-weight:900;white-space:nowrap;text-align:center;line-height:1.25}
-.dlane .dol.send{color:var(--green-deep)} .dlane .dol.send span{display:block;font-weight:800;color:var(--brown2);font-size:9px} .dlane .dol.refill{color:var(--mint-deep)}
-/* shared playhead + send flash */
-.dlane .dhd{position:absolute;top:38px;height:50px;width:3px;background:var(--brown);opacity:.4;border-radius:2px;z-index:2}
-.dlane .dfp{position:absolute;top:69px;transform:translateX(-50%);background:var(--green);color:#fff;font-weight:900;font-size:10.5px;padding:2px 10px;border-radius:20px;opacity:0;transition:opacity .12s;z-index:7;box-shadow:0 3px 10px rgba(111,186,44,.55);white-space:nowrap}
-/* key-moment emphasis (scale inner .d so the centering transform is preserved) */
 /* commander captain slots: explicit SACRIFICE / MAIN cells + one-tap ⇄ swap (no more guessing which is which) */
 .slots{display:grid;grid-template-columns:minmax(0,1fr) 44px minmax(0,1fr);gap:8px;align-items:stretch;margin:6px 0 4px}
 .slots.frozen{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
@@ -532,17 +500,6 @@ details.cdefense summary{min-height:44px;display:flex;align-items:center;padding
 .lanenote.join{color:var(--mint-deep);font-size:11.5px;background:#eafaf7;border:1.5px dashed #a7e6dd;border-radius:10px;padding:5px 8px}   /* the one actionable verb for a mid-gather cold-open */
 /* ghost badge reserves the role-badge footprint on unpicked chips → picking/unpicking never reflows the roster */
 .roster-role.ghost{color:var(--brown3);background:var(--paper)}
-@keyframes dbeat{0%,100%{transform:scale(1)}50%{transform:scale(1.7)}}
-.dlane.fx-send .dod.send .d{animation:dbeat .5s ease-in-out infinite;box-shadow:0 0 0 7px rgba(111,186,44,.32)}
-.dlane.fx-send .dfp{opacity:1}
-.dlane.fx-land .ded.land .d{animation:dbeat .5s ease-in-out infinite;box-shadow:0 0 0 7px rgba(224,90,90,.35)}
-/* 他发车 gets the same coral emphasis as 敌落地: the depart tick beats + its label lights up */
-.dlane.fx-depart .ddepv i{animation:dbeat .5s ease-in-out infinite;background:var(--coral);opacity:1;box-shadow:0 0 0 5px rgba(224,90,90,.3)}
-.dlane.fx-depart .del.dep{color:var(--coral);font-weight:900;font-size:10px}
-.dlane.fx-refill .dod.refill .d{animation:dbeat .5s ease-in-out infinite;box-shadow:0 0 0 7px rgba(25,200,185,.35)}
-.dlane.now{outline:2px solid rgba(111,186,44,.3);outline-offset:-2px;border-radius:16px}
-
-
 /* ============================================================
    v7 LAYOUT — the situation map dominates; body.cmdmode = commander mode
    ============================================================ */
@@ -550,7 +507,6 @@ details.cdefense summary{min-height:44px;display:flex;align-items:center;padding
 .top{margin-bottom:6px}
 .top h1{font-size:18px}
 body.cmdmode .top,body.cmdmode .viewtabs{display:none}
-body.cmdmode .viewseg button{min-height:40px;padding:8px;font-size:13px}
 body.cmdmode .youchip{padding:6px 12px}
 body.cmdmode .youchip .yn{font-size:13px}
 body.cmdmode .astat.on{display:none}
@@ -580,6 +536,9 @@ body.cmdmode .astat.on{display:none}
 .battle-main[data-drawer-background-state="command"]{padding-bottom:calc(var(--battle-command-height) + 14px + var(--battle-safe-bottom))}
 .console.battle-drawer{max-width:none;margin:0;padding:0;border:0;border-radius:var(--battle-radius-large) var(--battle-radius-large) 0 0;background:linear-gradient(180deg,var(--cmd-bg),var(--paper));box-shadow:0 -12px 34px rgba(61,52,40,.18)}
 .console.battle-drawer .battle-drawer__header{padding-inline:14px;background-color:rgba(255,253,246,.9)}
+@media (prefers-reduced-transparency:reduce){
+  .console.battle-drawer .battle-drawer__header{background-color:var(--battle-surface-raised);background-image:none;-webkit-backdrop-filter:none;backdrop-filter:none}
+}
 .commander-drawer-header{grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px}
 .commander-drawer-drag{display:grid;min-width:0;min-height:44px;align-content:center;touch-action:none;cursor:grab}
 .commander-drawer-drag:active{cursor:grabbing}

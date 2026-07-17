@@ -247,8 +247,8 @@ test('missing and explicit Rally fetches retain the Rally handshake and bind imm
     assert.deepEqual(result.sent, [{ t: 'state', room: { marker: 'rally' } }]);
     assert.equal(result.attachment().surface, 'rally');
     assert.deepEqual({ deliveryLoads, tripleGates, stateReads }, {
-      deliveryLoads: 1, tripleGates: 1, stateReads: 1
-    });
+      deliveryLoads: 1, tripleGates: 1, stateReads: 2
+    }, 'the new Rally socket and the existing Rally socket receive the same connection snapshot');
     assert.throws(
       () => h.room.writeSocketAttachment(result.server, { surface: 'defense' }),
       /surface_immutable/

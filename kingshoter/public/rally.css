@@ -1,36 +1,46 @@
 html,
-body.kvk-page {
+body.rally-page,
+body.kvk-page{
   max-width: 100%;
   overflow-x: hidden;
 }
 
+.rally-page .situation,
 .kvk-page .situation {
   contain: layout paint;
 }
 
+.rally-page .lane-group-head,
 .kvk-page .lane-group-head {
   min-height: 30px;
   font-size: 11px;
 }
 
+.rally-page .lane-group-head small,
+.rally-page .lanenote,
 .kvk-page .lane-group-head small,
 .kvk-page .lanenote {
   font-size: 11px;
 }
 
+.rally-page .lanenote,
 .kvk-page .lanenote {
   color: var(--battle-label-secondary);
 }
 
+.rally-page .lane-group.kingdom-1 .lane-group-head,
+.rally-page .lane.me .lname,
 .kvk-page .lane-group.kingdom-1 .lane-group-head,
 .kvk-page .lane.me .lname {
   color: var(--battle-label-primary);
 }
 
+.rally-page .lane-group.kingdom-2 .lane-group-head,
 .kvk-page .lane-group.kingdom-2 .lane-group-head {
   color: var(--battle-commander);
 }
 
+.rally-page .lane-empty,
 .kvk-page .lane-empty {
   min-height: 34px;
   display: grid;
@@ -39,15 +49,18 @@ body.kvk-page {
   font: 700 11px/1.25 var(--font);
 }
 
+.rally-page .lane .ltrack.live .lpath,
 .kvk-page .lane .ltrack.live .lpath {
   inset-block-start: 50%;
   opacity: .42;
 }
 
+.rally-page .lane.is-gathering .ldot.trav,
 .kvk-page .lane.is-gathering .ldot.trav {
   box-shadow: 0 0 0 4px rgba(245, 195, 28, .22);
 }
 
+.rally-page .situation .pond,
 .kvk-page .situation .pond {
   position: relative;
   isolation: isolate;
@@ -87,30 +100,185 @@ body.kvk-page {
   inset-block-end: 10px;
 }
 
+.rally-page #radar,
 .kvk-page #radar {
   overflow: visible;
 }
 
+.rally-page .rally-route,
 .kvk-page .rally-route {
   vector-effect: non-scaling-stroke;
 }
 
+.rally-page #cmdUnlock,
+.rally-page .youchip .yedit,
+.rally-page details > summary,
 .kvk-page #cmdUnlock,
 .kvk-page .youchip .yedit,
 .kvk-page details > summary {
   min-height: 44px;
 }
 
+.rally-manage-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  min-height: 44px;
+  margin: 2px 0 10px;
+  padding: 3px;
+  border: 1.5px solid var(--battle-line);
+  border-radius: var(--battle-radius-small);
+  background: var(--battle-surface-muted);
+}
+
+.rally-manage-tabs .battle-tab {
+  min-width: 0;
+  min-height: 44px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--battle-label-secondary);
+  font: 850 14px/1.2 var(--battle-font);
+}
+
+.rally-manage-tabs .battle-tab[aria-selected="true"] {
+  background: var(--battle-surface-raised);
+  color: var(--battle-action);
+  box-shadow: 0 1px 5px rgba(61, 52, 40, .12);
+}
+
+.rally-room-panel {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+}
+
+.rally-room-panel[hidden] {
+  display: none;
+}
+
+.rally-room-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 8px 11px;
+  border: 1.5px solid var(--battle-line);
+  border-radius: var(--battle-radius-small);
+  background: var(--battle-surface-raised);
+  color: var(--battle-label-secondary);
+  font: 800 12px/1.35 var(--battle-font);
+}
+
+.rally-room-summary strong {
+  flex: 0 0 auto;
+  color: var(--battle-action);
+  font-size: 15px;
+}
+
+.rally-room-kingdoms {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+
+.rally-room-kingdom {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  border: 1.5px solid var(--battle-line);
+  border-radius: var(--battle-radius);
+  background: var(--battle-surface-raised);
+}
+
+.rally-room-kingdom h3 {
+  margin: 0;
+  color: var(--battle-label-primary);
+  font: 900 15px/1.25 var(--battle-font);
+}
+
+.rally-room-kingdom > label:not(.rally-room-mode) {
+  color: var(--battle-label-secondary);
+  font: 750 12px/1.3 var(--battle-font);
+}
+
+.rally-room-name-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 7px;
+  min-width: 0;
+}
+
+.rally-room-panel button {
+  min-height: 44px;
+}
+
+.rally-room-panel input:not([type="checkbox"]) {
+  min-width: 0;
+  font-size: 16px;
+}
+
+.rally-room-name-row .battle-control {
+  min-width: 74px;
+  padding-inline: 12px;
+}
+
+.rally-room-mode {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  color: var(--battle-label-primary);
+  font: 800 13px/1.3 var(--battle-font);
+}
+
+.rally-room-mode input {
+  flex: 0 0 auto;
+  inline-size: 44px;
+  block-size: 24px;
+  margin: 0;
+  accent-color: var(--battle-action);
+}
+
+.rally-room-inline-status {
+  min-height: 16px;
+  color: var(--battle-label-secondary);
+  font: 700 11px/1.35 var(--battle-font);
+}
+
+.rally-room-inline-status[data-tone="error"] {
+  color: var(--battle-danger);
+}
+
+.rally-room-inline-status[data-tone="success"] {
+  color: var(--battle-success);
+}
+
+.copy-rally-room-link {
+  width: 100%;
+  color: var(--battle-action);
+  border-color: var(--battle-action);
+}
+
 @media (max-width: 430px) {
+  .rally-wrap,
   .kvk-wrap {
     width: min(100%, 430px);
     padding-inline: 10px;
   }
 
+  .rally-page .situation,
   .kvk-page .situation {
     padding: 9px;
   }
 
+  .rally-page .lane,
   .kvk-page .lane {
     grid-template-columns: minmax(66px, 82px) minmax(0, 1fr) 52px;
     gap: 6px;
@@ -118,6 +286,8 @@ body.kvk-page {
     margin-block: 6px;
   }
 
+  .rally-page .lane .lname,
+  .rally-page .lane .ltime,
   .kvk-page .lane .lname,
   .kvk-page .lane .ltime {
     min-width: 0;
@@ -125,12 +295,14 @@ body.kvk-page {
 }
 
 @media (max-width: 430px) {
+  body.rally-page.cmdmode .situation .pond,
   body.kvk-page.cmdmode .situation .pond {
     flex-basis: 220px;
     height: 220px;
     min-height: 220px;
   }
 
+  body.rally-page.cmdmode .situation .pond svg,
   body.kvk-page.cmdmode .situation .pond svg {
     height: 220px;
     max-height: 220px;
@@ -138,36 +310,53 @@ body.kvk-page {
 }
 
 @media (max-width: 375px) {
+  .rally-page .situation,
   .kvk-page .situation {
     padding-inline: 7px;
   }
 
+  .rally-page .lane,
   .kvk-page .lane {
     grid-template-columns: minmax(60px, 72px) minmax(0, 1fr) 48px;
     gap: 5px;
   }
 
+  .rally-page .lane .lname,
   .kvk-page .lane .lname {
     font-size: 13px;
   }
 
+  .rally-page .lane .ltimev,
   .kvk-page .lane .ltimev {
-    font-size: 14px;
+    font-size: 15px;
   }
 }
 
 @media (max-width: 330px) {
+  .rally-wrap,
   .kvk-wrap {
     padding-inline: 7px;
   }
 
+  .rally-page .lane,
   .kvk-page .lane {
     grid-template-columns: 58px minmax(0, 1fr) 46px;
     gap: 4px;
   }
+
+  .rally-room-name-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rally-room-name-row .battle-control {
+    width: 100%;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .rally-page .lane .ldot.trav,
+  .rally-page .phero,
+  .rally-page .phero .pips i,
   .kvk-page .lane .ldot.trav,
   .kvk-page .phero,
   .kvk-page .phero .pips i {

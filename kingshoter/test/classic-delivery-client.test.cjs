@@ -5,11 +5,11 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const root = path.join(__dirname, '..');
-const script = fs.readFileSync(path.join(root, 'public', 'kvk.js'), 'utf8');
+const script = fs.readFileSync(path.join(root, 'public', 'rally-controller.js'), 'utf8');
 const audioScript = fs.readFileSync(path.join(root, 'public', 'battle-audio.js'), 'utf8');
 const cuesScript = fs.readFileSync(path.join(root, 'public', 'battle-cues.js'), 'utf8');
 const deliveryScript = fs.readFileSync(path.join(root, 'public', 'battle-delivery.js'), 'utf8');
-const html = fs.readFileSync(path.join(root, 'public', 'kvk.html'), 'utf8');
+const html = fs.readFileSync(path.join(root, 'public', 'rally.html'), 'utf8');
 const css = fs.readFileSync(path.join(root, 'public', 'app.css'), 'utf8');
 
 function extractFunction(source, name) {
@@ -53,9 +53,9 @@ test('Classic client confirms only canonical persisted delivery ACKs and retries
 });
 
 test('Classic ACK state is a compatibility adapter over the shared generation-scoped queue', () => {
-  assert.match(html, /battle-delivery\.js\?v=2026071603/);
+  assert.match(html, /battle-delivery\.js\?v=2026071701/);
   assert.ok(
-    html.indexOf('/battle-delivery.js?v=2026071603') < html.indexOf('/kvk.js?v=2026071603'),
+    html.indexOf('/battle-delivery.js?v=2026071701') < html.indexOf('/rally-controller.js?v=2026071701'),
     'delivery module loads before the Rally controller'
   );
   assert.match(script, /BattleDelivery\.createAckQueue\(\{/);
@@ -186,11 +186,12 @@ test('Classic commander keeps fired slots visible and reserves green for receipt
   assert.match(css, /\.delivery\.received\.partial/);
 });
 
-test('KvK cache versions move atomically with the delivery client and styles', () => {
-  assert.match(html, /app\.css\?v=2026071603/);
-  assert.match(html, /kvk-update\.js\?v=2026071603/);
-  assert.match(html, /app\.js\?v=2026071603/);
-  assert.match(html, /kvk-delivery-shadow\.js\?v=2026071603/);
-  assert.match(html, /kvk-rally\.js\?v=2026071603/);
-  assert.match(html, /kvk\.js\?v=2026071603/);
+test('Rally cache versions move atomically with the delivery client and styles', () => {
+  assert.match(html, /app\.css\?v=2026071701/);
+  assert.match(html, /rally-update\.js\?v=2026071701/);
+  assert.match(html, /app\.js\?v=2026071701/);
+  assert.match(html, /rally-room\.js\?v=2026071701/);
+  assert.match(html, /rally-delivery-shadow\.js\?v=2026071701/);
+  assert.match(html, /rally-domain\.js\?v=2026071701/);
+  assert.match(html, /rally-controller\.js\?v=2026071701/);
 });

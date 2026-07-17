@@ -1,8 +1,9 @@
-/* kingshoter — KvK command room (world-class rebuild).
+/* kingshoter — Rally coordination room.
    Two jobs: (1) commander fires precise, per-captain rally launch targets; (2) every player
-   gets one unmistakable personal launch or generic join cue. Defense timing remains an explicit rehearsal.
+   gets one unmistakable personal launch or generic join cue.
    Relies on app.js for: $ esc pad mmss hhmmss toast · lang/setLang/applyI18n/initI18n/renderLangToggle ·
    serverNow/serverNowSec/syncClock/clockOffset · startClock · RoomSocket · ksActor/ksCastle/ksTriPts. */
+/* Rally page controller. */
 (function () {
   "use strict";
   var qp = new URLSearchParams(location.search);
@@ -58,12 +59,6 @@
   var lookupSequence = 0, lookupAbort = null, lookupTimer = null, nicknameDraftRoutingKey = "";
   var pickedByK = { 1: [], 2: [] };
   var serverStagedByK = { 1: [], 2: [] };
-  // defense (refill-timing) state — ported from saltyfish defense.html, fed by room.config.enemyWhales
-  var viewMode = "attack", enemyWhales = [], dFocus = 0, adminEnemies = [], lastWhalesKey = "", pendingPubWhales = null, pendingPubTok = null;
-  var adminDirty = false;   // whale editor has unsaved edits (don't clobber from broadcasts)
-  var DGATHER = 300, DDELTA = 1, DGVIS = 0.25;   // enemy rally gather 5:00; our refill lands ~1s after; gather occupies 1/4 of the visual strip
-  var dAnim = null, dRaf = null, dPlaying = false, dLastTs = null, dTNow = 0;
-  var truthLang = "";
   var ac = null, keepAudio = null, keepAlive = false, soundReady = false, syncedOK = false;
   var battleAudio = null, battleCues = null;
   var syncAttempt = 0, lastAcceptedClockOffset = Number(window.clockOffset) || 0;
@@ -71,6 +66,17 @@
   var isAndroid = /android/i.test(navigator.userAgent || "");
   var $ = window.$;
   var rallyTactical = window.RallyTactical;
+  var rallyRoomApi = window.RallyRoom;
+  var rallyManageTab = "players";
+  var kingdomNameDrafts = {
+    1: { value: "", dirty: false },
+    2: { value: "", dirty: false }
+  };
+  var kingdomNameMutation = rallyRoomApi.createNameMutation({
+    send: function (message) { return !!(sock && sock.send(message)); },
+    createMutationId: function () { return crypto.randomUUID(); },
+    onChange: function () { renderRallyRoom(); }
+  });
   var deliveryAckQueue = window.BattleDelivery.createAckQueue({
     send: function (message) { return !!(sock && sock.send(message)); },
     nowMs: function () { return window.serverNow(); },
@@ -91,7 +97,7 @@
   }
   battleAudio = window.BattleAudio.createAudioEngine({
     language: function () { return L() ? "en" : "zh"; },
-    mediaTitle: "KvK alerts on",
+    mediaTitle: "Kingshoter Rally alerts on",
     onStateChange: onBattleAudioStateChange
   });
 
@@ -110,7 +116,7 @@
     if (!deliveryShadowExactParam("room", ROOM) ||
         !deliveryShadowExactParam("deliveryQa", "1") ||
         !deliveryShadowExactParam("deliveryShadow", "1")) return false;
-    var api = window.KvkDeliveryShadow;
+    var api = window.RallyDeliveryShadow || window.KvkDeliveryShadow;
     try {
       return !!api && typeof api.isQaRoomName === "function" &&
         api.isQaRoomName(ROOM) === true;
@@ -155,7 +161,7 @@
     if (deliveryShadowInitialized) return deliveryShadowController;
     deliveryShadowInitialized = true;
     if (!deliveryShadowGate()) return null;
-    var api = window.KvkDeliveryShadow, controller = null;
+    var api = window.RallyDeliveryShadow || window.KvkDeliveryShadow, controller = null;
     try {
       controller = api.create({
         room: ROOM,
@@ -186,7 +192,8 @@
         enumerable: true,
         get: deliveryShadowEventSnapshot
       });
-      window.__kvkDeliveryQa = Object.freeze(qa);
+      window.__rallyDeliveryQa = Object.freeze(qa);
+      window.__kvkDeliveryQa = window.__rallyDeliveryQa;
     } catch (e) {}
     return controller;
   }
@@ -349,7 +356,7 @@
   }
   /* ---------- reliable delivery shadow QA end ---------- */
 
-  /* ---------- KvK practice script (commander-only) ---------- */
+  /* ---------- Rally practice script (commander-only) ---------- */
   var SIM = [{ off: 0, kingdom: 1, kind: "double" }, { off: 45, kingdom: 2, kind: "double" }];
 
   /* ---------- i18n (one local dict — single source of truth, no scattered ternaries) ---------- */
@@ -371,10 +378,9 @@
       mapcastle: "王城", mapempty: "指挥还没选择集结车头", mapstaged: "已就位 · 等指挥", kw1: "王国 ①", kw2: "王国 ②", mapnote: "⭕ 距离按本轮最远行军时间自动缩放", map_scale: "范围 {n} · 距王城远近", group_empty: "等待选择车头",
       copylink: "📋 点我复制房间链接", copied: "✓ 已复制 · 发给队友吧",
       idle_note: "○ 上方固定按 2:00 比例 · 下方战场按本轮最远距离缩放", legend_live: "黄色外圈=你 · ● 主力 ○ 消耗 · 距离按本轮最远行军时间自动缩放",
-      join_note: "🐋 网站已发出集结指令 · 现在去游戏里点「加入」；网站无法确认游戏动作", pulled_atk: "⚔️ 网站发车指令有效 · 已切到进攻页（可再切回防守）",
+      join_note: "🐋 网站已发出集结指令 · 现在去游戏里点「加入」；网站无法确认游戏动作",
       namefail: "✕ 查不到昵称 · 不影响使用，会以 ID 显示", pidph: "游戏内左上角头像里的数字 ID", nicknameph: "输入昵称", marchfirst: "先拖一下滑块（或点±）确认你的行军时间",
       identity_type: "身份类型", identity_player_id: "Player ID", identity_nickname: "昵称", identity_recommended: "推荐", invalid_nickname: "请输入有效昵称", player_id_taken: "这个 Player ID 已被另一位玩家使用", profile_conflict: "资料已在另一处更新 · 已保留你的草稿", profile_owner_mismatch: "此设备不能修改这位玩家 · 请让指挥删除后在本机重新登记", profile_delivery_only: "此设备只接收提醒 · 请用登记设备修改，或让指挥删除后重新登记", change_player: "更换玩家", roster_full: "房间名单已满 · 请让指挥先删除不用的玩家", registration_retry: "连接中断 · 点重试后才会重新登记", registration_retry_action: "重试", duplicate_suffix: "同名玩家会显示区分标记",
-      defsethint: "分:秒 = 敌鲸到王城的行军时间 · 全队防守页的补兵倒计时都按它算",
       sc_title: "📣 声音测试", sc_sub: "大家听到了吗？", you_short: "你", main_s: "主力", sac_s: "消耗",
       joincue: "开车时点「加入」车头的集结", marchhow: "怎么填：游戏里对王城开一次集结，看那个「行军时间」填进来。",
       fired: "已发送 ✓", notconn: "未连接 · 稍候自动重连", notsynced: "还在对时，等一两秒再发", nomarch: "有车头没填行军时间，先让他填",
@@ -383,21 +389,14 @@
       ready_btn: "✅ 我已就位", ready_done: "✓ 已就位", notready: "有车头还没点「就位」，仍可发", readyon: "✓ 已告诉指挥你就位", readyline: "就位 {n}/{m}", rally_live: "该王国的网站集结指令仍有效，先取消再发 refill", cap_absent: "有车头页面离线，仍可发", syncp: "{n}/{m} 已对时·在线", syncp_pick: "先点 {n} 个车头", land_cap: "预计落地",
       delivery_sent: "已发送", delivery_received: "已收到 ✓", delivery_received_count: "已收到 {n}/{m}", delivery_missing: "未确认", delivery_expired: "已过期",
       settings: "⚙️ 提醒设置", bgtest2: "🔔 实测锁屏 / 切游戏提醒", cmdlink: "🔓 我是指挥 → 解锁", cmd_reopen: "🎖️ 打开指挥台", cmd_collapse: "收起", cmd_manage: "管理玩家与房间", cmd_back: "返回发令视图", marchlab: "到王城行军时间", marchtip2: "实战提示：如果你会使用宠物行军速度增益，请在测量前先开启。",
+      manage_players: "玩家", manage_room: "房间", connected_website_devices: "已连接的网站设备", kingdom_display_name: "王国显示名称", room_save: "保存", room_name_saved: "已保存并同步到全房间", room_name_saving: "正在等待服务器与房间确认…", room_name_conflict: "另一位指挥已修改；你的草稿仍保留", room_name_invalid: "名称最多 24 个可见字符", room_name_retry: "连接中断 · 恢复后会自动重试", copy_room_link: "复制 Rally 房间链接", room_link_copied: "已复制 · 可发给队友", room_link_failed: "无法自动复制 · 请从浏览器地址栏复制",
       cancel_k: "✖ 取消 {k} 的集结", legend: "黄色外圈=你 · ● 主力 ○ 消耗 · 距离按本轮最远行军时间自动缩放", unlocking: "验证密码中…", checklist_done: "都填好了，等指挥发车就行",
-      tab_atk: "进攻", tab_def: "防守", dpanel: "🛡️ 补兵时机（按你的行军算）", dpanelhint: "挑当场来袭的那条敌鲸，照大字发兵。时间线上=敌方（集结→🔴落地），下=我方（🟢发兵→行军→补满✓）。补兵约在敌落地后 1 秒到，把它弹回去。",
-      addenemy: "加敌鲸", pubwhales: "📣 发布敌鲸给全队", pub_ok: "✓ 已发布给全队", pub_fail: "发布失败（密码或网络）", pub_neterr: "网络错误", publishing: "发布中…", confirm_over: "有人刚发布了新版，覆盖？", whale_ph: "敌鲸名", pubdef_none: "先加一条敌鲸",
-      d_empty: "指挥还没发布敌方鲸鱼；开打前让指挥在指挥台设一下。", d_you_send: "你发兵", d_enemy_land: "敌落地", d_refilled: "补满✓", d_gather_band: "敌集结 5:00（加速）", d_send_now: "发兵！", d_your_march: "你行军 {x}", d_depart: "他发车", d_side_enemy: "敌方", d_side_our: "我方",
-      d_indep_note: "每条各自独立 · 各自相对它自己发车算；点上方芯片切换大图聚焦哪条", d_short_gather: "集结剩 {x}", d_short_land: "发车后 {x}", d_short_imm: "发车后立刻", d_short_fill: "先填行军",
-      d_cue_gather: "他集结剩 {x} 时发兵", d_cue_land: "他发车后 {x} 发兵", d_cue_imm: "他发车后立刻发（你很快）", d_cue_fill: "先填你的行军时间",
-      d_note: "补兵在它落地后≈1秒到，正好补满 ✓", d_erow: "敌集结 5:00 · 你行军 {x}", d_lane_title: "🔴 {n} · 行军 {x}",
-      d_ph_gather: "① 敌方集结中（加速）…", d_ph_send: "② 发兵！就是现在", d_ph_land: "③ 敌落地", d_ph_refill: "✅ 补满·弹回", d_ph_low: "③ 护盾告急→快补兵", d_ph_inc: "② 敌方来袭→盯落地",
-      d_fx_send: "发兵！", d_fx_land: "敌落地", d_fx_refill: "补满！", d_fx_depart: "他发车！", d_ph_depart: "② 他发车了 → 盯落地", d_gather_cd: "集结 {x}", d_land_cd: "落地 {x}", d_whale: "敌鲸", d_enemy: "敌",
       slot_weak: "🛡️ 消耗", slot_weak_sub: "先落地 · 挡刀吃守军", slot_main: "👑 主力", slot_main_sub: "+1秒跟进收头", slot_empty: "待选", slot_swap_tip: "已互换主力/消耗",
       mode_double: "双集结", mode_triple: "三集结", slot_weak1: "消耗 1", slot_weak2: "消耗 2", rally_mode_saved: "集结模式已同步", mode_saving: "正在同步…", confirm_drop_weak2: "切回双集结会移除 {n} 的消耗 2 位置。继续？", mode_changed_elsewhere: "另一位指挥已更改集结模式，已同步最新状态", mode_unavailable: "当前房间暂不支持三集结", firetri: "⚔️ 点两下发三集结", need3: "请选择消耗 1、消耗 2 和主力三名车头",
       roster_search: "按昵称或 Player ID 搜索", replace_choose: "选择要替换的位置", role_choose: "选择 {n} 的位置", replace_weak: "替换消耗 · {n}", replace_weak1: "替换消耗 1 · {n}", replace_weak2: "替换消耗 2 · {n}", replace_main: "替换主力 · {n}", replace_cancel: "取消", already_kingdom: "该玩家已在王国 {k}", stage_other_kingdom: "该玩家刚被另一王国选中，已恢复你的选择",
       edit_march: "修改 {n} 的行军时间", march_save: "保存", march_cancel: "取消", march_adjust: "调整行军时间", march_decrease: "减少 {n} 秒", march_increase: "增加 {n} 秒", march_latest: "房间当前值：{x}", march_active_unchanged: "已发出的倒数不会被这次修改影响", march_invalid: "请输入 0:05–2:00（5–120 秒）", march_conflict: "另一位指挥已更新；保留了你的草稿", march_retry: "按最新值重试", march_adopt: "采用最新值", march_saved: "已保存并同步到全房间", march_pending: "正在等待服务器确认与房间同步…", march_unsaved: "未保存 · 连接恢复后请手动重试", march_stale: "该玩家已不存在，正在刷新房间", march_locked: "先解锁指挥台才能修改",
       plat_ios: "🍎 iPhone：通常可在后台提醒；开战前请锁屏实测", plat_android: "🤖 安卓：保持本页亮屏最稳；系统可能暂停后台", plat_desktop: "💻 电脑：保持本标签页开启，并先做一次测试",
-      atk_note: "🟡 网站排程：集结 → 🟢 预计行军 → 预计落地 · 非游戏实时", order_cancelled: "✖ 指令已取消", defense_demo: "演练动画 · 非实时战况"
+      atk_note: "🟡 网站排程：集结 → 🟢 预计行军 → 预计落地 · 非游戏实时", order_cancelled: "✖ 指令已取消"
     },
     en: {
       join: "Enter room", ornew: "or join another room", joinhint: "Just a room name (share the same one with your team).", room: "Room", enter: "Enter", last: "Continue",
@@ -416,10 +415,9 @@
       mapcastle: "King's Castle", mapempty: "Waiting for the commander to select rally captains", mapstaged: "Staged · waiting for the order", kw1: "Kingdom ①", kw2: "Kingdom ②", mapnote: "⭕ distance scales to this round's longest selected march", map_scale: "{n} field · distance to castle", group_empty: "Waiting for captains",
       copylink: "📋 Tap to copy the room link", copied: "✓ Copied — share it with your team",
       idle_note: "○ bars keep the 2:00 scale · the field fits this round's longest march", legend_live: "yellow ring = you · ● main ○ sacrifice · field fits the longest selected march",
-      join_note: "🐋 Rally order sent by this website — tap JOIN in-game; game action is not confirmed", pulled_atk: "⚔️ Website launch order active — switched to Attack (you can tab back)",
+      join_note: "🐋 Rally order sent by this website — tap JOIN in-game; game action is not confirmed",
       namefail: "✕ Name not found · that's fine — your ID will be shown", pidph: "the numeric ID under your in-game avatar", nicknameph: "enter a nickname", marchfirst: "First drag the slider (or tap ±) to confirm your march time",
       identity_type: "Identity type", identity_player_id: "Player ID", identity_nickname: "Nickname", identity_recommended: "Recommended", invalid_nickname: "Enter a valid nickname", player_id_taken: "This Player ID is already in use", profile_conflict: "Profile changed in another session · your draft is preserved", profile_owner_mismatch: "This device cannot edit that player · ask a commander to remove it, then register again here", profile_delivery_only: "This device receives alerts only · edit on the owner device, or ask a commander to remove and re-register", change_player: "Change player", roster_full: "This room roster is full · ask a commander to remove an unused player", registration_retry: "Connection interrupted · tap Retry to register again", registration_retry_action: "Retry", duplicate_suffix: "Matching nicknames show a distinguishing marker",
-      defsethint: "m:s = the enemy's march time to the castle · everyone's refill countdown is computed from it",
       sc_title: "📣 Sound check", sc_sub: "Everyone hear this?", you_short: "You", main_s: "MAIN", sac_s: "SAC",
       joincue: "Tap JOIN on a whale's rally at GO", marchhow: "How: in-game open a rally on the King's Castle, read its march timer, enter it here.",
       fired: "Fired ✓", notconn: "Not connected · reconnecting", notsynced: "Still syncing — wait a sec", nomarch: "A captain has no march time set",
@@ -428,27 +426,23 @@
       ready_btn: "✅ I'm ready", ready_done: "✓ Ready", notready: "A captain hasn't tapped Ready — firing anyway", readyon: "✓ Told the commander you're ready", readyline: "Ready {n}/{m}", rally_live: "This kingdom still has an active website rally order — cancel it before a refill", cap_absent: "A captain's page is offline — firing anyway", syncp: "{n}/{m} synced & present", syncp_pick: "Pick {n} captains", land_cap: "EST. LAND",
       delivery_sent: "Sent", delivery_received: "Received ✓", delivery_received_count: "Received {n}/{m}", delivery_missing: "No confirmation", delivery_expired: "Expired",
       settings: "⚙️ Alert settings", bgtest2: "🔔 Test lock-screen / in-game alert", cmdlink: "🔓 I'm the commander → unlock", cmd_reopen: "🎖️ Open commander console", cmd_collapse: "Collapse", cmd_manage: "Manage players & room", cmd_back: "Back to command", marchlab: "March time to the castle", marchtip2: "Battle tip: if you will use a pet march-speed buff, activate it before measuring.",
+      manage_players: "Players", manage_room: "Room", connected_website_devices: "Connected website devices", kingdom_display_name: "Kingdom display name", room_save: "Save", room_name_saved: "Saved and synchronized to the room", room_name_saving: "Waiting for server and room confirmation…", room_name_conflict: "Another commander changed it · your draft is preserved", room_name_invalid: "Use no more than 24 visible characters", room_name_retry: "Connection interrupted · retrying after reconnect", copy_room_link: "Copy Rally room link", room_link_copied: "Copied · share it with your team", room_link_failed: "Could not copy · use the browser address bar",
       cancel_k: "✖ Cancel {k}'s rally", legend: "yellow ring = you · ● main ○ sacrifice · field fits the longest selected march", unlocking: "checking password…", checklist_done: "All set — just wait for the commander",
-      tab_atk: "Attack", tab_def: "Defense", dpanel: "🛡️ When to refill (for your march)", dpanelhint: "Pick the incoming whale and follow the big text. Above the line = enemy (gather → 🔴 hits), below = you (🟢 send → march → reinforced✓). Your reinforcement lands ~1s after they hit — bounces them back.",
-      addenemy: "Add incoming", pubwhales: "📣 Publish to squad", pub_ok: "✓ Published to squad", pub_fail: "Publish failed (password or network)", pub_neterr: "Network error", publishing: "Publishing…", confirm_over: "Someone just published a newer version. Overwrite?", whale_ph: "Enemy name", pubdef_none: "Add an incoming whale first",
-      d_empty: "The commander hasn't published incoming whales yet — ask them to set them in the console.", d_you_send: "You send", d_enemy_land: "Hits", d_refilled: "Reinforced✓", d_gather_band: "Enemy gather 5:00 (rush)", d_send_now: "SEND!", d_your_march: "march {x}", d_depart: "they march", d_side_enemy: "Enemy", d_side_our: "You",
-      d_indep_note: "each incoming is independent · timed from its own launch; tap a chip above to switch which one the radar shows", d_short_gather: "gather: {x} left", d_short_land: "after launch {x}", d_short_imm: "send now", d_short_fill: "fill march",
-      d_cue_gather: "Send when their gather timer shows {x} left", d_cue_land: "Send {x} after they march", d_cue_imm: "Send right after they march (you're fast)", d_cue_fill: "Fill your march time first",
-      d_note: "Your reinforcement lands ~1s after they hit — right in time ✓", d_erow: "Enemy gather 5:00 · your march {x}", d_lane_title: "🔴 {n} · march {x}",
-      d_ph_gather: "① Enemy gathering (rush)…", d_ph_send: "② SEND! right now", d_ph_land: "③ Enemy hits", d_ph_refill: "✅ Reinforced · held", d_ph_low: "③ Garrison low → reinforce!", d_ph_inc: "② Incoming → watch the landing",
-      d_fx_send: "SEND!", d_fx_land: "Hits", d_fx_refill: "Reinforced!", d_fx_depart: "They march!", d_ph_depart: "② They marched → watch the landing", d_gather_cd: "gather {x}", d_land_cd: "land {x}", d_whale: "incoming rally", d_enemy: "Enemy ",
       slot_weak: "🛡️ SACRIFICE", slot_weak_sub: "lands first · eats the garrison", slot_main: "👑 MAIN", slot_main_sub: "lands +1s right behind", slot_empty: "—", slot_swap_tip: "Main/sacrifice swapped",
       mode_double: "Double Rally", mode_triple: "Triple Rally", slot_weak1: "Sacrifice 1", slot_weak2: "Sacrifice 2", rally_mode_saved: "Rally mode synced", mode_saving: "Syncing…", confirm_drop_weak2: "Switching to Double removes {n} from Sacrifice 2. Continue?", mode_changed_elsewhere: "Another commander changed the rally mode; latest state synced", mode_unavailable: "Triple Rally is unavailable in this room", firetri: "⚔️ Double-tap for Triple Rally", need3: "Select Sacrifice 1, Sacrifice 2, and Main",
       roster_search: "Search nickname or Player ID", replace_choose: "Choose the captain to replace", role_choose: "Choose a role for {n}", replace_weak: "Replace Sacrifice · {n}", replace_weak1: "Replace Sacrifice 1 · {n}", replace_weak2: "Replace Sacrifice 2 · {n}", replace_main: "Replace Main · {n}", replace_cancel: "Cancel", already_kingdom: "Already selected for Kingdom {k}", stage_other_kingdom: "Another kingdom just selected this player; your prior picks were restored",
       edit_march: "Edit {n}'s march time", march_save: "Save", march_cancel: "Cancel", march_adjust: "Adjust march time", march_decrease: "Decrease {n} seconds", march_increase: "Increase {n} seconds", march_latest: "Current room value: {x}", march_active_unchanged: "An active countdown will not change", march_invalid: "Enter 0:05–2:00 (5–120 seconds)", march_conflict: "Another commander updated this player; your draft is preserved", march_retry: "Retry on latest", march_adopt: "Adopt latest", march_saved: "Saved and synchronized to the room", march_pending: "Waiting for server confirmation and room sync…", march_unsaved: "Not saved · retry manually after reconnect", march_stale: "This player is gone; refreshing the room", march_locked: "Unlock the commander console to edit",
       plat_ios: "🍎 iPhone: background alerts usually work; lock-screen test before battle", plat_android: "🤖 Android: keeping this page visible is safest; the OS may pause it", plat_desktop: "💻 Desktop: keep this tab open and run one test first",
-      atk_note: "🟡 Website schedule: gather → estimated march → estimated landing · not live game data", order_cancelled: "✖ Order cancelled", defense_demo: "Timing rehearsal · not live battle state"
+      atk_note: "🟡 Website schedule: gather → estimated march → estimated landing · not live game data", order_cancelled: "✖ Order cancelled"
     }
   };
   function L() { return window.lang === "en"; }
   function tk(k) { return (KT[L() ? "en" : "zh"] || KT.zh)[k] || k; }
   function tkf(k, v) { var s = tk(k); for (var p in v) s = s.split("{" + p + "}").join(v[p]); return s; }
-  function setCancelLabel() { var b = $("cancelBtn"); if (b) b.textContent = tkf("cancel_k", { k: tk("kw" + fireKingdom) }); }
+  function kingdomLabel(kingdom, sourceRoom) {
+    return rallyRoomApi.kingdomLabel(sourceRoom || room, kingdom, tk("kw" + kingdom));
+  }
+  function setCancelLabel() { var b = $("cancelBtn"); if (b) b.textContent = tkf("cancel_k", { k: kingdomLabel(fireKingdom) }); }
 
   /* ---------- voice (TTS) ---------- */
   // announcement is MINE-ONLY, so "it's your turn" is the entire message — kingdom and main/sacrifice
@@ -602,8 +596,9 @@
   };
   var tripleClientAvailable = false, rallyClientBuild = 0, rallyApi = fallbackRallyApi;
   try {
-    var rallyCandidate = window.KvkRally;
-    var initialUpdateBuild = window.KvkUpdate && window.KvkUpdate.BUILD;
+    var rallyCandidate = window.RallyDomain || window.KvkRally;
+    var initialUpdateApi = window.RallyUpdate || window.KvkUpdate;
+    var initialUpdateBuild = initialUpdateApi && initialUpdateApi.BUILD;
     if (rallyCandidate && Number.isSafeInteger(rallyCandidate.BUILD) && rallyCandidate.BUILD > 0 &&
         rallyCandidate.BUILD === initialUpdateBuild &&
         typeof rallyCandidate.isRallyCommand === "function" &&
@@ -645,9 +640,16 @@
     return tk(role === "main" ? "main" : role === "weak2" ? "slot_weak2" : triple ? "slot_weak1" : "weak");
   }
   function clearPendingRallyMode() {
-    if (pendingRallyMode && pendingRallyMode.timeoutId) window.clearTimeout(pendingRallyMode.timeoutId);
     pendingRallyMode = null;
     renderRallyMode();
+  }
+  function sendPendingRallyMode() {
+    if (!pendingRallyMode || !sock) return false;
+    var sent = false;
+    try { sent = sock.send(pendingRallyMode.message) === true; } catch (e) { sent = false; }
+    pendingRallyMode.status = sent ? "saving" : "retry";
+    renderRallyMode();
+    return sent;
   }
   function settleRallyModeMutation() {
     if (!pendingRallyMode || !room) return false;
@@ -680,7 +682,7 @@
       invalidateCommanderAccess();
       return true;
     }
-    if (["rally_mode_conflict", "invalid_rally_mode", "triple_disabled"].indexOf(message.error) < 0) return false;
+    if (["rally_mode_conflict", "invalid_rally_mode", "triple_disabled", "invalid_mutation", "mutation_id_conflict"].indexOf(message.error) < 0) return false;
     clearPendingRallyMode();
     window.toast(tk(message.error === "rally_mode_conflict" ? "mode_changed_elsewhere" : "mode_unavailable"));
     if (sock && typeof sock.refresh === "function") sock.refresh();
@@ -732,47 +734,184 @@
     var status = $("rallyModeStatus"), label = $("tripleModeLabel");
     if (!control || !input || !scope || !status || !label) { updateFireControl(); return; }
     var current = rallyModeRecord(fireKingdom);
+    var pendingForScope = pendingRallyMode && pendingRallyMode.kingdom === fireKingdom ? pendingRallyMode : null;
     var allowed = !!(tripleClientAvailable && room && room.capabilities && room.capabilities.tripleRally);
     control.hidden = !allowed;
-    scope.textContent = tk("kw" + fireKingdom);
+    scope.textContent = kingdomLabel(fireKingdom);
     label.textContent = tk("mode_triple");
-    input.checked = current.mode === "triple";
+    input.checked = (pendingForScope ? pendingForScope.mode : current.mode) === "triple";
     input.disabled = !!pendingRallyMode || !!pendingStageMutation || !!queuedStageByK[fireKingdom] || !roomPw || !allowed;
-    status.textContent = pendingRallyMode ? tk("mode_saving") : tk(current.mode === "triple" ? "mode_triple" : "mode_double");
+    status.textContent = pendingForScope ? tk(pendingForScope.status === "retry" ? "room_name_retry" : "mode_saving") : tk(current.mode === "triple" ? "mode_triple" : "mode_double");
+    renderRallyRoom();
     updateFireControl();
   }
-  function requestRallyMode(mode) {
+  function requestRallyMode(mode, kingdomValue) {
     if (mode !== "double" && mode !== "triple") return false;
-    var current = rallyModeRecord(fireKingdom);
+    var kingdom = Number(kingdomValue == null ? fireKingdom : kingdomValue);
+    if (kingdom !== 1 && kingdom !== 2) return false;
+    var current = rallyModeRecord(kingdom);
     var allowed = !!(tripleClientAvailable && room && room.capabilities && room.capabilities.tripleRally);
-    if (!sock || !roomPw || !allowed || pendingRallyMode || pendingStageMutation || queuedStageByK[fireKingdom] || mode === current.mode) { renderRallyMode(); return false; }
+    if (!sock || !roomPw || !allowed || pendingRallyMode || pendingStageMutation || queuedStageByK[kingdom] || mode === current.mode) { renderRallyMode(); return false; }
     if (mode === "double") {
-      var weak2 = pickedByK[fireKingdom].filter(function (pick) { return pick.role === "weak2"; })[0];
+      var weak2 = pickedByK[kingdom].filter(function (pick) { return pick.role === "weak2"; })[0];
       var name = weak2 ? playerDisplayText(weak2.pid, room && room.players) : "";
       if (weak2 && !window.confirm(tkf("confirm_drop_weak2", { n: name }))) { renderRallyMode(); return false; }
     }
-    var mutationId = crypto.randomUUID(), kingdom = fireKingdom;
-    pendingRallyMode = {
-      mutationId: mutationId, kingdom: kingdom, mode: mode, baseRevision: current.revision,
-      ackRevision: null, timeoutId: window.setTimeout(function () {
-        if (pendingRallyMode && pendingRallyMode.mutationId === mutationId) {
-          clearPendingRallyMode(); window.toast(tk("notconn"));
-          if (sock && typeof sock.refresh === "function") sock.refresh();
-        }
-      }, 8000)
-    };
-    var sent = sock.send({
+    var mutationId = crypto.randomUUID();
+    var message = Object.freeze({
       t: "setRallyMode", mutationId: mutationId, password: roomPw,
       kingdom: kingdom, mode: mode, baseRevision: current.revision
     });
-    if (!sent) { clearPendingRallyMode(); window.toast(tk("notconn")); return false; }
-    renderRallyMode();
+    pendingRallyMode = {
+      mutationId: mutationId, kingdom: kingdom, mode: mode, baseRevision: current.revision,
+      ackRevision: null, status: "saving", message: message
+    };
+    if (!sendPendingRallyMode()) window.toast(tk("notconn"));
     return true;
   }
   function wireRallyMode() {
     var input = $("tripleMode"); if (!input) return;
     input.onchange = function () { requestRallyMode(input.checked ? "triple" : "double"); };
     renderRallyMode();
+  }
+  function setRallyManageTab(tab, focusTab) {
+    rallyManageTab = tab === "room" ? "room" : "players";
+    [["players", "rallyPlayersTab", "rallyPlayersPanel"], ["room", "rallyRoomTab", "rallyRoomPanel"]].forEach(function (item) {
+      var selected = rallyManageTab === item[0], button = $(item[1]), panel = $(item[2]);
+      if (button) {
+        button.setAttribute("aria-selected", selected ? "true" : "false");
+        button.tabIndex = selected ? 0 : -1;
+        button.classList.toggle("selected", selected);
+        if (selected && focusTab) button.focus();
+      }
+      if (panel) {
+        panel.hidden = !selected;
+        panel.classList.toggle("hide", !selected);
+      }
+    });
+    if (rallyManageTab === "players") { if (room) renderRoster(); }
+    else renderRallyRoom();
+  }
+  function kingdomNameStatusKey(snapshot, kingdom, draftDirty, draftValue) {
+    var pending = snapshot.pending, outcome = snapshot.outcome;
+    if (pending && pending.kingdom === kingdom) return pending.status === "retry" ? "room_name_retry" : "room_name_saving";
+    if (draftDirty && (!outcome || outcome.name !== draftValue)) return "";
+    if (!outcome || outcome.kingdom !== kingdom) return "";
+    if (outcome.status === "saved") return "room_name_saved";
+    if (outcome.status === "conflict") return "room_name_conflict";
+    if (outcome.status === "bad_password") return "wrongpw";
+    return "room_name_invalid";
+  }
+  function renderRallyRoom() {
+    if (!rallyRoomApi) return;
+    var count = $("connectedWebsiteDevices"), countLabel = $("connectedWebsiteDevicesLabel");
+    if (count) count.textContent = String(rallyRoomApi.connectedWebsiteDevices(room));
+    if (countLabel) countLabel.textContent = tk("connected_website_devices");
+    var snapshot = kingdomNameMutation.snapshot();
+    [1, 2].forEach(function (kingdom) {
+      var record = rallyRoomApi.kingdomRecord(room, kingdom);
+      var pending = snapshot.pending && snapshot.pending.kingdom === kingdom ? snapshot.pending : null;
+      var outcome = snapshot.outcome && snapshot.outcome.kingdom === kingdom ? snapshot.outcome : null;
+      var draft = kingdomNameDrafts[kingdom];
+      if (outcome && outcome.status === "saved" && draft.value === outcome.name) draft.dirty = false;
+      if (!draft.dirty && !pending) draft.value = record.name;
+      var title = $("kingdomRoomTitle" + kingdom), label = $("kingdomNameLabel" + kingdom);
+      var input = $("kingdomName" + kingdom), save = $("kingdomNameSave" + kingdom);
+      var status = $("kingdomNameStatus" + kingdom), modeLabel = $("roomRallyModeLabel" + kingdom);
+      var modeInput = $("roomTripleMode" + kingdom), modeStatus = $("roomRallyModeStatus" + kingdom);
+      if (title) title.textContent = kingdomLabel(kingdom);
+      if (label) label.textContent = tk("kingdom_display_name");
+      if (input && input.value !== draft.value && document.activeElement !== input) input.value = draft.value;
+      var valid = rallyRoomApi.validateKingdomName(draft.value);
+      var canManage = managerAuthenticated && !!roomPw;
+      if (input) input.disabled = !canManage || !!snapshot.pending;
+      if (save) {
+        save.textContent = tk("room_save");
+        save.disabled = !canManage || !!snapshot.pending || !valid.ok || valid.name === record.name;
+      }
+      if (status) {
+        var statusKey = kingdomNameStatusKey(snapshot, kingdom, draft.dirty, draft.value);
+        status.textContent = statusKey ? tk(statusKey) : "";
+        status.dataset.tone = statusKey && outcome && (outcome.status === "conflict" || outcome.status === "error" || outcome.status === "bad_password") ? "error" : pending ? "pending" : statusKey ? "success" : "";
+      }
+      var mode = rallyModeRecord(kingdom), modePending = pendingRallyMode && pendingRallyMode.kingdom === kingdom ? pendingRallyMode : null;
+      var tripleAllowed = !!(tripleClientAvailable && room && room.capabilities && room.capabilities.tripleRally);
+      if (modeLabel) modeLabel.textContent = tk("mode_triple");
+      if (modeInput) {
+        modeInput.checked = (modePending ? modePending.mode : mode.mode) === "triple";
+        modeInput.disabled = !canManage || !tripleAllowed || !!pendingRallyMode || !!pendingStageMutation || !!queuedStageByK[kingdom];
+      }
+      if (modeStatus) {
+        modeStatus.textContent = modePending
+          ? tk(modePending.status === "retry" ? "room_name_retry" : "mode_saving")
+          : tk(mode.mode === "triple" ? "mode_triple" : "mode_double");
+        modeStatus.dataset.tone = modePending ? "pending" : "success";
+      }
+    });
+    var copy = $("copyRallyRoomLink"); if (copy) copy.textContent = tk("copy_room_link");
+  }
+  function saveKingdomName(kingdom) {
+    var draft = kingdomNameDrafts[kingdom], record = rallyRoomApi.kingdomRecord(room, kingdom);
+    var valid = rallyRoomApi.validateKingdomName(draft.value);
+    if (!valid.ok) { var invalid = $("kingdomNameStatus" + kingdom); if (invalid) invalid.textContent = tk("room_name_invalid"); return false; }
+    draft.value = valid.name;
+    var requested = kingdomNameMutation.request({
+      kingdom: kingdom, name: valid.name, baseRevision: record.revision, password: roomPw
+    });
+    renderRallyRoom();
+    return requested;
+  }
+  function handleKingdomNameMessage(message) {
+    var before = kingdomNameMutation.snapshot(), handled = kingdomNameMutation.handleMessage(message);
+    if (!handled) return false;
+    var after = kingdomNameMutation.snapshot();
+    if (after.outcome && after.outcome.status === "bad_password") invalidateCommanderAccess();
+    if (before.pending && after.outcome && after.outcome.status === "conflict") {
+      kingdomNameDrafts[after.outcome.kingdom].dirty = true;
+    }
+    renderRallyRoom();
+    return true;
+  }
+  function copyRallyRoomLink() {
+    var value = rallyRoomApi.roomURL(location, ROOM), status = $("copyRallyRoomStatus");
+    function finish(ok) { if (status) { status.textContent = tk(ok ? "room_link_copied" : "room_link_failed"); status.dataset.tone = ok ? "ok" : "error"; } }
+    function fallbackCopy() {
+      var field = document.createElement("textarea");
+      field.value = value; field.setAttribute("readonly", ""); field.style.position = "fixed"; field.style.opacity = "0";
+      document.body.appendChild(field); field.select();
+      var copied = false; try { copied = document.execCommand("copy") === true; } catch (e) { copied = false; }
+      document.body.removeChild(field);
+      var copyButton = $("copyRallyRoomLink"); if (copyButton) copyButton.focus();
+      finish(copied); return copied;
+    }
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      navigator.clipboard.writeText(value).then(function () { finish(true); }, fallbackCopy);
+      return true;
+    }
+    return fallbackCopy();
+  }
+  function wireRallyManage() {
+    var tabs = [["players", "rallyPlayersTab"], ["room", "rallyRoomTab"]];
+    tabs.forEach(function (item, index) {
+      var button = $(item[1]); if (!button) return;
+      button.onclick = function () { setRallyManageTab(item[0], false); };
+      button.onkeydown = function (event) {
+        var next = index;
+        if (event.key === "ArrowLeft" || event.key === "ArrowRight") next = index === 0 ? 1 : 0;
+        else if (event.key === "Home") next = 0;
+        else if (event.key === "End") next = 1;
+        else return;
+        event.preventDefault(); setRallyManageTab(tabs[next][0], true);
+      };
+    });
+    [1, 2].forEach(function (kingdom) {
+      var form = $("kingdomNameForm" + kingdom), input = $("kingdomName" + kingdom), mode = $("roomTripleMode" + kingdom);
+      if (form) form.onsubmit = function (event) { event.preventDefault(); saveKingdomName(kingdom); };
+      if (input) input.oninput = function () { kingdomNameDrafts[kingdom].value = input.value; kingdomNameDrafts[kingdom].dirty = true; renderRallyRoom(); };
+      if (mode) mode.onchange = function () { requestRallyMode(mode.checked ? "triple" : "double", kingdom); };
+    });
+    var copy = $("copyRallyRoomLink"); if (copy) copy.onclick = copyRallyRoomLink;
+    setRallyManageTab(rallyManageTab, false);
   }
   // Captains receive their exact personal launch second. Everyone else receives ONE join countdown for the
   // active rally, fixing the old visual-only joiner path while avoiding overlapping cues from both kingdoms.
@@ -846,6 +985,8 @@
       return sent;
     }
     if (generation === lastDeviceStatusSentGeneration && signature === lastDeviceStatusSentSignature) return true;
+    if (deviceStatusGreenTimer && generation === pendingGreenGeneration &&
+        signature === pendingGreenSignature && force !== true) return true;
     if (deviceStatusGreenTimer) clearTimeout(deviceStatusGreenTimer);
     pendingGreenGeneration = generation; pendingGreenSignature = signature;
     deviceStatusGreenTimer = setTimeout(function () {
@@ -1117,9 +1258,9 @@
     var body = rows.map(function (row, index) {
       var remaining = Math.ceil(row.pressUTC - nowSec), launched = remaining <= 0;
       var className = "clm-row" + (index === nextIndex ? " next" : "") + (index === nextIndex && remaining <= 10 ? " urgent" : "") + (launched ? " launched" : "");
-      var kingdomLabel = tk("kw" + row.kingdom), state = launched ? tk("cmd_watch_opened") : window.mmss(Math.max(0, remaining));
+      var displayKingdom = kingdomLabel(row.kingdom), state = launched ? tk("cmd_watch_opened") : window.mmss(Math.max(0, remaining));
       return '<div class="' + className + '">' +
-        '<span class="clm-k" aria-label="' + window.esc(kingdomLabel) + '">' + (row.kingdom === 2 ? "②" : "①") + '</span>' +
+        '<span class="clm-k" aria-label="' + window.esc(displayKingdom) + '">' + (row.kingdom === 2 ? "②" : "①") + '</span>' +
         '<span class="clm-person"><strong class="clm-name">' + window.esc(row.name) + '</strong><small class="clm-role">' + window.esc(rallyRoleLabel(row.role, row.triple)) + '</small></span>' +
         '<span class="clm-state">' + (index === nextIndex ? '<b class="clm-next">' + window.esc(tk("cmd_watch_next")) + '</b>' : "") + '<time>' + window.esc(state) + '</time></span>' +
       '</div>';
@@ -1154,7 +1295,7 @@
   var updateController = noUpdateController();
   function makeUpdateController() {
     try {
-      var api = window.KvkUpdate;
+      var api = window.RallyUpdate || window.KvkUpdate;
       if (!api || typeof api.createController !== "function") return noUpdateController();
       var controller = api.createController({
         fetcher: window.fetch.bind(window),
@@ -1273,7 +1414,7 @@
       var sm = stagedForMe();
       // staged = ONE LINE in the sticky chrome (the hourglass banner is gone); commander (the stager) never sees it
       var showSt = !!(sm && !roomPw), sl = $("stagedLine");
-      if (sl) { sl.classList.toggle("hide", !showSt); if (showSt) sl.textContent = tkf("staged_line", { k: tk("kw" + sm.kingdom), r: rallyRoleLabel(sm.role, rallyMode(sm.kingdom) === "triple") }); }
+      if (sl) { sl.classList.toggle("hide", !showSt); if (showSt) sl.textContent = tkf("staged_line", { k: kingdomLabel(sm.kingdom), r: rallyRoleLabel(sm.role, rallyMode(sm.kingdom) === "triple") }); }
       $("chrome").classList.toggle("staged", showSt);
       if (iw) iw.classList.toggle("hide", !!(sm || roomPw));   // idle "then what": answer it in one persistent line (commander/staged states have their own)
       ph.className = "phero hide"; return;
@@ -1301,7 +1442,7 @@
     var kd = (c.payload && c.payload.kingdom) || c.kingdom;
     var cls = "phero " + phase + (tg.mine ? " mine" : "") + (c.type === "refill" || c.type === "ping" ? " refill" : "");
     ph.className = cls.trim();
-    $("pheroKick").textContent = (room.live && room.live.mode === "sim" ? (L() ? "🧪 PRACTICE · " : "🧪 演练 · ") : "") + (kd ? tk("kw" + kd) : "");
+    $("pheroKick").textContent = (room.live && room.live.mode === "sim" ? (L() ? "🧪 PRACTICE · " : "🧪 演练 · ") : "") + (kd ? kingdomLabel(kd) : "");
     if (c.type === "ping") { $("pheroTitle").textContent = tk("sc_title"); $("pheroNum").textContent = "🔊"; $("pheroSub").textContent = tk("sc_sub"); $("pheroPips").innerHTML = ""; return; }
     if (c.type === "refill") { $("pheroTitle").textContent = tk("refilltitle"); $("pheroSub").textContent = tk("refillsub"); }
     else if (tg.mine && rem > countdownLead) { $("pheroTitle").textContent = tkf("waitlaunch", { n: countdownLead }); $("pheroNum").textContent = "⏳"; $("pheroSub").textContent = rallyRoleLabel(tg.role, commandUsesTripleRoles(c)); $("pheroPips").innerHTML = ""; return; }
@@ -1312,12 +1453,8 @@
   }
   function flashGo(id) { if (lastFlashSec === id) return; lastFlashSec = id; var f = $("goFlash"); f.classList.add("on"); setTimeout(function () { f.classList.remove("on"); }, 600); }
 
-  var lastTickSec = null, pulledForCmd = "";
+  var lastTickSec = null;
   function tick() { if (!room || safeUpdateFlush()) return; paintHero(); syncMap(); if (roomPw) refreshSyncPill();
-    // NOBODY misses a live countdown by sitting on the defense tab: captains need their click second,
-    // joiners need "tap JOIN at GO" — pull to attack ONCE per order (with a toast saying why), then let
-    // people tab back freely: a 200ms re-force made the defense tab a dead button with zero explanation
-    if (viewMode === "defense") { var c = activeCommand(room); if (c) { var tg = myTarget(c); if ((tg.anchor - window.serverNowSec()) > -3 && pulledForCmd !== c.id) { pulledForCmd = c.id; setView("attack"); window.toast(tk("pulled_atk")); } } }
   }
   setInterval(tick, 200);
   // backgrounding freezes timers → pre-queue ALL live cues on the audio clock now (survives the freeze). Returning → resume audio + reconnect + reschedule.
@@ -1457,7 +1594,7 @@
       if (!groups.some(function (group) { return group.kingdom === kingdom; })) groups.push({ kingdom: kingdom, mode: "double", required: 2, actors: [] });
     });
     groups.sort(function (a, b) { return a.kingdom - b.kingdom; }).slice(0, 2).forEach(function (group) {
-      h += '<section class="lane-group kingdom-' + group.kingdom + '"><div class="lane-group-head"><span>' + window.esc(tk("kw" + group.kingdom)) + '</span><small>' + window.esc(tk(group.mode === "triple" ? "mode_triple" : "mode_double")) + ' · ' + group.actors.length + '/' + group.required + '</small></div>';
+      h += '<section class="lane-group kingdom-' + group.kingdom + '"><div class="lane-group-head"><span>' + window.esc(kingdomLabel(group.kingdom)) + '</span><small>' + window.esc(tk(group.mode === "triple" ? "mode_triple" : "mode_double")) + ' · ' + group.actors.length + '/' + group.required + '</small></div>';
       if (!group.actors.length) h += '<div class="lane-empty">' + window.esc(tk("group_empty")) + '</div>';
       group.actors.slice(0, 3).forEach(function (a) { h += laneRow(a, actorIndex++, a.live === true); });
       h += '</section>';
@@ -1536,183 +1673,8 @@
 
   /* PiP float timer removed: the background audio keep-alive already alerts by default, so the extra (iOS-fragile) button was redundant clutter. */
 
-  /* ---------- defense: per-enemy-whale refill-timing (self-serve calculator, ported from saltyfish defense.html) ----------
-     A defender fills their march once (already collected by kvk); the commander publishes incoming enemy whales into
-     room.config.enemyWhales (existing setConfig path, broadcast). Each defender then reads WHEN to send reinforcement so
-     it lands ~1s after each whale and tops the garrison. Static calculator (no live beep) per product decision. */
-  function myMarchSec() { var me = room && room.players && room.players[myPid]; if (me && me.march) return me.march; return marchTouched ? (+$("marchRange").value || 0) : 0; }
-  function dCalc(e) {
-    var em = (e.mm || 0) * 60 + (e.ss || 0), landAt = DGATHER + em, refillAt = landAt + DDELTA, R = myMarchSec(), sendAt = Math.max(0, refillAt - R);
-    var cue, sh, gatherRemain = R - em - DDELTA;
-    if (R <= 0) { cue = tk("d_cue_fill"); sh = tk("d_short_fill"); }
-    else if (gatherRemain > 0) { cue = tkf("d_cue_gather", { x: window.mmss(gatherRemain) }); sh = tkf("d_short_gather", { x: window.mmss(gatherRemain) }); }
-    else { var afterLaunch = em + DDELTA - R; if (afterLaunch <= 0) { cue = tk("d_cue_imm"); sh = tk("d_short_imm"); } else { cue = tkf("d_cue_land", { x: window.mmss(afterLaunch) }); sh = tkf("d_short_land", { x: window.mmss(afterLaunch) }); } }
-    return { name: e.name || tk("d_whale"), em: em, landAt: landAt, refillAt: refillAt, sendAt: sendAt, R: R, cue: cue, sh: sh, ready: R > 0 };
-  }
-  // each whale scaled to ITS OWN clock; gather = DGVIS of its own strip
-  function dW1For(c) { return c.refillAt + 3; }   // ruler ends AT 补满✓ (tiny +3s pad keeps the end dot inside the rounded track) — no dead tail
-  function dVmap(t, w1) { if (t <= DGATHER) return DGVIS * (t / DGATHER); return DGVIS + (1 - DGVIS) * ((t - DGATHER) / Math.max(1, w1 - DGATHER)); }
-  function dInvmap(p, w1) { if (p <= DGVIS) return p / DGVIS * DGATHER; return DGATHER + (p - DGVIS) / (1 - DGVIS) * (w1 - DGATHER); }
-  function dPct(t, w1) { return dCl(dVmap(t, w1)) * 100; }
-  function dLerp(a, b, p) { return a + (b - a) * p; } function dCl(x) { return x < 0 ? 0 : x > 1 ? 1 : x; } function dSg(t, a, b) { return b <= a ? (t >= b ? 1 : 0) : dCl((t - a) / (b - a)); }
-
-  function renderDStrips() {
-    var box = $("dstrips"); if (!box) return; box.innerHTML = "";
-    var dh = $("t_dpanelhint"); if (dh) dh.style.display = enemyWhales.length ? "" : "none";   // cold state: don't open with a manual describing UI that isn't on screen — the d_empty line explains everything
-    if (!enemyWhales.length) { box.innerHTML = '<p class="hint">' + tk("d_empty") + '</p>'; return; }
-    if (dFocus >= enemyWhales.length) dFocus = 0;
-    if (enemyWhales.length > 1) { var note = document.createElement("p"); note.className = "hint"; note.style.margin = "0 0 8px"; note.textContent = tk("d_indep_note"); box.appendChild(note); }
-    enemyWhales.forEach(function (e, i) {
-      var c = dCalc(e), nm = window.esc(e.name || (tk("d_enemy") + String.fromCharCode(65 + i)));
-      var w1 = dW1For(c), gx = DGVIS * 100, sx = dPct(c.sendAt, w1), lx = dPct(c.landAt, w1), rx = dPct(c.refillAt, w1);
-      var blk = document.createElement("div"); blk.className = "dblk";
-      var el = document.createElement("div"); el.className = "dlane" + (i === dFocus ? " focused" : ""); el.setAttribute("data-i", i);
-      el.innerHTML =
-        '<div class="dnm">' + tkf("d_lane_title", { n: nm, x: window.mmss(c.em) }) + '</div>' +
-        '<div class="daxis"></div>' +
-        '<div class="drt enemy">' + tk("d_side_enemy") + '</div>' +
-        '<div class="dgb" style="width:' + gx.toFixed(1) + '%"></div>' +
-        '<div class="def" style="left:' + gx.toFixed(1) + '%;width:' + Math.max(0, lx - gx).toFixed(2) + '%"></div>' +
-        '<div class="dgbl" style="left:' + (gx / 2).toFixed(1) + '%">' + tk("d_gather_band") + '</div>' +
-        '<div class="ddepv" style="left:' + gx.toFixed(1) + '%"><i></i></div>' +
-        '<div class="del dep" style="left:' + gx.toFixed(1) + '%">' + tk("d_depart") + '</div>' +
-        '<div class="ded land" style="left:' + lx.toFixed(2) + '%"><i class="d"></i></div>' +
-        '<div class="del land" style="left:' + Math.min(93, lx).toFixed(2) + '%">' + tk("d_enemy_land") + '</div>' +
-        '<div class="drt our">' + tk("d_side_our") + '</div>' +
-        '<div class="dms" style="left:' + sx.toFixed(2) + '%;width:' + Math.max(0, rx - sx).toFixed(2) + '%"></div>' +
-        '<div class="dml" style="left:' + Math.min(82, (sx + rx) / 2).toFixed(2) + '%">' + tkf("d_your_march", { x: window.mmss(c.R) }) + '</div>' +
-        '<div class="dod send" style="left:' + sx.toFixed(2) + '%"><i class="d"></i></div>' +
-        '<div class="dod refill" style="left:' + rx.toFixed(2) + '%"><i class="d"></i></div>' +
-        '<div class="dol send" style="left:' + Math.min(72, sx).toFixed(2) + '%"><b>' + tk("d_you_send") + '</b><span>' + window.esc(c.sh) + '</span></div>' +
-        '<div class="dol refill" style="left:' + Math.min(94, rx).toFixed(2) + '%">' + tk("d_refilled") + '</div>' +
-        '<div class="dfp" style="left:' + sx.toFixed(2) + '%">' + tk("d_send_now") + '</div>' +
-        (i === dFocus ? '<div class="dhd" style="left:' + sx.toFixed(2) + '%"></div>' : '');
-      el.addEventListener("click", function () { if (dFocus !== i) { dFocus = i; dRefocus(); } });
-      blk.appendChild(el);
-      var cue = document.createElement("div"); cue.className = "erow";
-      cue.innerHTML = '<div class="et"><b>' + nm + '</b> · ' + tkf("d_erow", { x: window.mmss(c.R) }) + '</div>' +
-        '<div class="cue">' + (c.ready ? window.esc(c.cue) : '<span style="color:var(--brown3)">' + window.esc(c.cue) + '</span>') + '</div>' +
-        (c.ready ? '<div class="note">' + tk("d_note") + '</div>' : '');
-      blk.appendChild(cue);
-      box.appendChild(blk);
-    });
-  }
-  function renderWhaleChips() {
-    var box = $("whaleChips"); if (!box) return;
-    if (enemyWhales.length <= 1) { box.innerHTML = ""; box.style.display = "none"; return; }
-    box.style.display = "flex";
-    box.innerHTML = enemyWhales.map(function (e, i) { var nm = window.esc(e.name || (tk("d_enemy") + String.fromCharCode(65 + i))); return '<button class="wchip' + (i === dFocus ? " on" : "") + '" data-i="' + i + '">🔴 ' + nm + '</button>'; }).join("");
-    box.querySelectorAll("button").forEach(function (b) { b.onclick = function () { var i = +b.getAttribute("data-i"); if (i !== dFocus) { dFocus = i; dRefocus(); } }; });
-  }
-
-  /* defense radar — pond animation on the focused whale's own clock (ported) */
-  var dsvgEl, dcx = 180, dcy = 98, dbx = 180, dby = 182;
-  var DCOL = { mint: "#19c8b9", mintDeep: "#0fa193", green: "#6fba2c", coral: "#e05a5a", brown: "#794f27", brown2: "#9f927d", yellow: "#f5c31c" };
-  function dBuildBase() { dsvgEl = $("dsvg"); if (!dsvgEl) return; dsvgEl.innerHTML = "";
-    dsvgEl.appendChild(E("circle", { cx: dcx, cy: dcy, r: 78, fill: "none", stroke: "#a7e6dd", "stroke-width": 2, opacity: .7 }));
-    dsvgEl.appendChild(E("circle", { cx: dcx, cy: dcy, r: 50, fill: "none", stroke: "#a7e6dd", "stroke-width": 2, opacity: .5 }));
-  }
-  function dFocusEnemy() { var arr = enemyWhales.length ? enemyWhales : [{ name: tk("d_enemy") + "A", mm: 1, ss: 10 }]; if (dFocus >= arr.length) dFocus = 0; if (dFocus < 0) dFocus = 0; return arr[dFocus]; }
-  function dRebuild() { dBuildBase(); if (!dsvgEl) return; dAnim = {};
-    dAnim.castle = E("rect", { x: dcx - 20, y: dcy - 17, width: 40, height: 34, rx: 9, fill: "#fce3b8", stroke: DCOL.brown, "stroke-width": 3 }); dsvgEl.appendChild(dAnim.castle);
-    dsvgEl.appendChild(E("rect", { x: dcx - 20, y: dcy - 24, width: 8, height: 9, rx: 2, fill: DCOL.brown })); dsvgEl.appendChild(E("rect", { x: dcx - 4, y: dcy - 24, width: 8, height: 9, rx: 2, fill: DCOL.brown })); dsvgEl.appendChild(E("rect", { x: dcx + 12, y: dcy - 24, width: 8, height: 9, rx: 2, fill: DCOL.brown }));
-    dsvgEl.appendChild(E("rect", { x: dcx - 30, y: dcy + 24, width: 60, height: 9, rx: 4.5, fill: "#eadfca", stroke: "#d8cfb9", "stroke-width": 1 }));
-    dAnim.bar = E("rect", { x: dcx - 29, y: dcy + 25, width: 58, height: 7, rx: 3.5, fill: DCOL.green }); dsvgEl.appendChild(dAnim.bar);
-    dAnim.fx = E("circle", { cx: dcx, cy: dcy, r: 20, fill: "none", stroke: DCOL.coral, "stroke-width": 3.5, opacity: 0 }); dsvgEl.appendChild(dAnim.fx);
-    dAnim.fxt = E("text", { x: dcx, y: dcy, "text-anchor": "middle", "font-size": 13, "font-weight": 900, opacity: 0 }); dsvgEl.appendChild(dAnim.fxt);
-    dsvgEl.appendChild(E("rect", { x: dbx - 10, y: dby - 10, width: 20, height: 20, rx: 6, fill: "#dff7f2", stroke: DCOL.mintDeep, "stroke-width": 2.5 }));
-    var sh = E("text", { x: dbx, y: dby + 4, "text-anchor": "middle", "font-size": 11 }); sh.textContent = "🛡️"; dsvgEl.appendChild(sh);
-    // nothing published → idle pond only (castle + rings + your base), no fabricated demo whale pretending to be live intel
-    var dc = document.querySelector("#defenseView .ctrl");
-    if (!enemyWhales.length) { dAnim.foc = null; dAnim.keys = []; dAnim.w1 = 0; if (dc) dc.style.display = "none"; var pl0 = $("dphaselab"); if (pl0) pl0.textContent = ""; return; }
-    if (dc) dc.style.display = "";
-    var c = dCalc(dFocusEnemy()); dAnim.c = c; dAnim.w1 = dW1For(c);
-    var spawnX = dcx, spawnY = dcy - 68, o = { c: c, sx: spawnX, sy: spawnY };   // y=30: on the outer ring, fully on-canvas (the old off-screen spawn hid the gather phase AND the depart FX)
-    o.aura = E("circle", { cx: spawnX, cy: spawnY, r: 14, fill: "none", stroke: DCOL.yellow, "stroke-width": 2.5, opacity: 0, "stroke-dasharray": "3 5" }); dsvgEl.appendChild(o.aura);
-    o.dot = E("circle", { cx: spawnX, cy: spawnY, r: 12, fill: DCOL.coral, opacity: 0, stroke: "#fff", "stroke-width": 2 }); dsvgEl.appendChild(o.dot);
-    o.eye = E("circle", { cx: spawnX, cy: spawnY, r: 2, fill: "#fff", opacity: 0 }); dsvgEl.appendChild(o.eye);
-    o.cd = E("text", { x: spawnX, y: spawnY - 15, "text-anchor": "middle", fill: DCOL.coral, "font-size": 10, "font-weight": 800, opacity: 0 }); dsvgEl.appendChild(o.cd);
-    o.bub = [0, 1, 2].map(function () { var d = E("circle", { cx: dbx, cy: dby, r: 4, fill: DCOL.mint, opacity: 0, stroke: "#fff", "stroke-width": 1.5 }); dsvgEl.appendChild(d); return d; });
-    dAnim.foc = o;
-    var keys = [{ t: DGATHER, type: "depart" }, { t: c.sendAt, type: "send" }, { t: c.landAt, type: "land" }, { t: c.refillAt, type: "refill" }];   // depart = 他发车 — same emphasis as 敌落地
-    keys.sort(function (a, b) { return a.t - b.t; }); dAnim.keys = keys; dAnim.p = 0; dAnim.ki = 0; dAnim.holdUntil = 0;
-  }
-  function dRenderAnim(t, curKey, ts) { if (!dAnim || !dAnim.foc) return; ts = ts || 0;
-    var c = dAnim.c, o = dAnim.foc, sv = (t >= c.landAt && t < c.refillAt) ? 0.4 : 1;
-    dAnim.bar.setAttribute("width", (58 * sv).toFixed(1)); dAnim.bar.setAttribute("fill", sv < 0.7 ? DCOL.coral : DCOL.green); dAnim.castle.setAttribute("stroke", sv < 0.7 ? DCOL.coral : DCOL.brown);
-    var x = o.sx, y = o.sy;
-    if (t < DGATHER) { o.dot.setAttribute("opacity", .9); var pu = 0.5 + 0.5 * Math.sin(t * 0.5); o.aura.setAttribute("opacity", .4 + .4 * pu); o.aura.setAttribute("r", (15 + 5 * pu).toFixed(1)); o.aura.setAttribute("cx", x); o.aura.setAttribute("cy", y);
-      o.cd.setAttribute("opacity", 1); o.cd.setAttribute("x", x); o.cd.setAttribute("y", y - 17); o.cd.setAttribute("fill", DCOL.brown2); o.cd.textContent = tkf("d_gather_cd", { x: window.mmss(DGATHER - t) }); }
-    else if (t < c.landAt) { o.aura.setAttribute("opacity", 0); var ap = dSg(t, DGATHER, c.landAt); x = dLerp(o.sx, dcx, ap); y = dLerp(o.sy, dcy, ap);
-      o.dot.setAttribute("opacity", 1); o.cd.setAttribute("opacity", 1); o.cd.setAttribute("x", x); o.cd.setAttribute("y", y - 15); o.cd.setAttribute("fill", DCOL.coral); o.cd.textContent = tkf("d_land_cd", { x: window.mmss(c.landAt - t) }); }
-    else { o.dot.setAttribute("opacity", 0); o.cd.setAttribute("opacity", 0); o.aura.setAttribute("opacity", 0); }
-    o.dot.setAttribute("cx", x); o.dot.setAttribute("cy", y);
-    o.eye.setAttribute("opacity", t < c.landAt ? 0.9 : 0); o.eye.setAttribute("cx", x + 3); o.eye.setAttribute("cy", y - 2);
-    var rp = dSg(t, c.sendAt, c.refillAt), on = t >= c.sendAt && t < c.refillAt;
-    o.bub.forEach(function (d, k) { if (on) { var ox = (k - 1) * 7; d.setAttribute("opacity", .95); d.setAttribute("cx", dLerp(dbx + ox, dcx + ox, rp)); d.setAttribute("cy", dLerp(dby, dcy, rp)); } else d.setAttribute("opacity", 0); });
-    if (curKey) { var pu2 = 0.5 + 0.5 * Math.sin(ts * 0.012); var col = curKey.type === "send" ? DCOL.green : (curKey.type === "land" || curKey.type === "depart" ? DCOL.coral : DCOL.mint);
-      var fxX = curKey.type === "send" ? dbx : (curKey.type === "depart" ? o.sx : dcx), fxY = curKey.type === "send" ? dby : (curKey.type === "depart" ? o.sy : dcy);
-      dAnim.fx.setAttribute("opacity", .9); dAnim.fx.setAttribute("stroke", col); dAnim.fx.setAttribute("cx", fxX); dAnim.fx.setAttribute("cy", fxY); dAnim.fx.setAttribute("r", (16 + 14 * pu2).toFixed(1));
-      var fty = fxY - 26 < 14 ? fxY + 40 : fxY - 26;   // too close to the top edge → label flips below the pulse ring
-      dAnim.fxt.setAttribute("opacity", 1); dAnim.fxt.setAttribute("fill", col); dAnim.fxt.setAttribute("x", fxX); dAnim.fxt.setAttribute("y", fty); dAnim.fxt.textContent = curKey.type === "send" ? tk("d_fx_send") : (curKey.type === "depart" ? tk("d_fx_depart") : (curKey.type === "land" ? tk("d_fx_land") : tk("d_fx_refill")));
-    } else { dAnim.fx.setAttribute("opacity", 0); dAnim.fxt.setAttribute("opacity", 0); }
-    var pl = $("dphaselab"); if (pl) pl.textContent = curKey && curKey.type === "depart" ? tk("d_ph_depart") : t < DGATHER ? tk("d_ph_gather") : (curKey && curKey.type === "send" ? tk("d_ph_send") : (curKey && curKey.type === "land" ? tk("d_ph_land") : (curKey && curKey.type === "refill" ? tk("d_ph_refill") : (sv < 0.7 ? tk("d_ph_low") : tk("d_ph_inc")))));
-    var L = document.querySelector("#dstrips .dlane.focused"); if (L) { var h = L.querySelector(".dhd"); if (h) h.style.left = dPct(t, dAnim.w1).toFixed(2) + "%"; L.classList.remove("fx-depart", "fx-send", "fx-land", "fx-refill", "now"); if (curKey) L.classList.add("fx-" + curKey.type, "now"); }
-  }
-  var DSWEEP = 4.5, DHOLD = { depart: 800, send: 1400, land: 800, refill: 900 };
-  function dFrame(ts) { if (viewMode !== "defense") { dRaf = null; return; } if (dLastTs == null) dLastTs = ts; var dt = (ts - dLastTs) / 1000; dLastTs = ts; if (!dAnim || !dAnim.w1) { dRaf = requestAnimationFrame(dFrame); return; }
-    if (dPlaying) {
-      if (dAnim.holdUntil) { if (ts >= dAnim.holdUntil) { dAnim.holdUntil = 0; dAnim.ki++; } }
-      if (!dAnim.holdUntil) {
-        dAnim.p += dt / DSWEEP;
-        if (dAnim.ki < dAnim.keys.length) { var kp = dVmap(dAnim.keys[dAnim.ki].t, dAnim.w1); if (dAnim.p >= kp) { dAnim.p = kp; dAnim.holdUntil = ts + (DHOLD[dAnim.keys[dAnim.ki].type] || 700); } }
-        if (dAnim.p >= 1) { dAnim.p = 0; dAnim.ki = 0; dAnim.holdUntil = 0; }
-      }
-      dTNow = dInvmap(dAnim.p, dAnim.w1); var sc = $("dscrub"); if (sc) sc.value = Math.round(dAnim.p * 1000);
-    }
-    var curKey = dAnim.holdUntil && dAnim.ki < dAnim.keys.length ? dAnim.keys[dAnim.ki] : null;
-    dRenderAnim(dTNow, curKey, ts); dRaf = requestAnimationFrame(dFrame);
-  }
-  function dRefocus() { dRebuild(); renderDStrips(); renderWhaleChips(); dLastTs = null; dPlaying = true; var pp = $("dpp"); if (pp) pp.textContent = "⏸"; }
-  function renderDefense() { dRebuild(); renderDStrips(); renderWhaleChips(); }
-
-  /* attack/defense view switch */
-  function setBadge() { var b = $("defBadge"); if (!b) return; var n = enemyWhales.length; if (n > 0) { b.textContent = n; b.classList.remove("hide"); } else b.classList.add("hide"); }
-  function setView(m) {
-    viewMode = m;
-    if ($("tabAtk")) $("tabAtk").classList.toggle("on", m === "attack");
-    if ($("tabDef")) $("tabDef").classList.toggle("on", m === "defense");
-    if ($("attackView")) $("attackView").classList.toggle("hide", m !== "attack");
-    if ($("defenseView")) $("defenseView").classList.toggle("hide", m !== "defense");
-    if (m === "defense") { renderDefense(); dLastTs = null; if (!dRaf) dRaf = requestAnimationFrame(dFrame); }
-    else if (dRaf) { cancelAnimationFrame(dRaf); dRaf = null; }
-    paintHero();
-  }
-
-  /* commander: edit + publish enemy whales into room.config.enemyWhales (existing setConfig path) */
-  function dEnemyRow(e, onDel, onChg) {
-    var el = document.createElement("div"); el.className = "foe";
-    el.innerHTML = '<div class="r1"><input class="nm" placeholder="' + window.esc(tk("whale_ph")) + '" value="' + window.esc(e.name || "") + '" data-k="name" maxlength="16">' +
-      '<span class="mmss"><input type="number" min="0" max="600" value="' + (e.mm || 0) + '" data-k="mm" style="width:46px;text-align:center;font-family:var(--mono)"><span class="u">' + (L() ? "m" : "分") + '</span><span class="c">:</span>' +
-      '<input type="number" min="0" max="59" value="' + (e.ss || 0) + '" data-k="ss" style="width:46px;text-align:center;font-family:var(--mono)"><span class="u">' + (L() ? "s" : "秒") + '</span></span>' +
-      '<button class="del">×</button></div>';
-    el.addEventListener("input", function (ev) { var k = ev.target.getAttribute("data-k"); if (!k) return; var v = ev.target.value; if (k === "mm") v = Math.max(0, +v || 0); if (k === "ss") v = Math.min(59, Math.max(0, +v || 0)); e[k] = (k === "name") ? v : (+v || 0); onChg && onChg(); });
-    el.querySelector(".del").addEventListener("click", function () { onDel && onDel(); }); return el;
-  }
-  function renderAdmin() { var box = $("enemyList"); if (!box) return; box.innerHTML = ""; adminEnemies.forEach(function (e, i) { box.appendChild(dEnemyRow(e, function () { adminDirty = true; adminEnemies.splice(i, 1); renderAdmin(); }, function () { adminDirty = true; })); }); }
-  function sendWhales(whales, baseAt) { pendingPubTok = "pub" + Date.now(); return sock.send({ t: "setConfig", password: roomPw, config: Object.assign({}, (room && room.config) || {}, { enemyWhales: whales }), baseUpdatedAt: baseAt, by: pendingPubTok }); }
-  function publishWhales() {
-    var b = $("pubWhales"); if (!b) return;
-    var whales = adminEnemies.map(function (e) { return { name: (e.name || "").slice(0, 24), mm: Math.max(0, Math.min(600, +e.mm || 0)), ss: Math.max(0, Math.min(59, +e.ss || 0)) }; });
-    var msg = $("pubMsg"); b.disabled = true; var old = b.textContent.trim(); b.textContent = tk("publishing"); pendingPubWhales = whales;
-    var ok = sendWhales(whales, room ? room.updatedAt : undefined);
-    if (ok) adminDirty = false;   // the published version IS the editor's version again
-    setTimeout(function () { b.disabled = false; b.textContent = old; }, 1200);
-    if (!ok && msg) { msg.innerHTML = '<span style="color:var(--coral)">' + tk("pub_neterr") + '</span>'; pendingPubWhales = null; pendingPubTok = null; }
-  }
-
   /* ---------- commander ---------- */
-  function renderKingdomPick() { var b = $("kingdomPick"); if (!b) return; b.innerHTML = [1, 2].map(function (n) { return '<button class="chipbtn ' + (fireKingdom === n ? "kon" : "") + '" data-k="' + n + '">🌍 ' + tk("kw" + n) + '</button>'; }).join(""); b.querySelectorAll("button").forEach(function (x) { x.onclick = function () { fireKingdom = +x.getAttribute("data-k"); closeReplacement(false); renderKingdomPick(); renderRallyMode(); if (room) renderRoster(); setCancelLabel(); }; }); renderRallyMode(); }
+  function renderKingdomPick() { var b = $("kingdomPick"); if (!b) return; b.innerHTML = [1, 2].map(function (n) { return '<button class="chipbtn ' + (fireKingdom === n ? "kon" : "") + '" data-k="' + n + '">🌍 ' + window.esc(kingdomLabel(n)) + '</button>'; }).join(""); b.querySelectorAll("button").forEach(function (x) { x.onclick = function () { fireKingdom = +x.getAttribute("data-k"); closeReplacement(false); renderKingdomPick(); renderRallyMode(); if (room) renderRoster(); setCancelLabel(); }; }); renderRallyMode(); }
   function renderLead() { var b = $("lead"); if (!b) return; b.innerHTML = [10, 15, 30, 60].map(function (v) { return '<button class="chipbtn ' + (v === lead ? "on" : "") + '" data-v="' + v + '">' + (L() ? "in " + v + "s" : v + "秒后") + '</button>'; }).join(""); b.querySelectorAll("button").forEach(function (x) { x.onclick = function () { lead = +x.getAttribute("data-v"); renderLead(); syncFireConfirmation(); }; }); }
 
   function canonicalPick(pid, role, players) {
@@ -2422,18 +2384,6 @@
     stageFocusByK[kingdom] = "";
   }
 
-  function renderTruthTexts() {
-    truthLang = L() ? "en" : "zh";
-    var note = $("defenseDemoNote"); if (note) note.textContent = tk("defense_demo");
-    var pp = $("dpp"); if (pp) pp.setAttribute("aria-label", L() ? "Play or pause timing rehearsal" : "播放或暂停时机演练");
-    var scrub = $("dscrub"); if (scrub) scrub.setAttribute("aria-label", L() ? "Timing rehearsal progress" : "时机演练进度");
-  }
-  function pauseDefenseRehearsal() { dPlaying = false; dLastTs = null; var pp = $("dpp"); if (pp) pp.textContent = "▶"; }
-  function wireDefenseTruth() {
-    document.addEventListener("click", function (e) { if (e.target && e.target.closest && e.target.closest("#defenseView .wchip, #defenseView .dlane")) setTimeout(pauseDefenseRehearsal, 0); });
-    renderTruthTexts();
-    setInterval(function () { if (truthLang !== (L() ? "en" : "zh")) renderTruthTexts(); }, 500);
-  }
   function stageBroadcast(previous) {
     if (!roomPw || !sock) return false;
     var record = rallyModeRecord(fireKingdom);
@@ -2738,7 +2688,6 @@
     if (settleUI) {
       draftActive = false; showInCard(myProfile);
       window.toast(myProfile.editable ? tk("updated") + " · " + window.mmss(myProfile.march) : tk("profile_delivery_only"));
-      if (viewMode === "defense") renderDefense();
     } else { draftActive = true; showExistingIdentity(myProfile); }
     return true;
   }
@@ -2761,7 +2710,6 @@
     pendingMarchMutation = null; syncIdentityControls(false);
     if (settleUI) {
       draftActive = false; showInCard(myProfile); window.toast(tk("updated") + " · " + window.mmss(march));
-      if (viewMode === "defense") renderDefense();
     } else draftActive = true;
   }
   function profileMatchesPending(profile, pending) {
@@ -2798,6 +2746,7 @@
   }
   function handleSocketMessage(message) {
     if (handlePlayerRegistrationAck(message)) return;
+    if (handleKingdomNameMessage(message)) return;
     if (handleRallyModeMessage(message)) return;
     if (handleStageSuperseded(message)) return;
     if (handleDeviceStatusSaved(message)) return;
@@ -2901,7 +2850,8 @@
     initDeliveryShadow();
     var advertisedKvkBuild = 0;
     try {
-      var updateBuild = window.KvkUpdate && window.KvkUpdate.BUILD;
+      var updateApi = window.RallyUpdate || window.KvkUpdate;
+      var updateBuild = updateApi && updateApi.BUILD;
       if (tripleClientAvailable && Number.isSafeInteger(updateBuild) && updateBuild > 0 &&
           updateBuild === rallyClientBuild) advertisedKvkBuild = updateBuild;
     } catch (e) {}
@@ -2914,11 +2864,12 @@
           Number(deliveryShadowSocket.connectionGeneration || 0) !== deliveryShadowGeneration) return;
       handleDeliveryShadowMessage(message);
     };
-    sock.onOpen = function () { var g = Number(sock.connectionGeneration || 0); if (pendingMarchMutation && pendingMarchMutation.connectionGeneration !== g) pendingMarchMutation.awaitingReconnect = true, pendingMarchMutation.reconnectAfterSnapshot = roomSnapshotSequence, pendingMarchMutation.connectionGeneration = g; resetPendingRegistrationConnectionEvidence(); deliveryShadowConnectionOpened(); initialStateSeen = false; safeUpdateCheck(); registrationPending = false; setNet(true); sendDeviceStatus(); retryPendingDeliveryAcks(true); beginClockSync().then(deliveryShadowClockCallback()); };
+    sock.onOpen = function () { var g = Number(sock.connectionGeneration || 0); if (pendingMarchMutation && pendingMarchMutation.connectionGeneration !== g) pendingMarchMutation.awaitingReconnect = true, pendingMarchMutation.reconnectAfterSnapshot = roomSnapshotSequence, pendingMarchMutation.connectionGeneration = g; resetPendingRegistrationConnectionEvidence(); deliveryShadowConnectionOpened(); initialStateSeen = false; safeUpdateCheck(); registrationPending = false; setNet(true); kingdomNameMutation.connected(); sendPendingRallyMode(); sendDeviceStatus(); retryPendingDeliveryAcks(true); beginClockSync().then(deliveryShadowClockCallback()); };
     sock.onClose = function () {
       initialStateSeen = false; registrationPending = false;
       clearPendingRallyFire();
-      clearPendingRallyMode();
+      kingdomNameMutation.disconnected();
+      if (pendingRallyMode) { pendingRallyMode.status = "retry"; renderRallyMode(); }
       if (pendingMarchMutation) {
         pendingMarchMutation.awaitingReconnect = true;
         pendingMarchMutation.reconnectAfterSnapshot = roomSnapshotSequence;
@@ -2932,6 +2883,7 @@
     sock.onError = function (m) {
       if (rejectPendingDeliveryAck(m)) return;
       if (handleDeviceStatusError(m)) return;
+      if (handleKingdomNameMessage(m)) return;
       if (handleRallyModeError(m)) return;
       if (handleRallyCommandError(m)) return;
       if (handleRallyStageConflict(m)) return;
@@ -2947,11 +2899,7 @@
         else invalidateCommanderAccess();
       } else if (m.error === "player_missing") window.toast(tk("player_missing"));
       else if (m.error === "rally_live") window.toast(tk("rally_live"));
-      else if (m.error === "conflict") {
-        if (pendingUnlock) { if (m.room) room = m.room; unlockedOK(); }
-        else if (pendingPubWhales && window.confirm(tk("confirm_over"))) sendWhales(pendingPubWhales, m.room ? m.room.updatedAt : (room ? room.updatedAt : undefined));
-        else { pendingPubWhales = null; pendingPubTok = null; var pm = $("pubMsg"); if (pm) pm.innerHTML = '<span style="color:var(--coral)">' + tk("pub_fail") + '</span>'; }
-      }
+      else if (m.error === "conflict" && pendingUnlock) { if (m.room) room = m.room; unlockedOK(); }
     };
   }
   // one glanceable signal instead of four separate badges: worst state wins (offline > syncing > "{n} online")
@@ -2978,7 +2926,7 @@
     });
   }
   function updateSync(r) { var nextFresh = !!(r && r.fresh === true), freshnessChanged = syncedOK !== nextFresh; syncedOK = nextFresh; paintChrome(); paintAudioStatus(); rebookCuesOnDrift(); if (syncedOK) scheduleAllCues(); if (freshnessChanged) sendDeviceStatus("deviceStatus", true); }   // post-suspend resync: future beeps re-book on the corrected clock, then ACK only the corrected schedule
-  var lastStagedKey = "", lastMyMarch = 0;
+  var lastStagedKey = "";
   function onState(r) {
     var freshRoomSnapshot = r !== room, settledStageFocusPid = "";
     if (freshRoomSnapshot) roomSnapshotSequence += 1;
@@ -3077,26 +3025,14 @@
       var gone = liveCommands(room).filter(function (c) { return myTarget(c).anchor > nowS - 1 && newIds.indexOf(c.id) < 0; });
       if (gone.some(function (c) { return myTarget(c).mine; })) { beepCancelled(); window.toast(tk("order_cancelled")); }
     }
-    room = r; settlePendingRallyFire(r); settleRallyModeMutation(); renderRallyMode();
+    room = r; kingdomNameMutation.handleState(r); settlePendingRallyFire(r); settleRallyModeMutation(); renderRallyMode();
     if (firstSnapshot) sendDeviceStatus(); if (!pendingStageMutation) pumpStageQueue(); reconcileCommanderMarchState(nextPlayers); setNet(true); if (pendingUnlock && r.updatedBy && r.updatedBy === pendingTok) unlockedOK(); paintChrome(); paintHero(); syncMap(); renderRoster(); updateFireControl(); if (settledStageFocusPid) restoreRosterFocus(settledStageFocusPid); scheduleAllCues(); paintAudioStatus();
-    var ew = (r.config && r.config.enemyWhales) || [], key = JSON.stringify(ew);
-    if (key !== lastWhalesKey) {
-      lastWhalesKey = key; enemyWhales = ew; setBadge(); if (viewMode === "defense") renderDefense();   // only re-render (resets the radar) when the whale list actually changed, not on every heartbeat
-      if (roomPw && !adminDirty && !$("console").classList.contains("hide")) { adminEnemies = ew.map(function (e) { return { name: e.name, mm: e.mm, ss: e.ss }; }); renderAdmin(); }   // pristine editor follows the published truth (a reload must never wipe the squad's whales)
-    }
-    // publish ack = the server echoing OUR by-token (never "the count looks right" — a stale broadcast could fake that)
-    if (pendingPubTok && r.updatedBy === pendingPubTok) { pendingPubTok = null; pendingPubWhales = null; var pm = $("pubMsg"); if (pm) pm.innerHTML = '<span style="color:var(--green-deep)">' + tk("pub_ok") + '</span>'; window.toast(tk("pub_ok")); }
-    // staged pre-warning must be perceivable even from the Defense tab / a pocketed phone
     var stageTransition = stageAlertTransition(r, myPid, lastStagedKey);
     if (stageTransition.alert) {
-      if (viewMode === "defense") setView("attack");
       fireAlert();
       try { navigator.vibrate && navigator.vibrate([80, 40, 80]); } catch (e) {}
     }
     lastStagedKey = stageTransition.key;
-    // my march changed (this device or another of mine) → defense cues recompute
-    var mm = (r.players && r.players[myPid] && r.players[myPid].march) || 0;
-    if (mm !== lastMyMarch) { lastMyMarch = mm; if (viewMode === "defense") renderDefense(); }
     safeUpdateFlush();
   }
 
@@ -3129,6 +3065,7 @@
     if (open) $("console").classList.remove("hide");
     $("commanderCommandPane").classList.toggle("hide", !open || manage);
     $("commanderManagePane").classList.toggle("hide", !manage);
+    if (manage && typeof setRallyManageTab === "function") setRallyManageTab(rallyManageTab, false);
   }
   function initCommanderDrawer() {
     if (commanderDrawer || !window.BattleDrawer || typeof window.BattleDrawer.create !== "function") return commanderDrawer;
@@ -3157,9 +3094,7 @@
       void $("console").offsetHeight;
       drawer.openCommand();
     } else applyCommanderDrawerState("command");
-    renderKingdomPick(); renderLead(); if (room) renderRoster(); adminDirty = false;
-    adminEnemies = ((room && room.config && room.config.enemyWhales) || []).map(function (e) { return { name: e.name, mm: e.mm, ss: e.ss }; });
-    renderAdmin(); renderStatics();
+    renderKingdomPick(); renderLead(); if (room) renderRoster(); renderRallyRoom(); renderStatics();
   }
   function lockCmd() {
     managerAuthenticated = false; roomPw = "";
@@ -3174,19 +3109,22 @@
     var set = function (id, k) { var e = $(id); if (e) e.textContent = tk(k); };
     set("t_join", "join"); set("t_ornew", "ornew"); set("t_joinhint", "joinhint"); set("t_room", "room"); set("joinBtn", "enter");
     set("t_fill", "fill"); set("t_fillsub", "fillsub"); set("t_march", "marchlab"); set("saveBtn", "save"); paintProfileAccess(myProfile);
-    set("t_cmd", "cmd"); set("t_kdhint", "kdhint"); set("t_leadhint", "leadhint"); set("t_defsethint", "defsethint"); set("idleWait", "idle_wait");
+    set("t_cmd", "cmd"); set("t_kdhint", "kdhint"); set("t_leadhint", "leadhint"); set("idleWait", "idle_wait");
     set("commanderDrawerClose", "cmd_collapse"); set("commanderManageOpen", "cmd_manage"); set("commanderManageBack", "cmd_back");
+    set("rallyPlayersTab", "manage_players"); set("rallyRoomTab", "manage_room"); set("connectedWebsiteDevicesLabel", "connected_website_devices");
+    set("copyRallyRoomLink", "copy_room_link");
+    [1, 2].forEach(function (kingdom) {
+      set("kingdomNameLabel" + kingdom, "kingdom_display_name"); set("kingdomNameSave" + kingdom, "room_save"); set("roomRallyModeLabel" + kingdom, "mode_triple");
+    });
     syncIdentityControls(!!pendingMarchMutation);
     set("t_pwtitle", "pwtitle"); set("pwCancel", "pwcancel"); set("pwGo", "pwgo"); set("cmdUnlock", managerAuthenticated ? "cmd_reopen" : "cmdlink");
     set("bgTest", "bgtest2"); set("t_settings", "settings");
-    set("t_tab_atk", "tab_atk"); set("t_tab_def", "tab_def"); set("t_dpanel", "dpanel"); set("t_dpanelhint", "dpanelhint"); set("t_addenemy", "addenemy"); set("t_pubwhales", "pubwhales");
-    var cd = $("cstep_def"); if (cd) cd.textContent = L() ? "🛡️ Set incoming whales → publish" : "🛡️ 设敌鲸 → 发布";
-    var dl = $("dleg"); if (dl) dl.innerHTML = L() ? "🔴 incoming<br>🛡️ your refill<br>🏰 castle shield" : "🔴 敌鲸来袭<br>🛡️ 你的补兵<br>🏰 王城护盾";
     $("t_firedbl").textContent = tk("firedbl"); updateFireControl(); setCancelLabel();
     paintAudioStatus();
     var mt = $("marchTip"); if (mt) mt.textContent = tk("marchtip2");
     var sg = $("soundGate"); if (sg) sg.textContent = tk("soundgate");
     var pw = $("pwInput"); if (pw) pw.placeholder = tk("pwph");
+    renderRallyRoom();
   }
 
   /* ---------- join gate ---------- */
@@ -3204,6 +3142,7 @@
     if (myProfile) showProfileDraft(myProfile);
     wireIdentityControls();
     wireRallyMode();
+    wireRallyManage();
     $("rosterSearch").addEventListener("input", function () { rosterQuery = this.value.toLowerCase().trim(); if (room) renderRoster(); });
     $("roster").addEventListener("pointerdown", function (event) {
       var target = event.target;
@@ -3348,15 +3287,8 @@
     if (soundReady) $("soundGate").style.display = "none";
     if ($("audioStatus")) $("audioStatus").onclick = function () { enableSound(false); };   // tap the status chip to re-arm / resume a paused session
     if ($("bgTest")) $("bgTest").onclick = function () { enableSound(true); lockTest(); };
-    // defense: view toggle + commander enemy-whale editor + radar playback
-    if ($("tabAtk")) $("tabAtk").onclick = function () { setView("attack"); };
-    if ($("tabDef")) $("tabDef").onclick = function () { setView("defense"); };
-    if ($("addEnemy")) $("addEnemy").onclick = function () { if (adminEnemies.length >= 30) return; adminDirty = true; adminEnemies.push({ name: tk("d_enemy") + String.fromCharCode(65 + adminEnemies.length), mm: 1, ss: 0 }); renderAdmin(); };
-    if ($("pubWhales")) $("pubWhales").onclick = publishWhales;
-    if ($("dpp")) $("dpp").onclick = function () { dPlaying = !dPlaying; $("dpp").textContent = dPlaying ? "⏸" : "▶"; dLastTs = null; };
-    if ($("dscrub")) $("dscrub").oninput = function () { dPlaying = false; $("dpp").textContent = "▶"; if (dAnim && dAnim.w1) { dAnim.p = (+$("dscrub").value) / 1000; dAnim.holdUntil = 0; dTNow = dInvmap(dAnim.p, dAnim.w1); dRenderAnim(dTNow, null, 0); } };
     renderKingdomPick(); renderLead();
-    window.onLangChange = function () { mapS.mode = null; lastWhalesKey = ""; renderStatics(); renderKingdomPick(); renderLead(); if (room) onState(room); if (viewMode === "defense") renderDefense(); if (!$("console").classList.contains("hide")) renderAdmin(); $("roomlabel").textContent = "🏠 " + ROOM; };
+    window.onLangChange = function () { mapS.mode = null; renderStatics(); renderKingdomPick(); renderLead(); renderRallyRoom(); if (room) onState(room); $("roomlabel").textContent = "🏠 " + ROOM; };
   }
 
   /* ---------- bootstrap (after every definition; no fragile load-order) ---------- */
@@ -3366,6 +3298,6 @@
   $("roomView").classList.remove("hide");
   $("roomView").classList.add("presound");   // everything below the sound switch is dimmed/locked until step ① is done — no auto-prime, the gesture must be the sound button
   $("roomlabel").textContent = "🏠 " + ROOM;
-  window.initI18n(); renderStatics(); connect(); beginClockSync(); wireRoom(); wireDefenseTruth();
+  window.initI18n(); renderStatics(); connect(); beginClockSync(); wireRoom();
   paintHero();   // the forced flow (dim-lock + fill card) IS the onboarding; the commander tour runs once on first unlock
 })();

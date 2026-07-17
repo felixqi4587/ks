@@ -4,8 +4,8 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
-const source = fs.readFileSync(path.join(__dirname, '../public/kvk.js'), 'utf8');
-const html = fs.readFileSync(path.join(__dirname, '../public/kvk.html'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, '../public/rally-controller.js'), 'utf8');
+const html = fs.readFileSync(path.join(__dirname, '../public/rally.html'), 'utf8');
 const css = fs.readFileSync(path.join(__dirname, '../public/app.css'), 'utf8');
 
 function extractFunction(name) {
@@ -127,6 +127,7 @@ test('commander monitor HTML shows every captain, one next launch, urgency, laun
       kw1: 'Kingdom ①', kw2: 'Kingdom ②'
     })[key] || key,
     rallyRoleLabel: role => ({ weak: 'Sacrifice 1', weak2: 'Sacrifice 2', main: 'Main' })[role] || role,
+    kingdomLabel: kingdom => kingdom === 2 ? 'Kingdom ②' : 'Kingdom ①',
     window: {
       esc: value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;'),
       mmss: seconds => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`

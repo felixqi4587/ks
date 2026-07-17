@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const { chromium } = require('playwright');
-const { makeQaRoom, qaRoomUrl, installQaWebSocketGuard, assertQaRoomName } = require('./support/qa-kvk.cjs');
+const { makeQaRoom, qaRoomUrl, installQaWebSocketGuard, assertQaRoomName } = require('./support/qa-coordination.cjs');
 
 const base = process.env.BASE || 'http://127.0.0.1:8791';
 const pid = '900000001';

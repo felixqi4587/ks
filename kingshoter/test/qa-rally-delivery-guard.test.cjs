@@ -11,11 +11,11 @@ const {
   qaRoomUrl,
   installQaWebSocketGuard,
   localQaBaseURL
-} = require('./support/qa-kvk.cjs');
+} = require('./support/qa-coordination.cjs');
 
 const ROOT = path.join(__dirname, '..');
 
-function inspectConfig(env = {}, configFile = 'playwright.qa-kvk.config.cjs') {
+function inspectConfig(env = {}, configFile = 'playwright.qa-rally-defense.config.cjs') {
   const script = [
     `const config = require(${JSON.stringify(`./${configFile}`)});`,
     'process.stdout.write(JSON.stringify({',
@@ -33,32 +33,31 @@ function inspectConfig(env = {}, configFile = 'playwright.qa-kvk.config.cjs') {
     env: {
       ...process.env,
       QA_BASE_URL: '',
-      ALLOW_PRODUCTION_QA: '',
+      QA_REMOTE_ORIGIN: '',
+      ALLOW_REMOTE_QA: '',
       ...env
     }
   });
 }
 
-test('helper and production predicate agree for generated and representative rooms', async () => {
+test('helper and production predicate accept only the fixed qa room', async () => {
   const { isQaRoomName } = await import(
     pathToFileURL(path.join(ROOT, 'src/delivery.js')).href + '?t=' + Date.now()
   );
   const rejected = [
-    'operation-room', 'demo', '_', '', 'qa-kvk-',
-    'qa-kvk-bad_', 'QA-KVK-UPPER'
+    'operation-room', 'demo', '_', '', 'qa-kvk-a', 'QA', 'qa '
   ];
   for (const room of rejected) {
     assert.equal(isQaRoomName(room), false, room || '<empty>');
     assert.throws(
       () => assertQaRoomName(room),
-      error => /^Refusing non-QA KvK room:/.test(error.message),
+      error => /^Refusing non-QA coordination room:/.test(error.message),
       room || '<empty>'
     );
   }
-  for (const room of ['qa-kvk-a', 'qa-kvk-20260713-7f3a', makeQaRoom('predicate')]) {
-    assert.equal(assertQaRoomName(room), room);
-    assert.equal(isQaRoomName(room), true);
-  }
+  assert.equal(makeQaRoom('predicate'), 'qa');
+  assert.equal(assertQaRoomName('qa'), 'qa');
+  assert.equal(isQaRoomName('qa'), true);
 });
 
 test('guard aborts before route installation for every operation room', async () => {
@@ -67,7 +66,7 @@ test('guard aborts before route installation for every operation room', async ()
     const context = { async routeWebSocket() { routes += 1; } };
     await assert.rejects(
       Promise.resolve().then(() => installQaWebSocketGuard(context, room)),
-      error => /^Refusing non-QA KvK room:/.test(error.message)
+      error => /^Refusing non-QA coordination room:/.test(error.message)
     );
     assert.equal(routes, 0, room);
   }
@@ -103,36 +102,51 @@ test('guard rejects the wrong WebSocket origin before connecting upstream', asyn
   assert.equal(connected, 1);
 });
 
-test('core browser base accepts only a clean loopback origin', () => {
+test('core browser gate owns an isolated local Wrangler unless a clean loopback base is explicit', () => {
   for (const value of [
     'http://127.0.0.1:8791', 'http://localhost:8791', 'https://[::1]:8791/'
   ]) assert.equal(localQaBaseURL(value), new URL(value).origin);
 
   for (const value of [
     'https://kingshoter.com', 'https://example.com',
-    'http://127.0.0.1:8791/path', 'http://127.0.0.1:8791/?room=qa-kvk-a',
+    'http://127.0.0.1:8791/path', 'http://127.0.0.1:8791/?room=qa',
     'http://user:pass@127.0.0.1:8791', 'ftp://127.0.0.1:8791', 'not-a-url'
   ]) assert.throws(() => localQaBaseURL(value), /local QA origin/i, value);
 
-  const core = fs.readFileSync(path.join(ROOT, 'test', 'kvk-core-multibrowser.e2e.cjs'), 'utf8');
-  assert.match(core, /const base = localQaBaseURL\(process\.env\.BASE \|\| ['"]http:\/\/127\.0\.0\.1:8791['"]\)/);
+  const core = fs.readFileSync(path.join(ROOT, 'test', 'rally-core-multibrowser.e2e.cjs'), 'utf8');
+  assert.match(core, /process\.env\.BASE\s*\?\s*localQaBaseURL\(process\.env\.BASE\)\s*:\s*null/,
+    'an explicit reusable server is still restricted to a clean loopback origin');
+  assert.match(core, /async function startIsolatedWrangler\(/,
+    'the release gate must create its own disposable local server by default');
+  assert.match(core, /wrangler['"],\s*['"]dev['"]/,
+    'the disposable server must use Wrangler so Worker and asset routing match production');
+  assert.match(core, /listen\(0,\s*['"]127\.0\.0\.1['"]/,
+    'the disposable server must reserve a random loopback port');
+  assert.match(core, /--persist-to/,
+    'the release gate must isolate Durable Object state');
+  assert.match(core, /async function stopWrangler\(/,
+    'the release gate must stop its server and delete disposable state');
+  assert.match(core, /async function installLocalOnlyRoutes\(/,
+    'every browser context must block external and production HTTP requests');
+  assert.doesNotMatch(core, /process\.env\.BASE\s*\|\||127\.0\.0\.1:8791/,
+    'the default release gate must not depend on an ambient preview server');
   assert.match(core, /installQaWebSocketGuard\(context, room, \{[\s\S]{0,120}expectedOrigin: base/);
 });
 
-test('generated rooms and URLs are unique, bounded, and use both exact shadow gates', () => {
+test('QA URLs always use the fixed room and canonical Rally route', () => {
   const input = { title: 'reliable shadow topology' };
   const a = makeQaRoom(input);
   const b = makeQaRoom(input);
-  assert.notEqual(a, b);
+  assert.equal(a, 'qa');
+  assert.equal(b, 'qa');
   for (const room of [a, b]) {
     assert.equal(assertQaRoomName(room), room);
-    assert.ok(room.length <= 48);
     const url = new URL(qaRoomUrl('http://127.0.0.1:8799', room, {
       deliveryQa: '1',
       deliveryShadow: '1'
     }));
     assert.equal(url.origin, 'http://127.0.0.1:8799');
-    assert.equal(url.pathname, '/kvk.html');
+    assert.equal(url.pathname, '/rally');
     assert.equal(url.searchParams.getAll('room').length, 1);
     assert.equal(url.searchParams.get('room'), room);
     assert.deepEqual(url.searchParams.getAll('deliveryQa'), ['1']);
@@ -144,22 +158,18 @@ test('generated rooms and URLs are unique, bounded, and use both exact shadow ga
   );
 });
 
-test('delivery sources have no direct named-room equality or literal membership branch', () => {
-  const roomExpression = String.raw`(?:\b(?:room|roomName|ROOM)\b|String\(\s*(?:room|roomName|ROOM)\s*\))`;
-  const namedRoomBranches = [
-    new RegExp(String.raw`(?<!typeof\s)${roomExpression}\s*={2,3}\s*['"][A-Za-z0-9_-]+['"]`),
-    new RegExp(String.raw`['"][A-Za-z0-9_-]+['"]\s*={2,3}\s*${roomExpression}`),
-    new RegExp(String.raw`\[[^\]\n]{0,200}['"][A-Za-z0-9_-]+['"][^\]\n]{0,200}\]\.includes\(\s*${roomExpression}`)
-  ];
+test('delivery predicates use only the explicit qa room and Rally-named assets', () => {
   for (const file of [
     'src/delivery.js',
     'src/room.js',
-    'public/kvk-delivery-shadow.js',
-    'public/kvk.js'
+    'public/rally-delivery-shadow.js',
+    'public/rally-controller.js'
   ]) {
     const source = fs.readFileSync(path.join(ROOT, file), 'utf8');
-    for (const pattern of namedRoomBranches) assert.doesNotMatch(source, pattern, file);
+    assert.doesNotMatch(source, /qa-kvk-/i, file);
   }
+  assert.match(fs.readFileSync(path.join(ROOT, 'src/delivery.js'), 'utf8'), /return room === ['"]qa['"]/);
+  assert.match(fs.readFileSync(path.join(ROOT, 'public/rally-delivery-shadow.js'), 'utf8'), /return room === ['"]qa['"]/);
 });
 
 test('Playwright config defaults to isolated loopback and gates every remote origin', () => {
@@ -181,83 +191,76 @@ test('Playwright config defaults to isolated loopback and gates every remote ori
   assert.equal(config.timeout, 90_000);
   assert.ok(config.outputDir.startsWith(os.tmpdir()));
 
-  const unknown = inspectConfig({ QA_BASE_URL: 'https://kingshoter.com.evil.example' });
+  const unknown = inspectConfig({ QA_BASE_URL: 'https://qa.example.test' });
   assert.notEqual(unknown.status, 0);
-  assert.match(unknown.stderr, /unapproved_qa_origin/);
+  assert.match(unknown.stderr, /remote_qa_requires_ALLOW_REMOTE_QA_1/);
 
-  const production = inspectConfig({ QA_BASE_URL: 'https://kingshoter.com:443' });
-  assert.notEqual(production.status, 0);
-  assert.match(production.stderr, /production_qa_requires_ALLOW_PRODUCTION_QA_1/);
-
-  const wrongPort = inspectConfig({
-    QA_BASE_URL: 'https://kingshoter.com:444',
-    ALLOW_PRODUCTION_QA: '1'
+  const production = inspectConfig({
+    QA_BASE_URL: 'https://kingshoter.com',
+    QA_REMOTE_ORIGIN: 'https://kingshoter.com',
+    ALLOW_REMOTE_QA: '1'
   });
-  assert.notEqual(wrongPort.status, 0);
-  assert.match(wrongPort.stderr, /unapproved_qa_origin/);
+  assert.notEqual(production.status, 0);
+  assert.match(production.stderr, /production_origin_is_not_qa/);
+
+  const wrongOrigin = inspectConfig({
+    QA_BASE_URL: 'https://qa.example.test',
+    QA_REMOTE_ORIGIN: 'https://other.example.test',
+    ALLOW_REMOTE_QA: '1'
+  });
+  assert.notEqual(wrongOrigin.status, 0);
+  assert.match(wrongOrigin.stderr, /unapproved_qa_origin/);
+
+  for (const origin of [
+    'https://kingshoter.kingshot1406.workers.dev',
+    'https://qa.example.test'
+  ]) {
+    const explicitlyRejected = inspectConfig({
+      QA_BASE_URL: origin,
+      QA_REMOTE_ORIGIN: origin,
+      ALLOW_REMOTE_QA: '1'
+    });
+    assert.notEqual(explicitlyRejected.status, 0, origin);
+    assert.match(explicitlyRejected.stderr, /unapproved_qa_origin/, origin);
+  }
 
   const explicitlyAllowed = inspectConfig({
-    QA_BASE_URL: 'https://kingshoter.com:443',
-    ALLOW_PRODUCTION_QA: '1'
+    QA_BASE_URL: 'https://kingshoter-qa.kingshot1406.workers.dev',
+    QA_REMOTE_ORIGIN: 'https://kingshoter-qa.kingshot1406.workers.dev',
+    ALLOW_REMOTE_QA: '1'
   });
   assert.equal(explicitlyAllowed.status, 0, explicitlyAllowed.stderr);
   const allowedConfig = JSON.parse(explicitlyAllowed.stdout);
-  assert.equal(allowedConfig.baseURL, 'https://kingshoter.com');
+  assert.equal(allowedConfig.baseURL, 'https://kingshoter-qa.kingshot1406.workers.dev');
   assert.equal(allowedConfig.hasWebServer, false);
+
+  const explicitLoopback = inspectConfig({ QA_BASE_URL: 'http://localhost:8799' });
+  assert.equal(explicitLoopback.status, 0, explicitLoopback.stderr);
+  assert.equal(JSON.parse(explicitLoopback.stdout).baseURL, 'http://localhost:8799');
 });
 
-test('Triple Playwright config gates loopback and the exact production origin', () => {
-  const configFile = 'playwright.qa-kvk-triple.config.cjs';
-  const local = inspectConfig({}, configFile);
-  assert.equal(local.status, 0, local.stderr);
-  const config = JSON.parse(local.stdout);
-  assert.equal(config.baseURL, 'http://127.0.0.1:8799');
-  assert.equal(config.webServer.url, 'http://127.0.0.1:8799/api/time');
-  assert.equal(config.webServer.reuseExistingServer, false);
-  assert.match(config.webServer.command, /wrangler dev --local --ip 127\.0\.0\.1 --port 8799/);
-  assert.match(config.webServer.command, /--var TRIPLE_RALLY_ENABLED:0/);
-  assert.match(config.webServer.command, /--var TRIPLE_RALLY_QA_ENABLED:1/);
-
-  const loopback = inspectConfig({ QA_BASE_URL: 'http://127.0.0.1:8791' }, configFile);
-  assert.equal(loopback.status, 0, loopback.stderr);
-  assert.equal(JSON.parse(loopback.stdout).hasWebServer, false);
-
-  const unknown = inspectConfig({
-    QA_BASE_URL: 'https://example.com', ALLOW_PRODUCTION_QA: '1'
-  }, configFile);
-  assert.notEqual(unknown.status, 0);
-  assert.match(unknown.stderr, /unapproved_qa_origin/);
-
-  const production = inspectConfig({ QA_BASE_URL: 'https://kingshoter.com' }, configFile);
-  assert.notEqual(production.status, 0);
-  assert.match(production.stderr, /production_qa_requires_ALLOW_PRODUCTION_QA_1/);
-
-  const allowed = inspectConfig({
-    QA_BASE_URL: 'https://kingshoter.com', ALLOW_PRODUCTION_QA: '1'
-  }, configFile);
-  assert.equal(allowed.status, 0, allowed.stderr);
-  assert.equal(JSON.parse(allowed.stdout).baseURL, 'https://kingshoter.com');
-
-  for (const candidate of [
-    'https://kingshoter.com:444', 'https://kingshoter.com/path',
-    'https://kingshoter.com/?query=1', 'https://user:pass@kingshoter.com'
-  ]) {
-    const rejected = inspectConfig({ QA_BASE_URL: candidate, ALLOW_PRODUCTION_QA: '1' }, configFile);
-    assert.notEqual(rejected.status, 0, candidate);
-    assert.match(rejected.stderr, /unapproved_qa_origin/, candidate);
-  }
+test('one serialized Playwright config covers Rally delivery, Triple, and Defense', () => {
+  const source = fs.readFileSync(path.join(ROOT, 'playwright.qa-rally-defense.config.cjs'), 'utf8');
+  assert.match(source, /qa-rally-\(\?:defense\|delivery\|triple\)/);
+  assert.match(source, /--var TRIPLE_RALLY_ENABLED:0/);
+  assert.match(source, /--var TRIPLE_RALLY_QA_ENABLED:1/);
+  assert.match(source, /fullyParallel: false/);
+  assert.match(source, /workers: 1/);
 });
 
 test('focused delivery scripts retain runnable existing commands and one-release Rally aliases', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
   assert.equal(pkg.scripts.test, 'node --test test/*.test.cjs');
-  assert.equal(pkg.scripts['test:rally-core'], 'node test/kvk-core-multibrowser.e2e.cjs --project=chromium');
-  assert.equal(pkg.scripts['test:rally-core:all'], 'node test/kvk-core-multibrowser.e2e.cjs --project=all');
+  assert.equal(pkg.scripts['test:rally-core'], 'node test/rally-core-multibrowser.e2e.cjs --project=chromium');
+  assert.equal(pkg.scripts['test:rally-core:all'], 'node test/rally-core-multibrowser.e2e.cjs --project=all');
   assert.equal(pkg.scripts['test:kvk-core'], 'npm run test:rally-core');
   assert.equal(pkg.scripts['test:kvk-core:all'], 'npm run test:rally-core:all');
-  assert.equal(fs.existsSync(path.join(ROOT, 'test/kvk-core-multibrowser.e2e.cjs')), true);
-  assert.equal(pkg.scripts['test:load:defense'], undefined);
-  assert.equal(pkg.scripts['test:qa:rally-defense'], undefined);
+  assert.equal(fs.existsSync(path.join(ROOT, 'test/rally-core-multibrowser.e2e.cjs')), true);
+  assert.equal(pkg.scripts['test:rally-defense:browser'],
+    'node test/supporting-pages-ui.e2e.cjs && node test/rally-defense-isolation.e2e.cjs && node test/defense-multibrowser.e2e.cjs && node test/coordination-accessibility.e2e.cjs');
+  assert.equal(pkg.scripts['test:load:defense'], 'node test/defense-load.e2e.mjs');
+  assert.equal(pkg.scripts['test:qa:rally-defense'],
+    'playwright test -c playwright.qa-rally-defense.config.cjs');
   assert.equal(pkg.scripts.deploy, 'wrangler deploy');
   assert.equal(pkg.scripts.dev, 'wrangler dev');
   assert.equal(pkg.scripts['test:delivery'], [
@@ -267,13 +270,9 @@ test('focused delivery scripts retain runnable existing commands and one-release
     'test/reliable-room-delivery.test.cjs',
     'test/delivery-shadow-client.test.cjs',
     'test/delivery-browser-wiring.test.cjs',
-    'test/qa-kvk-delivery-guard.test.cjs'
+    'test/qa-rally-delivery-guard.test.cjs'
   ].join(' '));
-  assert.equal(pkg.scripts['test:qa:delivery'],
-    'playwright test -c playwright.qa-kvk.config.cjs');
-  assert.equal(pkg.scripts['test:qa:delivery:chromium'],
-    'playwright test -c playwright.qa-kvk.config.cjs --project=chromium');
-  assert.match(pkg.scripts['test:triple'], /test\/qa-kvk-delivery-guard\.test\.cjs/,
+  assert.match(pkg.scripts['test:triple'], /test\/qa-rally-delivery-guard\.test\.cjs/,
     'the focused Triple gate must exercise its remote-origin guard');
   assert.match(pkg.scripts['test:triple'], /test\/legacy-kvk-script-guard\.test\.cjs/,
     'the focused Triple gate must keep retained production scripts disabled');
