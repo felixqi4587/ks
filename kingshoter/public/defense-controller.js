@@ -1018,6 +1018,7 @@
     var connection = null;
     var battleAudio = null;
     var cueScheduler = null;
+    var managerPage = null;
     var tickTimer = null;
     var heartbeatTimer = null;
     var clockTimer = null;
@@ -1327,9 +1328,16 @@
       clientBuild: Number(options.clientBuild) || 2026071603,
       onMessage: function (message) {
         if (controller) controller.handleMessage(message);
+        if (managerPage) managerPage.handleMessage(message);
       },
-      onConnectionChange: function (next) { if (controller) controller.connectionChanged(next); },
-      onClockChange: function (next) { if (controller) controller.clockChanged(next); }
+      onConnectionChange: function (next) {
+        if (controller) controller.connectionChanged(next);
+        if (managerPage) managerPage.connectionChanged(next);
+      },
+      onClockChange: function (next) {
+        if (controller) controller.clockChanged(next);
+        if (managerPage) managerPage.clockChanged(next);
+      }
     });
     cueScheduler = win.BattleCues.createCueScheduler({
       audio: battleAudio,
@@ -1350,9 +1358,26 @@
       audio: battleAudio,
       cues: cueScheduler,
       ackQueue: ackQueue,
-      onStateChange: render
+      onStateChange: function (next) {
+        render(next);
+        if (managerPage) managerPage.setPersonalState(next);
+      }
+    });
+    managerPage = win.DefenseManager.mountDefenseManager({
+      window: win,
+      document: doc,
+      transport: connection,
+      identityStore: identityStore,
+      drawer: win.BattleDrawer,
+      virtualList: win.VirtualList,
+      language: function () { return language; }
+    });
+    managerPage.setPersonalState(controller.state());
+    element("defenseLanguage").addEventListener("click", function () {
+      if (managerPage) managerPage.setLanguage(language);
     });
     win.defensePageController = controller;
+    win.defenseManagerController = managerPage.controller;
     connection.start();
     tickTimer = win.setInterval(function () {
       if (lastState && lastState.personal && lastState.personal.captured) controller.tick();
@@ -1370,13 +1395,20 @@
       if (tickTimer) win.clearInterval(tickTimer);
       if (heartbeatTimer) win.clearInterval(heartbeatTimer);
       if (clockTimer) win.clearInterval(clockTimer);
+      try { managerPage.dispose(); } catch (_) {}
       try { controller.dispose(); } catch (_) {}
       try { cueScheduler.dispose(); } catch (_) {}
       try { battleAudio.dispose(); } catch (_) {}
       try { connection.stop(); } catch (_) {}
     }
     win.addEventListener("pagehide", dispose, { once: true });
-    return Object.freeze({ room: room, controller: controller, connection: connection, dispose: dispose });
+    return Object.freeze({
+      room: room,
+      controller: controller,
+      manager: managerPage.controller,
+      connection: connection,
+      dispose: dispose
+    });
   }
 
   /* The browser mount below intentionally consumes the existing shared

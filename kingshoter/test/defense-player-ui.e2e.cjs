@@ -14,6 +14,9 @@ const css = [
 ].join('\n');
 const controllerSource = fs.readFileSync(path.join(root, 'public/defense-controller.js'), 'utf8');
 const domainSource = fs.readFileSync(path.join(root, 'public/defense-domain.js'), 'utf8');
+const drawerSource = fs.readFileSync(path.join(root, 'public/battle-drawer.js'), 'utf8');
+const virtualListSource = fs.readFileSync(path.join(root, 'public/virtual-list.js'), 'utf8');
+const managerSource = fs.readFileSync(path.join(root, 'public/defense-manager.js'), 'utf8');
 
 async function install(page) {
   await page.setContent(html);
@@ -99,6 +102,9 @@ async function verifyLiveRegion(engineName, browser) {
     } };
   ` });
   await page.addScriptTag({ content: domainSource });
+  await page.addScriptTag({ content: drawerSource });
+  await page.addScriptTag({ content: virtualListSource });
+  await page.addScriptTag({ content: managerSource });
   await page.addScriptTag({ content: controllerSource });
 
   const result = await page.evaluate(async () => {

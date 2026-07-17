@@ -103,6 +103,140 @@
       </details>
     </div>
   </main>
+
+  <section id="defenseManagerDrawer" class="battle-drawer defense-manager" aria-hidden="true" inert>
+    <header id="defenseManagerHandle" class="battle-drawer__header defense-manager__header" aria-label="Defense Console" data-defense-manager-aria="console">
+      <span class="battle-drawer__grabber" aria-hidden="true"></span>
+      <div class="defense-manager__header-row">
+        <div class="defense-manager__heading">
+          <strong id="defenseManagerTitle" data-defense-manager-text="console">Defense Console</strong>
+          <span class="defense-manager__truth" id="defenseManagerHeaderStatus">Manager locked</span>
+        </div>
+        <span class="defense-manager__cue" id="defenseManagerPersonalCue" hidden>Your cue · —:—</span>
+        <button class="battle-control defense-manager__header-button" id="defenseManagerClose" type="button" data-drawer-no-drag aria-label="Collapse Defense Console" data-defense-manager-aria="collapseConsole">⌄</button>
+      </div>
+    </header>
+
+    <div class="battle-drawer__content defense-manager__content">
+      <section class="defense-manager__command" id="defenseManagerCommand" aria-labelledby="defenseManagerCommandTitle">
+        <div class="defense-manager__section-head">
+          <div>
+            <p class="defense-manager__eyebrow" data-defense-manager-text="status">Status</p>
+            <h2 class="battle-title" id="defenseManagerCommandTitle">Prepare the next Defense order</h2>
+          </div>
+          <button class="battle-control defense-manager__manage-button" id="defenseManagerOpenManage" type="button" data-defense-manager-text="manage">Manage</button>
+        </div>
+
+        <div class="defense-manager__manager-status" id="defenseManagerConnection" role="status">Manager connected · syncing clock</div>
+        <div class="defense-manager__timing-grid">
+          <label class="defense-manager__field" for="defenseManagerAnchor">
+            <span data-defense-manager-text="enemyCountdown">Enemy rally countdown</span>
+            <span class="defense-manager__time-input"><input id="defenseManagerAnchor" type="number" min="5" max="300" step="1" inputmode="numeric" value="180"><small>s</small></span>
+          </label>
+          <label class="defense-manager__field" for="defenseManagerEnemyMarch">
+            <span data-defense-manager-text="enemyMarch">Enemy march time</span>
+            <span class="defense-manager__time-input"><input id="defenseManagerEnemyMarch" type="number" min="5" max="120" step="1" inputmode="numeric" placeholder="Required" data-defense-manager-placeholder="required"><small>s</small></span>
+          </label>
+        </div>
+        <button class="battle-control defense-full" id="defenseManagerSaveTiming" type="button" data-defense-manager-text="saveTiming">Save timing</button>
+        <p class="defense-manager__inline-status" id="defenseManagerConfigStatus" role="status" aria-live="polite"></p>
+
+        <div class="defense-manager__compact-stats" id="defenseManagerCompactStats" aria-label="Defense website readiness" data-defense-manager-aria="websiteReadiness">
+          <span><strong id="defenseManagerRegistered">0</strong><small data-defense-manager-text="registered">registered</small></span>
+          <span><strong id="defenseManagerReady">0</strong><small data-defense-manager-text="readyShort">ready</small></span>
+          <span><strong id="defenseManagerRed">0</strong><small data-defense-manager-text="redShort">red</small></span>
+        </div>
+        <p class="battle-support defense-manager__disclaimer" data-defense-manager-text="deliveryShort">Website delivery status only · the game does not report participation.</p>
+
+        <div class="battle-fire-dock defense-manager__fire-dock">
+          <button class="battle-action defense-full" id="defenseManagerFire" type="button" disabled>Tap when enemy rally shows 3:00</button>
+          <button class="battle-control defense-full defense-manager__cancel" id="defenseManagerCancel" type="button" hidden data-defense-manager-text="cancelOrder">Cancel Defense Order</button>
+        </div>
+      </section>
+
+      <section class="defense-manager__manage" id="defenseManagerManage" hidden aria-labelledby="defenseManagerManageTitle">
+        <div class="defense-manager__manage-head">
+          <button class="battle-control defense-manager__back" id="defenseManagerBack" type="button" data-drawer-focus>‹ <span data-defense-manager-text="command">Command</span></button>
+          <h2 class="battle-title" id="defenseManagerManageTitle" data-defense-manager-text="management">Defense management</h2>
+        </div>
+        <div class="defense-manager__tabs" role="tablist" aria-label="Defense manager views" data-defense-manager-aria="managerViews">
+          <button class="battle-tab is-selected" id="defenseManagerStatusTab" type="button" role="tab" aria-selected="true" aria-controls="defenseManagerStatusPane" data-defense-manager-text="status">Status</button>
+          <button class="battle-tab" id="defenseManagerPlayersTab" type="button" role="tab" aria-selected="false" aria-controls="defenseManagerPlayersPane" tabindex="-1" data-defense-manager-text="players">Players</button>
+        </div>
+
+        <section class="defense-manager__pane" id="defenseManagerStatusPane" role="tabpanel" aria-labelledby="defenseManagerStatusTab">
+          <div class="defense-manager__metrics" id="defenseManagerMetrics"></div>
+          <section class="battle-card defense-manager__priority">
+            <div class="defense-manager__section-head">
+              <h3 class="battle-title" data-defense-manager-text="needsAttention">Needs attention</h3>
+              <span class="defense-manager__badge" id="defenseManagerIssueCount">0</span>
+            </div>
+            <div class="defense-manager__issue-list" id="defenseManagerIssues"></div>
+          </section>
+          <section class="battle-card defense-manager__waves">
+            <h3 class="battle-title" id="defenseManagerWavesTitle">Alert waves</h3>
+            <div id="defenseManagerWaves"></div>
+          </section>
+          <p class="battle-support defense-manager__disclaimer" id="defenseManagerDisclaimer" data-defense-manager-text="deliveryFull">Website delivery status only; the game does not report participation or response.</p>
+        </section>
+
+        <section class="defense-manager__pane defense-manager__players" id="defenseManagerPlayersPane" role="tabpanel" aria-labelledby="defenseManagerPlayersTab" hidden>
+          <div class="defense-manager__player-tools">
+            <label class="defense-manager__search" for="defenseManagerSearch"><span class="defense-manager__sr-only" data-defense-manager-text="searchPlayers">Search players</span><input id="defenseManagerSearch" type="search" placeholder="Search Player ID or nickname" data-defense-manager-placeholder="searchPlaceholder" autocomplete="off"></label>
+            <div class="defense-manager__tool-row">
+              <label><span data-defense-manager-text="filter">Filter</span><select id="defenseManagerFilter"><option value="all" data-defense-manager-text="filterAll">All</option><option value="ready" data-defense-manager-text="filterReady">Ready</option><option value="red" data-defense-manager-text="filterRed">Red</option><option value="offline" data-defense-manager-text="filterOffline">Offline</option><option value="invalid" data-defense-manager-text="filterInvalid">Invalid time</option><option value="unconfirmed" data-defense-manager-text="filterUnconfirmed">Unconfirmed</option><option value="too_late" data-defense-manager-text="filterTooLate">Too late</option></select></label>
+              <label><span data-defense-manager-text="sort">Sort</span><select id="defenseManagerSort"><option value="name" data-defense-manager-text="sortName">Name</option><option value="march" data-defense-manager-text="sortMarch">March</option><option value="status" data-defense-manager-text="sortStatus">Status</option><option value="go" data-defense-manager-text="sortGo">GO time</option></select></label>
+            </div>
+          </div>
+          <p class="defense-manager__roster-status" id="defenseManagerRosterStatus" role="status">Loading players…</p>
+          <div class="defense-manager__players-list" id="defenseManagerPlayerList" role="listbox" aria-label="Defense players" data-defense-manager-aria="playersList"></div>
+
+          <section class="defense-manager__player-detail" id="defenseManagerPlayerDetail" hidden aria-labelledby="defenseManagerPlayerName">
+            <button class="battle-control defense-manager__detail-back" id="defenseManagerPlayerBack" type="button">‹ <span data-defense-manager-text="players">Players</span></button>
+            <div class="battle-card">
+              <h3 class="battle-title" id="defenseManagerPlayerName">Player</h3>
+              <p class="battle-support" id="defenseManagerPlayerIdentity"></p>
+              <dl class="defense-manager__detail-facts" id="defenseManagerPlayerFacts"></dl>
+              <label class="defense-manager__field" for="defenseManagerPlayerMarch"><span data-defense-manager-text="marchTime">March time</span><span class="defense-manager__time-input"><input id="defenseManagerPlayerMarch" type="number" min="5" max="120" step="1" inputmode="numeric"><small>s</small></span></label>
+              <button class="battle-action defense-full" id="defenseManagerSavePlayer" type="button" data-defense-manager-text="saveMarch">Save march time</button>
+              <button class="battle-control defense-full defense-manager__remove" id="defenseManagerRemovePlayer" type="button" data-defense-manager-text="removePlayer">Remove player</button>
+              <p class="defense-manager__inline-status" id="defenseManagerPlayerStatus" role="status" aria-live="polite"></p>
+            </div>
+          </section>
+        </section>
+      </section>
+    </div>
+  </section>
+
+  <div class="defense-manager__scrim" id="defenseManagerUnlock" role="dialog" aria-modal="true" aria-labelledby="defenseManagerUnlockTitle" hidden>
+    <form class="battle-confirmation defense-manager__confirmation" id="defenseManagerUnlockForm">
+      <h2 class="battle-title" id="defenseManagerUnlockTitle" data-defense-manager-text="unlockConsole">Unlock Defense Console</h2>
+      <label class="defense-manager__field" for="defenseManagerPassword"><span data-defense-manager-text="roomPassword">Room management password</span><input id="defenseManagerPassword" type="password" autocomplete="current-password" maxlength="256"></label>
+      <p class="defense-manager__inline-status" id="defenseManagerUnlockStatus" role="status" aria-live="polite"></p>
+      <div class="defense-manager__confirmation-actions">
+        <button class="battle-control" id="defenseManagerUnlockClose" type="button" data-defense-manager-text="cancel">Cancel</button>
+        <button class="battle-action" id="defenseManagerUnlockSubmit" type="submit" data-defense-manager-text="unlock">Unlock</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="defense-manager__scrim" id="defenseManagerCancelConfirm" role="alertdialog" aria-modal="true" aria-labelledby="defenseManagerCancelTitle" aria-describedby="defenseManagerCancelCopy" hidden>
+    <div class="battle-confirmation defense-manager__confirmation">
+      <h2 class="battle-title" id="defenseManagerCancelTitle" data-defense-manager-text="cancelTitle">Cancel this Defense order?</h2>
+      <p class="battle-support" id="defenseManagerCancelCopy" data-defense-manager-text="cancelCopy">Future website alerts for this round will stop. Player profiles and timing stay saved.</p>
+      <div class="defense-manager__confirmation-actions"><button class="battle-control" id="defenseManagerCancelNo" type="button" data-defense-manager-text="keepOrder">Keep order</button><button class="battle-action defense-manager__danger" id="defenseManagerCancelYes" type="button" data-defense-manager-text="cancelOrderShort">Cancel order</button></div>
+    </div>
+  </div>
+
+  <div class="defense-manager__scrim" id="defenseManagerRemoveConfirm" role="alertdialog" aria-modal="true" aria-labelledby="defenseManagerRemoveTitle" aria-describedby="defenseManagerRemoveCopy" hidden>
+    <div class="battle-confirmation defense-manager__confirmation">
+      <h2 class="battle-title" id="defenseManagerRemoveTitle" data-defense-manager-text="removeTitle">Remove this player?</h2>
+      <p class="battle-support" id="defenseManagerRemoveCopy" data-defense-manager-text="removeCopy">An active-round player is removed after this round; otherwise removal is immediate.</p>
+      <div class="defense-manager__confirmation-actions"><button class="battle-control" id="defenseManagerRemoveNo" type="button" data-defense-manager-text="keepPlayer">Keep player</button><button class="battle-action defense-manager__danger" id="defenseManagerRemoveYes" type="button" data-defense-manager-text="remove">Remove</button></div>
+    </div>
+  </div>
+
+  <div class="defense-manager__live" id="defenseManagerLive" role="status" aria-live="polite" aria-atomic="true"></div>
   <p class="defense-footer">Kingshot player-made tool · unofficial ⚔️🐟</p>
 
   <script src="/battle-connection.js?v=2026071603"></script>
@@ -112,6 +246,9 @@
   <script src="/battle-identity.js?v=2026071603"></script>
   <script src="/battle-delivery.js?v=2026071603"></script>
   <script src="/defense-domain.js?v=2026071603"></script>
+  <script src="/battle-drawer.js?v=2026071603"></script>
+  <script src="/virtual-list.js?v=2026071603"></script>
+  <script src="/defense-manager.js?v=2026071603"></script>
   <script src="/defense-controller.js?v=2026071603"></script>
 </body>
 </html>

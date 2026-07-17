@@ -48,13 +48,15 @@ test('Defense ordinary page keeps the approved constant-size mobile reading orde
   assert.match(html, /<meta\s+name="viewport"\s+content="width=device-width,\s*initial-scale=1,\s*viewport-fit=cover">/);
 });
 
-test('ordinary Defense contains no roster, manager metrics, tactical radar, or legacy calculator', () => {
+test('ordinary Defense surface contains no roster, manager metrics, tactical radar, or legacy calculator', () => {
   const html = source('public/defense.html');
   const controller = source('public/defense-controller.js');
-  assert.doesNotMatch(html, /playersPage|defenseManagerState|registeredProfiles|connectedProfiles/i);
-  assert.doesNotMatch(html, /\bid="(?:roster|playersList|radar|dsvg|enemyList|whaleChips)"/i);
-  assert.doesNotMatch(html, /Attack\s*\/\s*Defense|enemy whale|castle radar/i);
-  assert.doesNotMatch(controller, /playersPage|registeredProfiles|connectedProfiles/);
+  const ordinary = html.slice(html.indexOf('id="defenseRoom"'), html.indexOf('id="defenseManagerDrawer"'));
+  assert.doesNotMatch(ordinary, /playersPage|defenseManagerState|registeredProfiles|connectedProfiles/i);
+  assert.doesNotMatch(ordinary, /\bid="(?:roster|playersList|radar|dsvg|enemyList|whaleChips)"/i);
+  assert.doesNotMatch(ordinary, /Attack\s*\/\s*Defense|enemy whale|castle radar/i);
+  assert.doesNotMatch(controller, /BattleAudio[^\n]*DefenseManager|DefenseManager[^\n]*BattleAudio/,
+    'manager orchestration never receives the ordinary audio engine');
 });
 
 test('Defense browser wiring reuses every shared battle foundation on surface defense', () => {
@@ -62,7 +64,8 @@ test('Defense browser wiring reuses every shared battle foundation on surface de
   const controller = source('public/defense-controller.js');
   const scripts = [
     'battle-connection.js', 'battle-status.js', 'battle-audio.js', 'battle-cues.js',
-    'battle-identity.js', 'battle-delivery.js', 'defense-domain.js', 'defense-controller.js'
+    'battle-identity.js', 'battle-delivery.js', 'defense-domain.js', 'battle-drawer.js',
+    'virtual-list.js', 'defense-manager.js', 'defense-controller.js'
   ];
   let previous = -1;
   for (const script of scripts) {
@@ -77,6 +80,49 @@ test('Defense browser wiring reuses every shared battle foundation on surface de
   assert.match(controller, /BattleIdentity\.createIdentityStore/);
   assert.match(controller, /BattleStatus/);
   assert.doesNotMatch(html, /src="\/app\.js/);
+});
+
+test('Defense manager uses the shared three-state drawer with exactly Status and Players tabs', () => {
+  const html = source('public/defense.html');
+  for (const id of [
+    'defenseManagerDrawer', 'defenseManagerHandle', 'defenseManagerCommand',
+    'defenseManagerManage', 'defenseManagerStatusTab', 'defenseManagerPlayersTab',
+    'defenseManagerStatusPane', 'defenseManagerPlayersPane', 'defenseManagerPlayerList',
+    'defenseManagerPersonalCue', 'defenseManagerLive'
+  ]) assert.match(html, new RegExp(`id="${id}"`), `contains ${id}`);
+  assert.match(html, /id="defenseManagerDrawer"[^>]*class="[^"]*battle-drawer/);
+  assert.match(html, /id="defenseManagerHandle"[^>]*class="[^"]*battle-drawer__header/);
+  assert.equal((html.match(/role="tab"/g) || []).length, 2);
+  assert.doesNotMatch(html, /role="tab"[^>]*>\s*Timing/i);
+  assert.match(html, /id="defenseManagerLive"[^>]*role="status"[^>]*aria-live="polite"/);
+  assert.match(html, /id="defenseManagerCancelConfirm"[^>]*role="alertdialog"/);
+  assert.match(html, /id="defenseManagerRemoveConfirm"[^>]*role="alertdialog"/);
+});
+
+test('manager mount fans the same Defense connection to ordinary and manager controllers', () => {
+  const controller = source('public/defense-controller.js');
+  const manager = source('public/defense-manager.js');
+  assert.equal((controller.match(/createRoomConnection\s*\(/g) || []).length, 1,
+    'the page owns exactly one room connection');
+  assert.match(controller, /DefenseManager\.mountDefenseManager/);
+  assert.match(controller, /controller\.handleMessage\(message\)[\s\S]*managerPage\.handleMessage\(message\)/);
+  assert.match(controller, /controller\.connectionChanged\(next\)[\s\S]*managerPage\.connectionChanged\(next\)/);
+  assert.match(controller, /controller\.clockChanged\(next\)[\s\S]*managerPage\.clockChanged\(next\)/);
+  assert.match(controller, /managerPage\.setPersonalState/,
+    'manager+defender header consumes the ordinary projection without a second scheduler');
+  assert.doesNotMatch(manager, /tickTimer\s*=\s*win\.setInterval/,
+    'ordinary devices do not inherit a manager-only half-second paint loop');
+});
+
+test('Defense manager CSS is mobile-first, text-zoom safe, and bounds the large roster', () => {
+  const css = source('public/defense.css');
+  assert.match(css, /\.defense-manager__players-list[\s\S]*overflow:\s*auto/);
+  assert.match(css, /\.defense-manager__player-card[\s\S]*min-height:\s*76px/);
+  assert.match(css, /@media\s*\(max-width:\s*359px\)[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+  assert.match(css, /@media\s*\(min-resolution:\s*1\.5dppx\)[\s\S]*\.defense-manager__player-card/,
+    'high text scaling receives an explicit resilient card layout');
+  assert.match(css, /\.defense-manager[^\{]*input[\s\S]*font-size:\s*16px/);
+  assert.doesNotMatch(css, /\.defense-manager[^\{]*\{[^}]*overflow-x:\s*(?:auto|scroll)/);
 });
 
 test('English and Chinese Defense strings use website-only truth and exact Now copy', () => {
