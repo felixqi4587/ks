@@ -1,5 +1,6 @@
 export const MARCH_MIN = 5;
 export const MARCH_MAX = 120;
+const DEFENSE_PLAYER_LIMIT = 150;
 
 const own = (object, key) => Object.prototype.hasOwnProperty.call(object || {}, key);
 
@@ -223,6 +224,37 @@ export function removePlayerAtomic(room, pidValue, nowSec) {
   const cleared = clearStagedPlayer(room.live, pid);
   delete room.players[pid];
   return { ok: true, pid, cleared };
+}
+
+export function projectDefensePlayerPurges(playersValue, profileOwnersValue, devicesValue, pidValues) {
+  const sourcePlayers = playersValue && typeof playersValue === 'object' && !Array.isArray(playersValue)
+    ? playersValue : {};
+  const candidates = [];
+  const seen = new Set();
+  const rawPids = Array.isArray(pidValues) ? pidValues.slice(0, DEFENSE_PLAYER_LIMIT) : [];
+  for (const rawPid of rawPids) {
+    const pid = normalizeRoutingKey(rawPid);
+    if (!pid || seen.has(pid)) continue;
+    seen.add(pid);
+    candidates.push(pid);
+  }
+  const pids = candidates.filter(pid => !own(sourcePlayers, pid));
+  const removed = new Set(pids);
+  const players = Object.create(null);
+  for (const rawPid of Object.keys(sourcePlayers)) {
+    const pid = normalizeRoutingKey(rawPid);
+    if (pid && pid === rawPid && !removed.has(pid)) players[pid] = sourcePlayers[rawPid];
+  }
+  const sourceOwners = profileOwnersValue && typeof profileOwnersValue === 'object' && !Array.isArray(profileOwnersValue)
+    ? profileOwnersValue : {};
+  const profileOwners = Object.create(null);
+  for (const rawPid of Object.keys(sourceOwners)) {
+    const pid = normalizeRoutingKey(rawPid);
+    if (pid && pid === rawPid && !removed.has(pid)) profileOwners[pid] = sourceOwners[rawPid];
+  }
+  const devices = (Array.isArray(devicesValue) ? devicesValue : [])
+    .filter(device => !removed.has(normalizeRoutingKey(device && device.pid)));
+  return { pids, players, profileOwners, devices };
 }
 
 export function freezeDoubleRally(players, pairsValue, firstPressValue) {

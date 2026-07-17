@@ -243,6 +243,80 @@ test('staged removal is atomic while an unexpired command blocks it', async () =
   assert.equal(removePlayerAtomic(room, 'p1', 100).ok, true, 'expiry at now is not active');
 });
 
+test('Defense purge projection clears only already-absent profiles and is idempotent across all private maps', async () => {
+  const { projectDefensePlayerPurges } = await domain();
+  const players = Object.create(null);
+  players.keep_me = { name: 'Keep', march: 40 };
+  players.__proto__ = { name: 'Poison', march: 41 };
+  players.constructor = { name: 'Constructor', march: 42 };
+  players['bad pid'] = { name: 'Bad', march: 43 };
+  const profileOwners = Object.create(null);
+  profileOwners.remove_me = 'owner-a';
+  profileOwners.keep_me = 'owner-b';
+  profileOwners.__proto__ = 'poison-owner';
+  profileOwners.constructor = 'constructor-owner';
+  const devices = [
+    { pid: 'remove_me', deviceId: 'device-a' },
+    { pid: 'keep_me', deviceId: 'device-b' },
+    { pid: 'remove_me', deviceId: 'device-c' }
+  ];
+  const beforePlayers = structuredClone(Object.entries(players));
+  const beforeOwners = structuredClone(Object.entries(profileOwners));
+  const beforeDevices = structuredClone(devices);
+
+  const first = projectDefensePlayerPurges(
+    players,
+    profileOwners,
+    devices,
+    ['remove_me', 'remove_me', '__proto__', 'bad pid']
+  );
+  assert.deepEqual(first.pids, ['remove_me']);
+  assert.equal(Object.getPrototypeOf(first.players), null);
+  assert.equal(Object.getPrototypeOf(first.profileOwners), null);
+  assert.deepEqual({ ...first.players }, { keep_me: players.keep_me });
+  assert.deepEqual({ ...first.profileOwners }, { keep_me: 'owner-b' });
+  assert.deepEqual(first.devices, [{ pid: 'keep_me', deviceId: 'device-b' }]);
+  assert.equal(Object.getPrototypeOf(players), null);
+  assert.equal(Object.getPrototypeOf(profileOwners), null);
+  assert.deepEqual(Object.entries(players), beforePlayers);
+  assert.deepEqual(Object.entries(profileOwners), beforeOwners);
+  assert.deepEqual(devices, beforeDevices);
+
+  const retried = projectDefensePlayerPurges(
+    first.players,
+    first.profileOwners,
+    first.devices,
+    first.pids
+  );
+  assert.deepEqual(retried, first, 'replaying the same atomic purge plan is harmless');
+});
+
+test('Defense purge projection cannot delete a same-PID replacement and bounds validated unique intent at 150', async () => {
+  const { projectDefensePlayerPurges } = await domain();
+  const replacement = { name: 'Replacement', march: 50 };
+  const players = Object.assign(Object.create(null), { reused: replacement });
+  const owners = Object.assign(Object.create(null), { reused: 'new-owner' });
+  const devices = [{ pid: 'reused', deviceId: 'new-device' }];
+  const blocked = projectDefensePlayerPurges(players, owners, devices, ['reused']);
+  assert.deepEqual(blocked.pids, []);
+  assert.equal(blocked.players.reused, replacement);
+  assert.equal(blocked.profileOwners.reused, 'new-owner');
+  assert.deepEqual(blocked.devices, devices);
+
+  const validPids = Array.from({ length: 150 }, (_, index) => `purge_${String(index).padStart(3, '0')}`);
+  const rawIntent = validPids.slice();
+  Object.defineProperty(rawIntent, 150, {
+    enumerable: true,
+    get() { throw new Error('purge input scanned past the 150-player boundary'); }
+  });
+  let bounded;
+  assert.doesNotThrow(() => {
+    bounded = projectDefensePlayerPurges(Object.create(null), Object.create(null), [], rawIntent);
+  });
+  assert.equal(bounded.pids.length, 150);
+  assert.deepEqual(bounded.pids, validPids);
+});
+
 test('double-rally snapshot uses canonical values and generic target extraction has no pair-count assumption', async () => {
   const { freezeDoubleRally, rallyTargetPids } = await domain();
   const players = {
