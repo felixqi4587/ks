@@ -888,7 +888,15 @@ test('two commander sockets cannot concurrently stage one player in both kingdom
   const h = createRoomHarness(Room);
   await claimRoom(h);
   const secondSent = [];
-  const secondCommander = { send(message) { secondSent.push(JSON.parse(message)); } };
+  let secondAttachment = null;
+  const secondCommander = {
+    send(message) { secondSent.push(JSON.parse(message)); },
+    serializeAttachment(value) { secondAttachment = structuredClone(value); },
+    deserializeAttachment() {
+      return secondAttachment == null ? null : structuredClone(secondAttachment);
+    }
+  };
+  h.room.attachSocket(secondCommander, h.roomName);
   h.reset();
 
   await Promise.all([

@@ -326,6 +326,7 @@ test('Reliable defaults are initialized in the harness and in fetch before the f
   h.room.delivery = { v: 1, roomName: h.roomName, commands: [] };
   assert.deepEqual(h.room.initializeReliableAttachment(h.ws), {
     roomName: h.roomName,
+    surface: 'rally',
     pid: '',
     deviceId: '',
     soundReady: false,

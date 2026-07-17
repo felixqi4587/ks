@@ -47,7 +47,8 @@ test('Room binds device identity to the sending socket before accepting a Classi
   assert.deepEqual(b1.sent, [{ t: 'deviceStatusSaved', pid: 'kimchi', deviceId: IDS.b1, soundReady: true }]);
   a1.sent.length = 0; a2.sent.length = 0; b1.sent.length = 0;
   assert.deepEqual(a1.attachment(), {
-    roomName: h.roomName, pid: '001', deviceId: IDS.a1, soundReady: true, lastSeenMs: nowMs
+    roomName: h.roomName, surface: 'rally', pid: '001', deviceId: IDS.a1,
+    soundReady: true, lastSeenMs: nowMs
   });
   assert.equal(h.room.devices.length, 3);
 
@@ -162,7 +163,8 @@ test('Room binds device identity to the sending socket before accepting a Classi
 
   await send(h.room, a2.ws, { t: 'deviceStatus', pid: 'kimchi', deviceId: IDS.a2, soundReady: true });
   assert.deepEqual(a2.attachment(), {
-    roomName: h.roomName, pid: '001', deviceId: IDS.a2, soundReady: false, lastSeenMs: nowMs
+    roomName: h.roomName, surface: 'rally', pid: '001', deviceId: IDS.a2,
+    soundReady: false, lastSeenMs: nowMs
   }, 'a socket cannot change its bound player/device tuple');
   assert.deepEqual(a2.sent.at(-1), { t: 'error', source: 'deviceStatus', error: 'socket_identity_locked' });
   h.reset();
@@ -174,7 +176,7 @@ test('Room binds device identity to the sending socket before accepting a Classi
   const conflict = socketFor(h.room, h.roomName);
   await send(h.room, conflict.ws, { t: 'deviceStatus', pid: 'kimchi', deviceId: IDS.a1, soundReady: true });
   assert.deepEqual(conflict.attachment(), {
-    roomName: h.roomName, pid: '', deviceId: '', soundReady: false
+    roomName: h.roomName, surface: 'rally', pid: '', deviceId: '', soundReady: false
   }, 'a fresh registry device cannot be claimed by a different player');
   assert.deepEqual(conflict.sent.at(-1), { t: 'error', source: 'deviceStatus', error: 'device_owned_by_other_pid' });
 
@@ -196,7 +198,8 @@ test('identity-bearing heartbeat refreshes the same private binding without expo
   });
 
   assert.deepEqual(player.attachment(), {
-    roomName: h.roomName, pid: '001', deviceId: IDS.a1, soundReady: true, lastSeenMs: h.nowMs
+    roomName: h.roomName, surface: 'rally', pid: '001', deviceId: IDS.a1,
+    soundReady: true, lastSeenMs: h.nowMs
   });
   assert.equal(h.room.devices[0].pid, '001');
   assert.equal(h.room.devices[0].deviceId, IDS.a1);
@@ -224,6 +227,7 @@ test('attachment writes preserve fields owned by later Reliable and Triple layer
   h.room.writeSocketAttachment(h.ws, { pid: '001', deviceId: IDS.a1, soundReady: true });
   assert.deepEqual(h.ws.deserializeAttachment(), {
     roomName: h.roomName,
+    surface: 'rally',
     shadow: true,
     clientBuild: 19,
     pid: '001',

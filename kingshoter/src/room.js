@@ -63,6 +63,36 @@ import {
 } from "./rally-mode.js";
 import { buildTripleRallyCommand } from "./rally-targets.js";
 import { MIN_TRIPLE_BUILD, parseClientBuild, projectRoomForClient } from "./client-build.js";
+import {
+  DEFENSE_SURFACE,
+  RALLY_SURFACE,
+  inspectSocketSurface,
+  mergeSocketSurface,
+  parseRequestedSurface
+} from "./room-surface.js";
+
+function deserializeSocketAttachment(ws) {
+  try { return ws.deserializeAttachment(); }
+  catch (error) { return { surface: null }; }
+}
+
+function sendSurfaceError(ws, error) {
+  try { ws.send(JSON.stringify({ t: "error", error })); } catch (sendError) {}
+}
+
+function socketSurfaceError(code) {
+  const error = new Error(code);
+  error.code = code;
+  return error;
+}
+
+function attachmentNeedsAcceptedSocket(error) {
+  return /requires an accepted WebSocket/i.test(String(error && error.message || ""));
+}
+
+function closeFailedSocket(ws) {
+  try { ws.close(1011, "attachment_failed"); } catch (error) {}
+}
 
 function defaultRoom() {
   return {
@@ -215,7 +245,7 @@ export class Room {
   constructor(state, env) {
     this.state = state;
     this.env = env;
-    this.room = null;
+    this.room = defaultRoom();
     const durableRoomName = String(state && state.id && state.id.name || "");
     this.roomName = (durableRoomName.startsWith("r:") ? durableRoomName.slice(2) : durableRoomName).slice(0, 48);
     this.delivery = defaultDeliveryState(this.roomName);
@@ -223,11 +253,32 @@ export class Room {
     this.deliveryAcks = [];
     this._deliveryLoaded = false;
     this._deliveryLoadPromise = null;
+    this._rallyLoaded = false;
+    this._rallyLoadPromise = null;
+    let loadRallyAtConstruction = typeof state.getWebSockets !== "function";
+    if (!loadRallyAtConstruction) {
+      try {
+        loadRallyAtConstruction = state.getWebSockets().some(ws => {
+          const surface = inspectSocketSurface(deserializeSocketAttachment(ws));
+          return surface.ok && surface.surface === RALLY_SURFACE;
+        });
+      } catch (error) {
+        loadRallyAtConstruction = false;
+      }
+    }
     state.blockConcurrencyWhile(async () => {
-      const storedRoom = (await state.storage.get("room")) || defaultRoom();
+      if (!loadRallyAtConstruction) return;
+      await this.ensureRallyLoaded();
+    });
+  }
+
+  async ensureRallyLoaded() {
+    if (this._rallyLoaded !== false) return;
+    if (!this._rallyLoadPromise) this._rallyLoadPromise = (async () => {
+      const storedRoom = (await this.state.storage.get("room")) || defaultRoom();
       const playerMigration = normalizePlayerRecordsWithMigration(storedRoom.players);
       if (playerMigration.changed) {
-        await state.storage.put("room", Object.assign({}, storedRoom, { players: playerMigration.players }));
+        await this.state.storage.put("room", Object.assign({}, storedRoom, { players: playerMigration.players }));
       }
       this.room = storedRoom;
       this.room.players = playerMigration.players;
@@ -235,9 +286,12 @@ export class Room {
       delete this.room.delivery;
       delete this.room.deliveryShadow;
       let storedDelivery = null;
-      try { storedDelivery = await state.storage.get(DELIVERY_STORAGE_KEY); } catch (error) {}
+      try { storedDelivery = await this.state.storage.get(DELIVERY_STORAGE_KEY); } catch (error) {}
       this.delivery = normalizeDeliveryState(storedDelivery || this.delivery, this.nowMs());
-    });
+      this._rallyLoaded = true;
+    })();
+    try { await this._rallyLoadPromise; }
+    finally { if (!this._rallyLoaded) this._rallyLoadPromise = null; }
   }
 
   // migrate older single-slot live state to the per-kingdom shape
@@ -252,14 +306,37 @@ export class Room {
   }
 
   async fetch(request) {
-    await this.ensureDeliveryLoaded();
     const url = new URL(request.url);
+    const requestedSurface = parseRequestedSurface(url.searchParams);
+    if (!requestedSurface.ok) {
+      return new Response(JSON.stringify({ t: "error", error: requestedSurface.error }), {
+        status: 400,
+        headers: { "Content-Type": "application/json; charset=utf-8" }
+      });
+    }
+    const isWebSocket = request.headers.get("Upgrade") === "websocket";
+    if (requestedSurface.surface === DEFENSE_SURFACE) {
+      if (!isWebSocket) {
+        return new Response(JSON.stringify({ t: "error", error: "defense_not_available" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json; charset=utf-8" }
+        });
+      }
+      const pair = new WebSocketPair();
+      const [client, server] = Object.values(pair);
+      this.attachSocket(server, this.roomName, DEFENSE_SURFACE);
+      sendSurfaceError(server, "defense_not_available");
+      return new Response(null, { status: 101, webSocket: client });
+    }
+
+    await this.ensureRallyLoaded();
+    await this.ensureDeliveryLoaded();
     await this.applyTripleGate();
-    if (request.headers.get("Upgrade") === "websocket") {
+    if (isWebSocket) {
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       const clientBuild = parseClientBuild(url.searchParams.get("clientBuild"));
-      this.attachSocket(server, this.roomName);      // Hibernation API + merge-safe identity base
+      this.attachSocket(server, this.roomName, RALLY_SURFACE);      // Hibernation API + merge-safe identity base
       this.initializeReliableAttachment(server);
       this.writeSocketAttachment(server, { clientBuild });
       server.send(this.stateMsg(clientBuild));
@@ -436,6 +513,7 @@ export class Room {
     return true;
   }
   async alarm() {
+    await this.ensureRallyLoaded();
     this.normalizeLive();
     const nowMs = this.nowMs();
     const nowS = Math.floor(nowMs / 1000);
@@ -529,19 +607,52 @@ export class Room {
     }
     try { await this._deliveryLoadPromise; } finally { if (!this._deliveryLoaded) this._deliveryLoadPromise = null; }
   }
-  attachSocket(server, roomName) {
-    this.state.acceptWebSocket(server);
-    this.writeSocketAttachment(server, { roomName, pid: "", deviceId: "", soundReady: false });
+  attachSocket(server, roomName, surface = RALLY_SURFACE) {
+    const base = mergeSocketSurface({}, {
+      roomName, surface, pid: "", deviceId: "", soundReady: false
+    });
+    const next = {
+      ...base,
+      ...normalizeCoreSocketAttachment(base, roomName || this.roomName),
+      surface
+    };
+    try {
+      server.serializeAttachment(next);
+    } catch (error) {
+      if (!attachmentNeedsAcceptedSocket(error)) {
+        closeFailedSocket(server);
+        throw error;
+      }
+      this.state.acceptWebSocket(server);
+      try { server.serializeAttachment(next); }
+      catch (retryError) {
+        closeFailedSocket(server);
+        throw retryError;
+      }
+      return next;
+    }
+    try { this.state.acceptWebSocket(server); }
+    catch (error) {
+      closeFailedSocket(server);
+      throw error;
+    }
+    return next;
   }
   readSocketAttachment(ws) {
-    let raw = null;
-    try { raw = ws.deserializeAttachment(); } catch (error) {}
-    const source = raw && typeof raw === "object" ? raw : {};
-    return { ...source, ...normalizeCoreSocketAttachment(source, source.roomName || this.roomName) };
+    const source = deserializeSocketAttachment(ws);
+    const surface = inspectSocketSurface(source);
+    if (!surface.ok) throw socketSurfaceError(surface.error);
+    return {
+      ...source,
+      ...normalizeCoreSocketAttachment(source, source.roomName || this.roomName),
+      surface: surface.surface
+    };
   }
   writeSocketAttachment(ws, patch) {
+    const source = deserializeSocketAttachment(ws);
     const current = this.readSocketAttachment(ws);
-    const merged = { ...current, ...(patch && typeof patch === "object" ? patch : {}) };
+    const surfaceMerged = mergeSocketSurface(source, patch);
+    const merged = { ...current, ...surfaceMerged };
     if (current.pid || current.deviceId) {
       merged.pid = current.pid;
       merged.deviceId = current.deviceId;
@@ -553,7 +664,11 @@ export class Room {
   liveCoreSockets(excludeSocket = null) {
     return this.state.getWebSockets().filter(socket =>
       socket !== excludeSocket &&
-      (typeof socket.readyState !== "number" || socket.readyState === 1)
+      (typeof socket.readyState !== "number" || socket.readyState === 1) &&
+      (() => {
+        const surface = inspectSocketSurface(deserializeSocketAttachment(socket));
+        return surface.ok && surface.surface === RALLY_SURFACE;
+      })()
     );
   }
   liveCoreDevices(excludeSocket = null) {
@@ -893,6 +1008,16 @@ export class Room {
   nowMs() { return Date.now(); }
 
   async webSocketMessage(ws, raw) {
+    const socketSurface = inspectSocketSurface(deserializeSocketAttachment(ws));
+    if (!socketSurface.ok) return sendSurfaceError(ws, socketSurface.error);
+    if (socketSurface.needsMigration) {
+      try { this.writeSocketAttachment(ws, { surface: RALLY_SURFACE }); }
+      catch (error) { return sendSurfaceError(ws, "invalid_surface"); }
+    }
+    if (socketSurface.surface === DEFENSE_SURFACE) {
+      return sendSurfaceError(ws, "defense_not_available");
+    }
+    await this.ensureRallyLoaded();
     await this.ensureDeliveryLoaded();
     let m; try { m = JSON.parse(raw); } catch (e) { return; }
 
@@ -1433,6 +1558,22 @@ export class Room {
     return s;
   }
 
-  async webSocketClose(ws) { await this.ensureDeliveryLoaded(); await this.releaseSocketDevice(ws); try { ws.close(); } catch (e) {} this.broadcast(); }
-  async webSocketError(ws) { this.broadcast(); }
+  async webSocketClose(ws) {
+    const surface = inspectSocketSurface(deserializeSocketAttachment(ws));
+    if (!surface.ok || surface.surface === DEFENSE_SURFACE) {
+      try { ws.close(); } catch (error) {}
+      return;
+    }
+    await this.ensureRallyLoaded();
+    await this.ensureDeliveryLoaded();
+    await this.releaseSocketDevice(ws);
+    try { ws.close(); } catch (error) {}
+    this.broadcast();
+  }
+  async webSocketError(ws) {
+    const surface = inspectSocketSurface(deserializeSocketAttachment(ws));
+    if (!surface.ok || surface.surface === DEFENSE_SURFACE) return;
+    await this.ensureRallyLoaded();
+    this.broadcast();
+  }
 }

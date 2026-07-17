@@ -191,7 +191,7 @@ test('a failed readiness write rolls back only durable registry and keeps the li
   }));
 
   assert.deepEqual(player.attachment(), {
-    roomName: h.roomName, pid: '001', deviceId: IDS.a,
+    roomName: h.roomName, surface: 'rally', pid: '001', deviceId: IDS.a,
     soundReady: false, lastSeenMs: h.nowMs
   }, 'identity stays bound but readiness fails closed');
   assert.deepEqual(h.room.devices, devicesBefore);
