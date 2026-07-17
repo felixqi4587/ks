@@ -541,6 +541,60 @@ async function selectPlayer(page, pid) {
   }, pid, { timeout: 8_000 });
 }
 
+async function stageSelectionDiagnostic(page, kingdom) {
+  return page.evaluate(value => {
+    const selectedDomPids = Array.from(document.querySelectorAll('#roster .rp[aria-pressed="true"]'))
+      .map(node => node.dataset.pid).filter(Boolean).sort();
+    const states = Array.isArray(window.__qaObservedStates) ? window.__qaObservedStates : [];
+    const latest = states.length ? states[states.length - 1] : null;
+    const staged = latest && latest.room && latest.room.live && latest.room.live.staged &&
+      latest.room.live.staged[String(value)];
+    const canonicalStagedPids = staged && Array.isArray(staged.pairs)
+      ? staged.pairs.map(pair => pair && pair.pid).filter(Boolean).sort()
+      : [];
+    const overlay = document.querySelector('#replaceOvl');
+    return {
+      selectedDomPids,
+      canonicalStagedPids,
+      observedStateCount: states.length,
+      overlayClass: overlay ? overlay.className : '<missing>',
+      overlayDisplay: overlay ? getComputedStyle(overlay).display : '<missing>'
+    };
+  }, kingdom);
+}
+
+async function waitForCanonicalStagedSelection(page, kingdom, expectedPids) {
+  const expected = expectedPids.slice().sort();
+  try {
+    await page.waitForFunction(({ targetKingdom, targetPids }) => {
+      const states = Array.isArray(window.__qaObservedStates) ? window.__qaObservedStates : [];
+      const latest = states.length ? states[states.length - 1] : null;
+      const staged = latest && latest.room && latest.room.live && latest.room.live.staged &&
+        latest.room.live.staged[String(targetKingdom)];
+      const canonical = staged && Array.isArray(staged.pairs)
+        ? staged.pairs.map(pair => pair && pair.pid).filter(Boolean).sort()
+        : [];
+      const selected = Array.from(document.querySelectorAll('#roster .rp[aria-pressed="true"]'))
+        .map(node => node.dataset.pid).filter(Boolean).sort();
+      return canonical.length === targetPids.length && selected.length === targetPids.length &&
+        canonical.every((pid, index) => pid === targetPids[index]) &&
+        selected.every((pid, index) => pid === targetPids[index]);
+    }, { targetKingdom: kingdom, targetPids: expected }, { timeout: 8_000 });
+  } catch (error) {
+    const diagnostic = await stageSelectionDiagnostic(page, kingdom);
+    throw new Error(`Canonical staged selection did not converge: ${JSON.stringify({ expected, ...diagnostic })}`, { cause: error });
+  }
+}
+
+async function waitForReplacementOverlay(page, kingdom) {
+  try {
+    await page.locator('#replaceOvl').waitFor({ state: 'visible', timeout: 8_000 });
+  } catch (error) {
+    const diagnostic = await stageSelectionDiagnostic(page, kingdom);
+    throw new Error(`Replacement overlay did not open: ${JSON.stringify(diagnostic)}`, { cause: error });
+  }
+}
+
 async function waitForSlot(page, pid, role) {
   await page.locator(`#pickSlots .slot.${role}[data-pid="${pid}"]`).waitFor({ state: 'attached', timeout: 8_000 });
 }
@@ -837,8 +891,9 @@ async function runCoreScenario(browser, engineName) {
 
     await selectPlayer(commander.page, captainAProfile.pid);
     await selectPlayer(commander.page, captainBProfile.pid);
+    await waitForCanonicalStagedSelection(commander.page, 1, [captainAProfile.pid, captainBProfile.pid]);
     await commander.page.locator(`#roster .rp[data-pid="${ordinaryProfile.pid}"]`).click();
-    await commander.page.locator('#replaceOvl').waitFor({ state: 'visible' });
+    await waitForReplacementOverlay(commander.page, 1);
     assert.equal(await commander.page.locator('#roster .rp[aria-pressed="true"]').count(), 2,
       'a third player never silently replaces a captain');
     await commander.page.locator('#replaceWeak').click();
