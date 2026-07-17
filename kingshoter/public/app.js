@@ -37,6 +37,8 @@ window.I18N = {
     nav_home: "🏠 首页", nav_kvk: "⚔️ KvK 指挥", nav_codes: "🎁 礼包码", nav_events: "📅 活动表", nav_guide: "📖 词汇", utc_local: "UTC · 本地",
     /* portal */
     site_tag: "每位车头只看自己的开车倒数 · Kingshot 玩家工具", soon: "敬请期待", sec_more: "更多工具",
+    card_rally: "集结协调", card_rally_d: "同步双集结或三集结车头的个人发车倒数。",
+    card_defense: "防守协调", card_defense_d: "为大量防守玩家发送各自的语音倒数。",
     card_kvk: "KvK 实时指挥 / 模拟器", card_kvk_d: "指挥一处发令，两个车头收到各自的错峰开车倒数；普通成员收到一个通用加入提醒。",
     card_codes: "礼包码查询", card_codes_d: "当前有效礼包码，随时查、点一下复制。",
     card_events: "活动 / 事件时间表", card_events_d: "竞技场、火龙、熊突、KvK 节点时间，自动换算你的时区。",
@@ -74,6 +76,8 @@ window.I18N = {
   en: {
     nav_home: "🏠 Home", nav_kvk: "⚔️ KvK", nav_codes: "🎁 Codes", nav_events: "📅 Events", nav_guide: "📖 Guide", utc_local: "UTC · Local",
     site_tag: "Every captain follows their own launch countdown · Kingshot player tools", soon: "coming soon", sec_more: "More tools",
+    card_rally: "Rally Coordination", card_rally_d: "Synchronize personal launch countdowns for Double or Triple Rally captains.",
+    card_defense: "Defense Coordination", card_defense_d: "Send personal voice countdowns to a large defender group.",
     card_kvk: "KvK live command / simulator", card_kvk_d: "Command from one place: both captains receive their own staggered launch countdown; ordinary members get one generic join alert.",
     card_codes: "Gift code lookup", card_codes_d: "Currently-active gift codes — check anytime, tap to copy.",
     card_events: "Event timetable", card_events_d: "Arena, dragon, bear, KvK times — auto-converted to your timezone.",

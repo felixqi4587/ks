@@ -13,10 +13,12 @@ TRIPLE_RALLY_ENABLED = "1"
 TRIPLE_RALLY_QA_ENABLED = "1"
 
 # Static frontend (Workers Static Assets) — public/ served at the edge.
-# run_worker_first: /api/g/* must hit the Worker (auth + KV), never be shadowed by a static file.
+# Coordination routes must hit the Worker first so canonical method handling and legacy redirects
+# behave identically in tests, local Wrangler, and production.
 [assets]
 directory = "public"
 binding = "ASSETS"
+run_worker_first = ["/rally", "/defense", "/kvk", "/kvk.html"]
 
 # One Durable Object per room ("r:<room>" — room name only): live state + WebSocket fan-out.
 [[durable_objects.bindings]]

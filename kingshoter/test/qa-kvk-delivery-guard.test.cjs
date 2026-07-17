@@ -248,11 +248,16 @@ test('Triple Playwright config gates loopback and the exact production origin', 
   }
 });
 
-test('focused delivery scripts are additive and retain every existing command', () => {
+test('focused delivery scripts retain runnable existing commands and one-release Rally aliases', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
   assert.equal(pkg.scripts.test, 'node --test test/*.test.cjs');
-  assert.equal(pkg.scripts['test:kvk-core'], 'node test/kvk-core-multibrowser.e2e.cjs --project=chromium');
-  assert.equal(pkg.scripts['test:kvk-core:all'], 'node test/kvk-core-multibrowser.e2e.cjs --project=all');
+  assert.equal(pkg.scripts['test:rally-core'], 'node test/kvk-core-multibrowser.e2e.cjs --project=chromium');
+  assert.equal(pkg.scripts['test:rally-core:all'], 'node test/kvk-core-multibrowser.e2e.cjs --project=all');
+  assert.equal(pkg.scripts['test:kvk-core'], 'npm run test:rally-core');
+  assert.equal(pkg.scripts['test:kvk-core:all'], 'npm run test:rally-core:all');
+  assert.equal(fs.existsSync(path.join(ROOT, 'test/kvk-core-multibrowser.e2e.cjs')), true);
+  assert.equal(pkg.scripts['test:load:defense'], undefined);
+  assert.equal(pkg.scripts['test:qa:rally-defense'], undefined);
   assert.equal(pkg.scripts.deploy, 'wrangler deploy');
   assert.equal(pkg.scripts.dev, 'wrangler dev');
   assert.equal(pkg.scripts['test:delivery'], [

@@ -4,8 +4,11 @@
   "type": "module",
   "scripts": {
     "test": "node --test test/*.test.cjs",
-    "test:kvk-core": "node test/kvk-core-multibrowser.e2e.cjs --project=chromium",
-    "test:kvk-core:all": "node test/kvk-core-multibrowser.e2e.cjs --project=all",
+    "test:rally-core": "node test/kvk-core-multibrowser.e2e.cjs --project=chromium",
+    "test:rally-core:all": "node test/kvk-core-multibrowser.e2e.cjs --project=all",
+    "test:kvk-core": "npm run test:rally-core",
+    "test:kvk-core:all": "npm run test:rally-core:all",
+    "test:rally-defense": "node --test test/rally-*.test.cjs test/defense-*.test.cjs test/coordination-*.test.cjs",
     "test:delivery": "node --test test/delivery-model.test.cjs test/room-delivery.test.cjs test/reliable-room-delivery.test.cjs test/delivery-shadow-client.test.cjs test/delivery-browser-wiring.test.cjs test/qa-kvk-delivery-guard.test.cjs",
     "test:qa:delivery": "playwright test -c playwright.qa-kvk.config.cjs",
     "test:qa:delivery:chromium": "playwright test -c playwright.qa-kvk.config.cjs --project=chromium",

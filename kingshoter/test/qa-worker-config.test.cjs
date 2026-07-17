@@ -26,6 +26,7 @@ test('QA Worker config is isolated from production bindings', () => {
     '[assets]',
     'directory = "public"',
     'binding = "ASSETS"',
+    'run_worker_first = ["/rally", "/defense", "/kvk", "/kvk.html"]',
     '[[durable_objects.bindings]]',
     'name = "ROOM"',
     'class_name = "Room"',

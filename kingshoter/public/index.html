@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#f8f8f0">
 <title>kingshoter · Kingshot tools</title>
 <link rel="icon" href="/favicon.svg">
-<link rel="stylesheet" href="app.css?v=15">
+<link rel="stylesheet" href="app.css?v=2026071603">
 <style>
   .hero{text-align:center}
   .logo{font:900 30px/1 var(--font);color:var(--brown);letter-spacing:1px;margin:8px 0 2px}
@@ -16,7 +16,8 @@
   .tag{color:var(--brown2);font-weight:700;font-size:13px;margin-top:6px}
   .entry{display:flex;align-items:center;gap:14px;text-decoration:none;color:inherit}
   .entry .em{width:56px;height:56px;border-radius:18px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;font-size:28px}
-  .entry .em.kvk{background:linear-gradient(180deg,#fdeeee,#fbe3e3);border:2px solid #f4b9bc}
+  .entry .em.rally{background:linear-gradient(180deg,#e8faf7,#d2f4ee);border:2px solid #91ddd2}
+  .entry .em.defense{background:linear-gradient(180deg,#eef1ff,#e1e6fb);border:2px solid #b8c4ef}
   .entry .em.codes{background:linear-gradient(180deg,#fff6e0,#fdeccb);border:2px solid #f3dca0}
   .entry .em.events{background:linear-gradient(180deg,#eafaf7,var(--mint-bg));border:2px solid #bfeee7}
   .entry h2{margin:0 0 2px;font-size:16px}
@@ -25,7 +26,8 @@
   .soon .em{background:var(--cream2);border:2px dashed var(--line-hi)}
   .soontag{margin-left:auto;font-size:10px;font-weight:900;color:var(--brown3);border:1.5px solid var(--line);border-radius:20px;padding:3px 9px}
   .entry.primary{border-color:var(--mint);background:linear-gradient(180deg,#eafaf7,var(--paper));box-shadow:0 12px 28px -14px rgba(25,200,185,.55)}
-  .entry.primary .em.kvk{background:linear-gradient(180deg,var(--mint-hi),var(--mint));border-color:var(--mint-deep)}
+  .entry.primary .em.rally{background:linear-gradient(180deg,var(--mint-hi),var(--mint));border-color:var(--mint-deep)}
+  .entry.primary .em.defense{background:linear-gradient(180deg,#eef1ff,#d9e0fb);border-color:#9aa9e2}
   .live{margin-left:auto;display:inline-flex;align-items:center;gap:5px;font:900 10px/1 var(--font);color:var(--mint-deep);text-transform:uppercase;letter-spacing:.08em}
   .live .d{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 rgba(111,186,44,.6);animation:lp 1.6s ease-out infinite}
   @keyframes lp{0%{box-shadow:0 0 0 0 rgba(111,186,44,.55)}70%,100%{box-shadow:0 0 0 8px rgba(111,186,44,0)}}
@@ -49,9 +51,14 @@
     <div class="tag" data-i18n="site_tag">Kingshot 玩家工具站 · 动森风</div>
   </div>
 
-  <a class="card entry primary" href="kvk.html">
-    <div class="em kvk">⚔️</div>
-    <div><h2 data-i18n="card_kvk">KvK 实时指挥 / 模拟器</h2><p class="hint" style="margin:0" data-i18n="card_kvk_d">指挥一处发令，全队屏幕实时同步。</p></div>
+  <a class="card entry primary" href="/rally">
+    <div class="em rally">⚔️</div>
+    <div><h2 data-i18n="card_rally">集结协调</h2><p class="hint" style="margin:0" data-i18n="card_rally_d">同步双集结或三集结车头的个人发车倒数。</p></div>
+    <span class="live"><span class="d"></span>LIVE</span>
+  </a>
+  <a class="card entry primary" href="/defense">
+    <div class="em defense">🛡️</div>
+    <div><h2 data-i18n="card_defense">防守协调</h2><p class="hint" style="margin:0" data-i18n="card_defense_d">为大量防守玩家发送各自的语音倒数。</p></div>
     <span class="live"><span class="d"></span>LIVE</span>
   </a>
   <div class="seclab" data-i18n="sec_more">更多工具</div>
@@ -67,7 +74,7 @@
   </a>
   <p class="foot" data-i18n="foot">Kingshot 玩家自制工具 · 非官方、与 Century Games 无关 ⚔️🐟</p>
 </main></div>
-<script src="app.js?v=9"></script>
+<script src="app.js?v=2026071603"></script>
 <script>initI18n();</script>
 </body>
 </html>

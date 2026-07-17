@@ -27,6 +27,8 @@ test('GET /api/build returns uncached build metadata and does not reach other ro
   assert.deepEqual(await response.json(), {
     currentBuild: 2026071603,
     minKvkBuild: 2026071603,
+    minRallyBuild: 2026071603,
+    minDefenseBuild: 2026071603,
     minTripleBuild: 2026071603,
     tripleEnabled: false,
     tripleQaEnabled: true
@@ -47,6 +49,8 @@ test('GET /api/build enables gates only for the exact string value 1', async () 
   assert.deepEqual(await enabled.json(), {
     currentBuild: 2026071603,
     minKvkBuild: 2026071603,
+    minRallyBuild: 2026071603,
+    minDefenseBuild: 2026071603,
     minTripleBuild: 2026071603,
     tripleEnabled: true,
     tripleQaEnabled: true
@@ -54,6 +58,8 @@ test('GET /api/build enables gates only for the exact string value 1', async () 
   assert.deepEqual(await malformed.json(), {
     currentBuild: 2026071603,
     minKvkBuild: 2026071603,
+    minRallyBuild: 2026071603,
+    minDefenseBuild: 2026071603,
     minTripleBuild: 2026071603,
     tripleEnabled: false,
     tripleQaEnabled: false
@@ -70,4 +76,10 @@ test('platform gates do not capture the top-level custom-domain routes as vars',
 
 test('production enables Triple for every room', () => {
   assert.match(wrangler, /^TRIPLE_RALLY_ENABLED = "1"$/m);
+});
+
+test('production routes every canonical and legacy coordination path through the Worker', () => {
+  assert.doesNotMatch(wrangler, /^html_handling\s*=/m,
+    'default asset HTML handling must preserve homepage and extensionless static routes');
+  assert.match(wrangler, /^run_worker_first = \["\/rally", "\/defense", "\/kvk", "\/kvk\.html"\]$/m);
 });

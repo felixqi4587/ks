@@ -33,12 +33,16 @@ test('build metadata contains monotonic numeric versions and no secrets', async 
   assert.deepEqual(mod.buildMetadata(false, true), {
     currentBuild: 2026071603,
     minKvkBuild: 2026071603,
+    minRallyBuild: 2026071603,
+    minDefenseBuild: 2026071603,
     minTripleBuild: 2026071603,
     tripleEnabled: false,
     tripleQaEnabled: true
   });
   assert.equal(mod.MIN_KVK_BUILD, mod.CURRENT_KVK_BUILD,
     'the forced-refresh floor must match the coherent client build');
+  assert.equal(mod.MIN_RALLY_BUILD, mod.CURRENT_KVK_BUILD);
+  assert.equal(mod.MIN_DEFENSE_BUILD, mod.CURRENT_KVK_BUILD);
   assert.equal(mod.MIN_TRIPLE_BUILD, mod.CURRENT_KVK_BUILD);
   assert.equal(mod.parseClientBuild('2026071603'), 2026071603);
   for (const value of ['bad', '', '0', '-1', '1.5', null, undefined, Infinity]) {

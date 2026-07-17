@@ -948,8 +948,8 @@ test('injected boundaries use only current Core identity, live socket, strict tr
 });
 
 test('protected Core/audio/identity authorities contain no shadow wiring', () => {
-  assert.equal(digest(app), '3a6bb17d15d40dd9ee57583a11fdf7954278a4962b88100e0ff6231db8b3af46',
-    'app.js, the BattleConnection adapter, and getRoomDeviceId remain byte-identical');
+  assert.equal(digest(app), '39b6c538e353e99bbaac60b236f9aa0daa340a6daa8383e33d884eecdc364820',
+    'app.js contains only the approved coordination-card copy change outside the protected delivery seam');
   for (const name of [
     'handleSocketMessage',
     'handleDeviceStatusSaved',

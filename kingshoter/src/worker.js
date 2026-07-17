@@ -11,9 +11,75 @@ import { buildMetadata } from "./client-build.js";
 
 const json = (o, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } });
 
+const COORDINATION_ASSETS = new Set(["/rally", "/defense"]);
+const LEGACY_RALLY_PATHS = new Set(["/kvk", "/kvk.html"]);
+const COORDINATION_METHODS = "GET, HEAD";
+
+function safeUniqueQuery(searchParams, key, validate) {
+  const values = searchParams.getAll(key);
+  if (values.length !== 1 || !validate(values[0])) return null;
+  return values[0];
+}
+
+function safeBuildQuery(value) {
+  if (!/^[1-9]\d{0,15}$/.test(value)) return false;
+  return Number.isSafeInteger(Number(value));
+}
+
+function legacyRallyLocation(url) {
+  const target = new URLSearchParams();
+  const room = safeUniqueQuery(url.searchParams, "room", value => /^[A-Za-z0-9_-]{1,48}$/.test(value));
+  const lang = safeUniqueQuery(url.searchParams, "lang", value => value === "en" || value === "zh");
+  const notour = safeUniqueQuery(url.searchParams, "notour", value => value === "1");
+  const build = safeUniqueQuery(url.searchParams, "__kvk_build", safeBuildQuery);
+  if (room !== null) target.set("room", room);
+  if (lang !== null) target.set("lang", lang);
+  if (notour !== null) target.set("notour", notour);
+  if (build !== null) target.set("__rally_build", String(Number(build)));
+  const query = target.toString();
+  return "/rally" + (query ? "?" + query : "");
+}
+
+function coordinationMethodNotAllowed() {
+  return new Response(null, {
+    status: 405,
+    headers: {
+      "Allow": COORDINATION_METHODS,
+      "Cache-Control": "no-store"
+    }
+  });
+}
+
+function legacyRallyRedirect(request, url) {
+  if (request.method !== "GET" && request.method !== "HEAD") return coordinationMethodNotAllowed();
+  return new Response(null, {
+    status: 302,
+    headers: {
+      "Location": legacyRallyLocation(url),
+      "Cache-Control": "no-store"
+    }
+  });
+}
+
+async function coordinationAsset(request, env) {
+  if (request.method !== "GET" && request.method !== "HEAD") return coordinationMethodNotAllowed();
+  const response = await env.ASSETS.fetch(request);
+  if (request.method !== "HEAD") return response;
+  return new Response(null, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers
+  });
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    if (LEGACY_RALLY_PATHS.has(url.pathname)) return legacyRallyRedirect(request, url);
+    if (COORDINATION_ASSETS.has(url.pathname)) {
+      return coordinationAsset(request, env);
+    }
 
     if (url.pathname === "/api/build") {
       return new Response(JSON.stringify(buildMetadata(

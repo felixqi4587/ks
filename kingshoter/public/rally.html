@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f8f8f0">
+<title>kingshoter · KvK</title>
+<link rel="icon" href="/favicon.svg">
+<link rel="stylesheet" href="app.css?v=2026071603">
+<link rel="stylesheet" href="/battle-ui.css?v=2026071603">
+<link rel="stylesheet" href="/rally.css?v=2026071603">
+<style>
+  .pond{position:relative;background:radial-gradient(circle at 50% 42%,#e8fbf8,#cdf2ec 55%,#b6ebe2);border:2px solid #bfeee7;border-radius:var(--r-lg);overflow:hidden;margin-bottom:12px;box-shadow:inset 0 2px 10px rgba(15,161,147,.12)}
+  .pond svg{display:block;width:100%;height:auto}
+  .alertrow{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+  @keyframes sgpulse{0%,100%{box-shadow:0 0 0 0 rgba(224,169,44,.5)}50%{box-shadow:0 0 0 9px rgba(224,169,44,0)}}
+  #soundGate{animation:sgpulse 1.8s ease-in-out infinite}  /* the one required first action gets the attention */
+  .ovl{position:fixed;inset:0;background:rgba(61,52,40,.55);display:none;align-items:center;justify-content:center;z-index:70;padding:18px}
+  .ovl.show{display:flex}
+  .ob{background:var(--paper);border-radius:var(--r-lg);padding:20px;max-width:380px;width:100%;box-shadow:var(--shadow-lg)}
+  .ob h3{margin:0 0 10px;color:var(--mint-deep);font-size:17px}
+  .hr{border:0;border-top:1px dashed var(--line);margin:14px 0}
+</style>
+</head>
+<body class="kvk-page battle-page">
+<div id="updateGate" class="update-gate" role="status" aria-live="assertive" aria-atomic="true" hidden>
+  <div class="update-card">Updating…</div>
+</div>
+<div class="wrap kvk-wrap battle-shell">
+  <div class="top">
+    <span class="sig" style="color:var(--mint)" aria-hidden="true"><svg viewBox="0 0 64 48" width="28" height="20"><path d="M40 24 C40 12 22 10 12 16 C4 21 4 27 12 32 C22 38 40 36 40 24 Z" fill="currentColor"/><path d="M40 24 L58 12 L54 24 L58 36 Z" fill="currentColor"/></svg></span>
+    <div><h1 data-i18n="k_h1">KvK 实时指挥</h1><div class="sub" id="roomlabel">—</div></div>
+    <div id="langtoggle" class="langtoggle" style="margin-left:auto"></div>
+  </div>
+  <div class="viewtabs">
+    <a href="index.html" data-i18n="nav_home">🏠 首页</a><a class="on" data-i18n="nav_kvk">⚔️ KvK</a>
+    <a href="codes.html" data-i18n="nav_codes">🎁 礼包码</a><a href="guide.html" data-i18n="nav_guide">📖 词汇</a>
+  </div>
+
+  <!-- JOIN GATE -->
+  <div id="joinCard" class="card hide">
+    <h2 id="t_join">进入房间</h2>
+    <div id="lastWrap" class="hide"><button class="btn amber full" id="lastBtn" style="margin-bottom:6px"></button><p class="hint" id="t_ornew" style="text-align:center;margin:0 0 10px">或进别的房间</p></div>
+    <p class="hint" id="t_joinhint">填一个房间名就行（和队友约定同一个）。</p>
+    <div class="mwrap" style="gap:8px"><span class="hint" id="t_room" style="margin:0;width:54px">房间名</span><input id="jr" style="flex:1" placeholder="kvk1406"></div>
+    <button class="btn amber full" id="joinBtn" style="margin-top:10px" id_t="t_enter">进入</button>
+  </div>
+
+  <!-- ROOM VIEW -->
+  <div id="roomView" class="hide">
+    <main id="battleMain" class="battle-main" data-battle-drawer-background>
+    <!-- glass status chrome -->
+    <div class="chrome" id="chrome">
+      <span class="cdot" id="cdot"></span><span id="netlab">连接中…</span>
+      <span class="ck" id="loc">--:--:--</span><!-- LOCAL clock — matches the timeline's LAND times (players think in phone time, not UTC) -->
+      <div class="cstaged hide" id="stagedLine"></div><!-- staged one-liner (the old hourglass banner is gone) — sticky, visible anywhere -->
+    </div>
+    <button class="btn amber full" id="soundGate" style="margin-bottom:10px;padding:13px">🔊</button>
+    <div class="astat off" id="audioStatus" style="display:none"></div>
+
+    <!-- ② fill (one-time) → collapses to #youChip -->
+    <div class="card hero" id="fillCard">
+      <div class="herohead"><span class="step">②</span><span id="t_fill">填你的信息（只填这一次）</span></div>
+      <div class="herosub" id="t_fillsub"></div>
+      <div class="identityseg" id="identityMode" role="radiogroup" aria-label="Identity type">
+        <button type="button" id="identityPlayerId" data-mode="playerId" role="radio" aria-checked="true" tabindex="0">Player ID · Recommended</button>
+        <button type="button" id="identityNickname" data-mode="nickname" role="radio" aria-checked="false" tabindex="-1">Nickname</button>
+      </div>
+      <div class="mwrap identityvalue">
+        <label class="hint identitylabel" id="identityLabel" for="pid">Player ID</label>
+        <input id="pid" class="identityinput battle-identity-input" inputmode="numeric" autocomplete="off">
+      </div>
+      <div class="hint" id="nameOut" role="status" aria-live="polite" style="min-height:16px;margin:4px 0 0"></div>
+      <div class="lab" id="t_march">到王城行军时间</div>
+      <div class="mwrap"><button class="mstep" id="marchMinus" aria-label="-1s">−</button><input type="range" id="marchRange" min="5" max="120" step="1" value="90"><button class="mstep" id="marchPlus" aria-label="+1s">＋</button></div>
+      <div class="mbig" id="marchBig">—:—</div>
+      <div class="hint" id="marchTip" style="text-align:center;margin-top:2px"></div>
+      <button class="btn green full dim" id="saveBtn" style="margin-top:10px" id_t="t_save">提交</button>
+    </div>
+
+    <div class="youchip hide" id="youChip"><div class="yn" id="youName"></div><div class="ym" id="youMarch"></div><button class="yedit" id="editBtn" id_t="t_edit">改</button></div>
+
+    <!-- ⚔️ attack / 🛡️ defense view switch (attack = a few captains; defense = everyone) -->
+    <div class="viewseg" id="viewToggle">
+      <button data-v="attack" class="on" id="tabAtk">⚔️ <span id="t_tab_atk">进攻</span></button>
+      <button data-v="defense" id="tabDef">🛡️ <span id="t_tab_def">防守</span><span class="dbadge hide" id="defBadge"></span></button>
+    </div>
+    <!-- ATTACK view: launch countdown + rally radar/timeline -->
+    <div id="attackView">
+      <!-- player HERO: hidden except when time-sensitive (staged/live/refill) — idle status lives in #youChip instead -->
+      <div class="phero hide" id="phero">
+        <div class="kick" id="pheroKick"></div>
+        <div class="ptitle" id="pheroTitle"></div>
+        <div class="pnum tnum" id="pheroNum">—</div>
+        <div class="pips" id="pheroPips"></div>
+        <div class="psub" id="pheroSub"></div>
+      </div>
+      <section id="commanderLaunchMonitor" class="commander-launch-monitor hide" aria-labelledby="commanderLaunchMonitorTitle" aria-live="off"></section>
+      <!-- SITUATION: timeline (time) + radar (space), one card, always expanded — never auto-folds -->
+      <div class="situation" id="situation">
+        <div id="lanes" class="lanes"></div>
+        <div class="pond"><span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span><span class="rally-map-scale" id="mapScaleLabel"></span><svg viewBox="0 0 360 270" id="radar" preserveAspectRatio="xMidYMid slice" aria-hidden="true"></svg><span class="rally-map-message" id="mapMessage"></span><span class="rally-map-legend" id="mapLegend"></span></div>
+      </div>
+    </div>
+
+    <!-- DEFENSE view: per enemy-whale refill-timing calculator (self-serve; for everyone) -->
+    <div id="defenseView" class="hide">
+      <div class="demotruth" id="defenseDemoNote" role="note">演练动画 · 非实时战况</div>
+      <div class="whalechips" id="whaleChips" style="display:none"></div>
+      <div class="pond">
+        <span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
+        <div class="phaselab" id="dphaselab"></div>
+        <div class="leg" id="dleg"></div>
+        <svg viewBox="0 0 360 210" id="dsvg"></svg>
+      </div>
+      <div class="ctrl"><button id="dpp" aria-label="播放演练">▶</button><input type="range" id="dscrub" min="0" max="1000" value="0" aria-label="演练进度"></div>
+      <div class="card">
+        <h2 id="t_dpanel">🛡️ 补兵时机</h2>
+        <p class="hint" id="t_dpanelhint"></p>
+        <div id="dstrips"></div>
+      </div>
+    </div>
+
+    <!-- commander entry — ordinary players keep the full tactical page -->
+    <div id="cmdGate"><button class="cmdlink" id="cmdUnlock">🔓 我是指挥 → 解锁</button></div>
+    <!-- one fixed alert pipeline for everyone (10..6 ticks → 5..1 female voice → GO) -->
+    <details id="settings">
+      <summary id="t_settings">⚙️ 提醒设置</summary>
+      <button class="btn full" id="bgTest" style="margin:10px 0 4px">🔔 测试我的提醒（锁屏也会响）</button>
+    </details>
+    </main>
+    <div class="console battle-drawer hide" id="console" aria-labelledby="commanderDrawerTitle">
+      <header class="battle-drawer__header commander-drawer-header">
+        <div class="commander-drawer-drag" id="commanderDrawerHandle">
+          <div class="battle-drawer__grabber" aria-hidden="true"></div>
+          <h2 id="commanderDrawerTitle">🎖️ <span id="t_cmd">指挥台</span><span class="cnt" id="pickCnt">0/2</span></h2>
+        </div>
+        <button type="button" class="battle-control commander-drawer-close" id="commanderDrawerClose" data-drawer-no-drag>收起</button>
+        <div class="commander-toast" id="commanderToast" role="status" aria-live="polite" aria-atomic="true"></div>
+      </header>
+      <div class="battle-drawer__content commander-drawer-content">
+      <section class="commander-drawer-pane" id="commanderCommandPane" aria-label="Rally command">
+      <div class="commander-command-scroll" id="commanderCommandScroll">
+      <div class="commander-drawer-shared">
+      <div class="lab" id="t_kdhint" style="margin-top:0"></div>
+      <div class="chiprow" id="kingdomPick"></div>
+      <section id="rallyModeControl" class="rally-mode" hidden aria-labelledby="rallyModeScope">
+        <span id="rallyModeScope"></span>
+        <label class="switch-row" for="tripleMode">
+          <input id="tripleMode" type="checkbox" role="switch" aria-describedby="rallyModeStatus">
+          <span id="tripleModeLabel">Triple Rally</span>
+        </label>
+        <span id="rallyModeStatus" class="hint" aria-live="polite"></span>
+      </section>
+      <div class="slots" id="pickSlots"></div>
+      </div>
+      <div class="lab" id="t_leadhint"></div>
+      <div class="chiprow" id="lead"></div>
+      </div>
+      <button type="button" class="battle-control commander-manage-open" id="commanderManageOpen">管理玩家与房间</button>
+      <!-- Fire remains a fixed Command row: no setup scrolling is required to launch. -->
+      <div class="firedock battle-fire-dock" id="fireDock">
+        <div class="syncpill" id="syncPill"></div>
+        <button class="fire" id="fireDouble"><span class="fill"></span><span id="t_firedbl">⚔️ 点两下发双集结</span></button>
+        <button class="btn full" id="cancelBtn" id_t="t_cancel">✖ 取消当前</button>
+      </div>
+      </section>
+      <section class="commander-drawer-pane hide" id="commanderManagePane" aria-label="Rally management">
+      <button type="button" class="battle-control commander-manage-back" id="commanderManageBack" data-drawer-focus>返回发令视图</button>
+      <div class="roster-search hide" id="rosterSearchWrap"><input id="rosterSearch" type="search" autocomplete="off" aria-label="Search players"></div>
+      <div class="hint hide" id="duplicateHint" role="note"></div>
+      <div class="roster" id="roster" role="list"></div>
+      <form class="commander-march hide" id="commanderMarchEditor" role="group" aria-labelledby="commanderMarchTitle" aria-describedby="commanderMarchActiveHint" novalidate>
+        <div class="commander-march-head"><h3 id="commanderMarchTitle"></h3><span id="commanderMarchCanonical"></span></div>
+        <label class="lab" id="commanderMarchLabel" for="commanderMarchInput"></label>
+        <input id="commanderMarchInput" type="text" inputmode="text" autocomplete="off" aria-describedby="commanderMarchLatest commanderMarchStatus commanderMarchActiveHint">
+        <div class="commander-march-steps" role="group" aria-label="Adjust march time">
+          <button type="button" data-march-delta="-5">−5</button><button type="button" data-march-delta="-1">−1</button>
+          <button type="button" data-march-delta="1">+1</button><button type="button" data-march-delta="5">+5</button>
+        </div>
+        <div class="hint" id="commanderMarchLatest"></div>
+        <div class="hint" id="commanderMarchActiveHint"></div>
+        <div class="commander-march-status" id="commanderMarchStatus" role="status" aria-live="polite"></div>
+        <div class="commander-march-conflict hide" id="commanderMarchConflict">
+          <button type="button" class="btn full" id="commanderMarchAdopt"></button>
+          <button type="button" class="btn amber full" id="commanderMarchRetry"></button>
+        </div>
+        <div class="commander-march-actions">
+          <button type="button" class="btn full" id="commanderMarchCancel"></button>
+          <button type="submit" class="btn green full" id="commanderMarchSave"></button>
+        </div>
+      </form>
+      <!-- defense: publish the incoming enemy whales — folded by default, it's pre-battle setup not fight-time -->
+      <details class="cdefense" id="cdefense">
+        <summary class="cstep" id="cstep_def">🛡️ 设敌鲸 → 发布</summary>
+        <p class="hint" id="t_defsethint" style="margin:6px 0 4px"></p>
+        <div id="enemyList"></div>
+        <button class="add" id="addEnemy">＋ <span id="t_addenemy">加敌鲸</span></button>
+        <button class="btn green full" id="pubWhales" style="margin-top:8px"><span id="t_pubwhales">📣 发布敌鲸给全队</span></button>
+        <div class="hint" id="pubMsg" style="margin-top:6px;text-align:center"></div>
+      </details>
+      </section>
+      </div>
+    </div>
+  </div>
+  <p class="foot" data-i18n="foot">Kingshot 玩家自制工具 · 非官方 ⚔️🐟</p>
+</div>
+<div class="toast" id="toast"></div>
+<div id="goFlash"></div>
+
+<!-- password modal -->
+<div class="ovl" id="pwOvl"><div class="ob">
+  <h3 id="t_pwtitle">房间密码</h3>
+  <p class="hint" id="pwHint" style="margin:0 0 8px"></p><!-- fresh room: "your first password SETS the room password" — filled at open time -->
+  <input id="pwInput" type="password" placeholder="输入房间密码" autocomplete="off" style="margin-bottom:6px">
+  <div class="pwmsg" id="pwMsg"></div>
+  <div class="row" style="gap:8px"><button class="btn full" id="pwCancel" id_t="t_pwcancel">取消</button><button class="btn amber full" id="pwGo" id_t="t_pwgo">进指挥模式</button></div>
+</div></div>
+
+<!-- explicit third-player replacement; a full selection never shifts silently -->
+<div class="ovl" id="replaceOvl" role="dialog" aria-modal="true" aria-labelledby="replaceTitle"><div class="ob">
+  <h3 id="replaceTitle">Choose a captain to replace</h3>
+  <div class="replace-actions"><button class="btn full" id="replaceWeak"></button><button class="btn full" id="replaceWeak2"></button><button class="btn full" id="replaceMain"></button></div>
+  <button class="btn full" id="replaceCancel" style="margin-top:8px"></button>
+</div></div>
+
+<!-- staged-aware player removal; stable outside the rerendered roster -->
+<div class="ovl" id="removePlayerOvl" role="dialog" aria-modal="true" aria-labelledby="removePlayerTitle" aria-describedby="removePlayerDescription removePlayerImpact removePlayerStatus"><div class="ob remove-player-box">
+  <h3 id="removePlayerTitle"></h3>
+  <p class="hint" id="removePlayerDescription"></p>
+  <div class="remove-player-impact" id="removePlayerImpact"></div>
+  <div class="remove-player-status" id="removePlayerStatus" role="status" aria-live="polite"></div>
+  <div class="remove-player-actions"><button type="button" class="btn full" id="removePlayerCancel"></button><button type="button" class="btn full" id="removePlayerConfirm"></button></div>
+</div></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="/battle-update.js?v=2026071603"></script>
+<script src="/rally-update.js?v=2026071603"></script>
+<script src="/battle-connection.js?v=2026071603"></script>
+<script src="/battle-status.js?v=2026071603"></script>
+<script src="/battle-audio.js?v=2026071603"></script>
+<script src="/battle-cues.js?v=2026071603"></script>
+<script src="/battle-identity.js?v=2026071603"></script>
+<script src="/battle-delivery.js?v=2026071603"></script>
+<script src="/battle-drawer.js?v=2026071603"></script>
+<script src="/rally-tactical.js?v=2026071603"></script>
+<script src="/app.js?v=2026071603"></script>
+<script src="/kvk-delivery-shadow.js?v=2026071603"></script>
+<script src="/kvk-rally.js?v=2026071603"></script>
+<script src="/kvk.js?v=2026071603"></script>
+</body>
+</html>

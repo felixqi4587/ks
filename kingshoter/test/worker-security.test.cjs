@@ -120,3 +120,15 @@ test('the hidden gift page never persists its shared secret in localStorage', ()
   assert.doesNotMatch(page, /localStorage\.setItem\(LS_PW/);
   assert.match(page, /sessionStorage\.setItem\(LS_PW/);
 });
+
+test('legacy coordination redirects cannot reflect hostile destinations or ambiguous parameters', async () => {
+  const { default: worker } = await importSource('src/worker.js');
+  const response = await worker.fetch(new Request(
+    'https://kingshoter.test/kvk?room=qa&room=evil&next=https%3A%2F%2Fevil.test&lang=en%0d%0aLocation%3Ahttps%3A%2F%2Fevil.test'
+  ), {
+    ASSETS: { fetch() { throw new Error('legacy assets must not run'); } }
+  });
+  assert.equal(response.status, 302);
+  assert.equal(response.headers.get('location'), '/rally');
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+});

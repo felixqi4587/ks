@@ -1,5 +1,7 @@
 export const CURRENT_KVK_BUILD = 2026071603;
 export const MIN_KVK_BUILD = 2026071603;
+export const MIN_RALLY_BUILD = 2026071603;
+export const MIN_DEFENSE_BUILD = 2026071603;
 export const MIN_TRIPLE_BUILD = 2026071603;
 
 export function parseClientBuild(value) {
@@ -11,6 +13,8 @@ export function buildMetadata(tripleEnabled, tripleQaEnabled = false) {
   return {
     currentBuild: CURRENT_KVK_BUILD,
     minKvkBuild: MIN_KVK_BUILD,
+    minRallyBuild: MIN_RALLY_BUILD,
+    minDefenseBuild: MIN_DEFENSE_BUILD,
     minTripleBuild: MIN_TRIPLE_BUILD,
     tripleEnabled: tripleEnabled === true,
     tripleQaEnabled: tripleQaEnabled === true

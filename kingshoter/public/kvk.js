@@ -3192,8 +3192,8 @@
   /* ---------- join gate ---------- */
   function showJoin() {
     $("joinCard").classList.remove("hide"); renderStatics();
-    try { var lr = JSON.parse(localStorage.getItem("kingshoter_lastroom") || "null"); if (lr && lr.room) { $("lastWrap").classList.remove("hide"); $("lastBtn").textContent = tk("last") + " · " + lr.room; $("lastBtn").onclick = function () { location.href = "kvk.html?room=" + lr.room; }; } } catch (e) {}
-    var go = function () { var r = $("jr").value.replace(/[^A-Za-z0-9_-]/g, ""); if (!r) return; location.href = "kvk.html?room=" + r; };
+    try { var lr = JSON.parse(localStorage.getItem("kingshoter_lastroom") || "null"); if (lr && lr.room) { $("lastWrap").classList.remove("hide"); $("lastBtn").textContent = tk("last") + " · " + lr.room; $("lastBtn").onclick = function () { location.href = "/rally?room=" + encodeURIComponent(lr.room); }; } } catch (e) {}
+    var go = function () { var r = $("jr").value.replace(/[^A-Za-z0-9_-]/g, ""); if (!r) return; location.href = "/rally?room=" + encodeURIComponent(r); };
     $("joinBtn").onclick = go;
     $("jr").addEventListener("keydown", function (e) { if (e.key === "Enter") go(); });
   }
