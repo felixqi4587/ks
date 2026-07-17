@@ -7,6 +7,26 @@ const vm = require('node:vm');
 const source = fs.readFileSync(path.join(__dirname, '../public/kvk.js'), 'utf8');
 const html = fs.readFileSync(path.join(__dirname, '../public/kvk.html'), 'utf8');
 
+test('Rally profile persistence is a compatibility adapter over BattleIdentity', () => {
+  assert.match(html, /battle-identity\.js\?v=2026071603/);
+  assert.ok(
+    html.indexOf('/battle-identity.js?v=2026071603') < html.indexOf('/kvk.js?v=2026071603'),
+    'identity module loads before the Rally controller'
+  );
+  assert.match(source, /BattleIdentity\.createIdentityStore\(\{[\s\S]{0,240}room:\s*ROOM[\s\S]{0,240}surface:\s*["']rally["']/);
+  assert.match(source, /myProfile\s*=\s*identityStore\.readConfirmed\(\)/);
+  assert.match(source, /deviceId\s*=\s*identityStore\.deviceId\(\)/);
+  assert.match(extractFunction('saveProfile'), /identityStore\.saveConfirmed\(profile\)/);
+  assert.doesNotMatch(extractFunction('saveProfile'), /localStorage|LS\(["']me["']\)/);
+});
+
+test('Rally identity storage retains fail-closed access when browser storage is unavailable', () => {
+  assert.match(source, /var\s+identityStorage\s*=\s*\{/);
+  assert.match(source, /getItem:\s*function\s*\(key\)\s*\{\s*return\s+rd\(key,\s*null\);\s*\}/);
+  assert.match(source, /storage:\s*identityStorage/);
+  assert.doesNotMatch(source, /storage:\s*localStorage/);
+});
+
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
   assert.ok(start >= 0, `missing ${name}`);
@@ -125,6 +145,51 @@ function profileSettlementHarness() {
     }
   };
   vm.runInNewContext(`${extractFunction('settlePendingMarchMutation')}\n${extractFunction('profileMatchesPending')}\n${extractFunction('handleSocketMessage')}\nthis.settlePendingMarchMutation = settlePendingMarchMutation;\nthis.handleSocketMessage = handleSocketMessage;`, sandbox);
+  return sandbox;
+}
+
+function profileBindingQueueHarness({ bound = false, connected = true } = {}) {
+  const messages = [];
+  const pending = {
+    mutationId: 'profile-save-queued',
+    pid: 'opaque-route',
+    identityMode: 'playerId',
+    playerId: '900000777',
+    name: 'Resolved Player',
+    requestedMarch: 47,
+    baseRevision: 2,
+    profileKey: '20000000-0000-4000-8000-000000000002',
+    connectionGeneration: 8,
+    awaitingDeviceStatus: false
+  };
+  const sandbox = {
+    pendingMarchMutation: pending,
+    myPid: pending.pid,
+    deviceId: '30000000-0000-4000-8000-000000000003',
+    lastDeviceStatusGeneration: bound ? 8 : 7,
+    lastDeviceStatusSignature: bound
+      ? 'opaque-route:30000000-0000-4000-8000-000000000003:1'
+      : '',
+    sock: {
+      connected,
+      connectionGeneration: 8,
+      send(message) { messages.push(structuredClone(message)); return true; }
+    },
+    statusRequests: 0,
+    sendDeviceStatus() { sandbox.statusRequests += 1; return true; },
+    deliveryAckQueue: { snapshot() { return []; } },
+    resumeRejectedDeliveryAck() {},
+    messages
+  };
+  vm.runInNewContext(
+    `${extractFunction('deviceStatusBoundForProfile')}\n` +
+    `${extractFunction('sendPendingOwnProfileMutation')}\n` +
+    `${extractFunction('handleDeviceStatusSaved')}\n` +
+    'this.deviceStatusBoundForProfile = deviceStatusBoundForProfile; ' +
+    'this.sendPendingOwnProfileMutation = sendPendingOwnProfileMutation; ' +
+    'this.handleDeviceStatusSaved = handleDeviceStatusSaved;',
+    sandbox
+  );
   return sandbox;
 }
 
@@ -361,6 +426,95 @@ test('profile save settles only after matching ACK and state in either arrival o
   assert.equal(stateFirst.pendingMarchMutation, null);
   assert.equal(stateFirst.cards, 1);
   assert.equal(stateFirst.adoptions, 1);
+});
+
+test('profile edits wait for this socket generation to bind before sending', () => {
+  const h = profileBindingQueueHarness();
+
+  assert.equal(h.sendPendingOwnProfileMutation(), true, 'the explicit save is queued while binding');
+  assert.equal(h.pendingMarchMutation.awaitingDeviceStatus, true);
+  assert.notEqual(h.pendingMarchMutation.sent, true);
+  assert.equal(h.statusRequests, 1, 'the queue actively requests the current generation binding');
+  assert.deepEqual(h.messages, [], 'the profile mutation cannot outrun deviceStatusSaved');
+
+  assert.equal(h.handleDeviceStatusSaved({
+    t: 'deviceStatusSaved',
+    pid: h.myPid,
+    deviceId: h.deviceId,
+    soundReady: false
+  }), true);
+  assert.equal(h.pendingMarchMutation.awaitingDeviceStatus, false);
+  assert.equal(h.pendingMarchMutation.sent, true);
+  assert.equal(h.messages.length, 1);
+  assert.deepEqual(h.messages[0], {
+    t: 'updateOwnProfile',
+    mutationId: 'profile-save-queued',
+    pid: 'opaque-route',
+    identityMode: 'playerId',
+    playerId: '900000777',
+    name: 'Resolved Player',
+    march: 47,
+    baseRevision: 2,
+    profileKey: '20000000-0000-4000-8000-000000000002'
+  });
+
+  h.handleDeviceStatusSaved({
+    t: 'deviceStatusSaved',
+    pid: h.myPid,
+    deviceId: h.deviceId,
+    soundReady: true
+  });
+  assert.equal(h.messages.length, 1, 'later readiness upgrades cannot duplicate the mutation');
+});
+
+test('an unsent queued edit survives a reconnect and sends after the replacement socket binds', () => {
+  const h = profileBindingQueueHarness();
+  h.sendPendingOwnProfileMutation();
+
+  h.sock.connectionGeneration = 9;
+  h.pendingMarchMutation.connectionGeneration = 9;
+  h.pendingMarchMutation.awaitingReconnect = true;
+  assert.equal(h.handleDeviceStatusSaved({
+    t: 'deviceStatusSaved',
+    pid: h.myPid,
+    deviceId: h.deviceId,
+    soundReady: true
+  }), true);
+
+  assert.equal(h.messages.length, 1);
+  assert.equal(h.pendingMarchMutation.sent, true);
+  assert.equal(h.pendingMarchMutation.awaitingReconnect, false,
+    'the first real send on the replacement connection starts a fresh settlement window');
+});
+
+test('only a mutation actually sent before reconnect may infer its ACK from a fresh snapshot', () => {
+  const sandbox = {};
+  vm.runInNewContext(
+    `${extractFunction('sentProfileMutationHasFreshReconnectSnapshot')}\n` +
+    'this.hasEvidence = sentProfileMutationHasFreshReconnectSnapshot;',
+    sandbox
+  );
+  const pending = { sent: false, awaitingReconnect: true, reconnectAfterSnapshot: 4 };
+
+  assert.equal(sandbox.hasEvidence(pending, true, 5), false,
+    'a matching snapshot cannot acknowledge an edit that never left the browser');
+  pending.sent = true;
+  assert.equal(sandbox.hasEvidence(pending, true, 5), true);
+  assert.equal(sandbox.hasEvidence(pending, false, 5), false);
+  assert.equal(sandbox.hasEvidence(pending, true, 4), false);
+});
+
+test('an already-bound profile edit sends immediately while a closed socket fails normally', () => {
+  const bound = profileBindingQueueHarness({ bound: true });
+  assert.equal(bound.sendPendingOwnProfileMutation(), true);
+  assert.equal(bound.statusRequests, 0);
+  assert.equal(bound.messages.length, 1);
+
+  const closed = profileBindingQueueHarness({ connected: false });
+  assert.equal(closed.sendPendingOwnProfileMutation(), false);
+  assert.equal(closed.pendingMarchMutation.awaitingDeviceStatus, false);
+  assert.equal(closed.statusRequests, 0);
+  assert.equal(closed.messages.length, 0);
 });
 
 test('registration persists an editable capability only after its exact ACK and canonical state', () => {

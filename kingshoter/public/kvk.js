@@ -12,6 +12,14 @@
   var LS = function (s) { return "kingshoter_r_" + ROOM + "_" + s; };
   function rd(k, d) { try { var v = localStorage.getItem(k); return v == null ? d : v; } catch (e) { return d; } }
   function wr(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  var identityStorage = {
+    getItem: function (key) { return rd(key, null); },
+    setItem: function (key, value) { wr(key, value); },
+    removeItem: function (key) { try { localStorage.removeItem(key); } catch (e) {} }
+  };
+  var identityStore = window.BattleIdentity.createIdentityStore({
+    room: ROOM, surface: "rally", storage: identityStorage
+  });
 
   /* ---------- state ---------- */
   var sock = null, room = null, lead = 15, roomPw = "", lastCmdId = null, myPid = "", fireKingdom = 1;
@@ -27,14 +35,13 @@
   var editingPlayerPid = "", commanderMarchDraft = "", commanderMarchDirty = false, commanderMarchLatest = null;
   var commanderMarchStatus = "", commanderMarchStatusTone = "", commanderMarchOriginPid = "";
   var pendingCommanderMarchMutation = null, commanderMarchStale = false, commanderMarchRefreshAfterSnapshot = -1, roomSnapshotSequence = 0;
-  var myProfile = null, deviceId = window.getRoomDeviceId(ROOM);
-  var pendingDeliveryAcks = Object.create(null), confirmedDeliveryAcks = Object.create(null), rejectedDeliveryAcks = Object.create(null);
-  var DELIVERY_ACK_RETRY_DELAYS_MS = [1200, 2400, 5000, 10000, 15000], deliveryStatusTimer = 0;
+  var myProfile = null, deviceId = identityStore.deviceId();
+  var deliveryStatusTimer = 0;
   var lastDeviceStatusSignature = "", lastDeviceStatusGeneration = -1;
   var DEVICE_STATUS_RETRY_MS = 1200, lastDeviceStatusSentSignature = "", lastDeviceStatusSentGeneration = -1, lastDeviceStatusSentAt = 0;
   var DEVICE_STATUS_GREEN_STABLE_MS = 900, deviceStatusGreenTimer = 0;
   var pendingGreenGeneration = -1, pendingGreenSignature = "";
-  try { myProfile = JSON.parse(localStorage.getItem(LS("me")) || "null"); } catch (e) {}
+  myProfile = identityStore.readConfirmed();
   if (myProfile && myProfile.pid) {
     myProfile = Object.assign({}, myProfile, {
       marchRevision: Number.isInteger(myProfile.marchRevision) ? myProfile.marchRevision : 0,
@@ -62,6 +69,11 @@
   var isIOS = /iP(hone|od|ad)/.test(navigator.userAgent || "") || (navigator.platform === "MacIntel" && (navigator.maxTouchPoints || 0) > 1);
   var isAndroid = /android/i.test(navigator.userAgent || "");
   var $ = window.$;
+  var deliveryAckQueue = window.BattleDelivery.createAckQueue({
+    send: function (message) { return !!(sock && sock.send(message)); },
+    nowMs: function () { return window.serverNow(); },
+    generation: function () { return sock ? Number(sock.connectionGeneration || 0) : -1; }
+  });
 
   function syncLegacyAudioState(state) {
     state = state || battleAudio.state();
@@ -798,6 +810,7 @@
     }
     if (["invalid_device_identity", "socket_identity_locked", "device_owned_by_other_pid"].indexOf(message.error) >= 0) {
       clearDeviceStatusGuards();
+      if (pendingMarchMutation && pendingMarchMutation.awaitingDeviceStatus) releasePendingOwnProfileMutation();
       return true;
     }
     return false;
@@ -849,36 +862,28 @@
     return true;
   }
   function deliveryAckKey(value) {
-    return String(value && value.commandId || "") + ":" + String(value && value.pid || "") + ":" + String(value && value.deviceId || "");
+    try {
+      return window.BattleDelivery.ackKey({
+        orderId: String(value && value.commandId || ""), revision: 0,
+        pid: String(value && value.pid || ""), deviceId: String(value && value.deviceId || "")
+      });
+    } catch (e) {
+      return String(value && value.commandId || "") + ":0:" + String(value && value.pid || "") + ":" + String(value && value.deviceId || "");
+    }
   }
   function sameDeliveryAck(a, b) {
     return !!a && !!b && a.commandId === b.commandId && a.pid === b.pid && a.deviceId === b.deviceId &&
       a.outcome === b.outcome && Number(a.targetUTC) === Number(b.targetUTC) && Number(a.scheduledAtMs) === Number(b.scheduledAtMs);
   }
-  function clearPendingDeliveryAck(key) {
-    var entry = pendingDeliveryAcks[key];
-    if (entry && entry.timer) clearTimeout(entry.timer);
-    delete pendingDeliveryAcks[key];
-  }
-  function clearAllPendingDeliveryAcks() {
-    Object.keys(pendingDeliveryAcks).forEach(clearPendingDeliveryAck);
-  }
   function rejectPendingDeliveryAck(message) {
     if (!message || message.source !== "deliveryAck") return false;
-    var key = deliveryAckKey(message), entry = pendingDeliveryAcks[key];
+    var key = deliveryAckKey(message), entry = deliveryAckQueue.pending(key);
     if (!entry) return false;
-    var error = String(message.error || ""), generation = sock ? Number(sock.connectionGeneration || 0) : -1;
+    var error = String(message.error || "");
     if (error === "delivery_persist_failed") return false;
     var terminal = ["ack_target_missing", "ack_conflict", "invalid_ack", "invalid_ack_target"].indexOf(error) >= 0;
     if (!terminal && error !== "bad_delivery_identity") return false;
-    rejectedDeliveryAcks[key] = {
-      payload: entry.payload,
-      error: error,
-      generation: generation,
-      terminal: terminal,
-      deadlineMs: entry.deadlineMs
-    };
-    clearPendingDeliveryAck(key);
+    deliveryAckQueue.reject(key, { error: error, terminal: terminal });
     if (error === "bad_delivery_identity") {
       lastDeviceStatusSignature = ""; lastDeviceStatusGeneration = -1;
       lastDeviceStatusSentSignature = ""; lastDeviceStatusSentGeneration = -1; lastDeviceStatusSentAt = 0;
@@ -887,53 +892,29 @@
     return true;
   }
   function resumeRejectedDeliveryAck(key, rejected) {
-    if (!rejected || rejected.terminal || confirmedDeliveryAcks[key]) return false;
-    delete rejectedDeliveryAcks[key];
-    pendingDeliveryAcks[key] = {
-      payload: rejected.payload, timer: 0, lastGeneration: -1, attempts: 0,
-      deadlineMs: rejected.deadlineMs
-    };
-    return sendPendingDeliveryAck(key, true);
+    if (!rejected || rejected.terminal || deliveryAckQueue.isConfirmed(key)) return false;
+    return deliveryAckQueue.resume(key);
   }
   function clearAllDeliveryAckState() {
-    clearAllPendingDeliveryAcks(); confirmedDeliveryAcks = Object.create(null); rejectedDeliveryAcks = Object.create(null);
+    return deliveryAckQueue.clear();
   }
   function pausePendingDeliveryAckTimers() {
-    Object.keys(pendingDeliveryAcks).forEach(function (key) {
-      var entry = pendingDeliveryAcks[key];
-      if (entry.timer) { clearTimeout(entry.timer); entry.timer = 0; }
-    });
+    return deliveryAckQueue.pause();
   }
   function pruneDeliveryAckState() {
     if (!room) return;
     var ids = liveCommands(room).map(function (command) { return command.id; }), nowMs = window.serverNow();
-    Object.keys(pendingDeliveryAcks).forEach(function (key) {
-      var entry = pendingDeliveryAcks[key];
-      if (ids.indexOf(entry.payload.commandId) < 0 || nowMs > entry.deadlineMs || entry.payload.pid !== myPid || entry.payload.deviceId !== deviceId) clearPendingDeliveryAck(key);
-    });
-    Object.keys(confirmedDeliveryAcks).forEach(function (key) {
-      if (ids.indexOf(confirmedDeliveryAcks[key].commandId) < 0) delete confirmedDeliveryAcks[key];
-    });
-    Object.keys(rejectedDeliveryAcks).forEach(function (key) {
-      var rejected = rejectedDeliveryAcks[key];
-      if (!rejected.payload || ids.indexOf(rejected.payload.commandId) < 0 || nowMs > rejected.deadlineMs) delete rejectedDeliveryAcks[key];
+    deliveryAckQueue.prune(function (entry) {
+      var payload = entry && entry.payload;
+      if (!payload || ids.indexOf(payload.commandId) < 0) return false;
+      if (entry.state === "confirmed") return true;
+      if (nowMs > entry.deadlineAtMs) return false;
+      if (entry.state === "pending") return payload.pid === myPid && payload.deviceId === deviceId;
+      return true;
     });
   }
   function sendPendingDeliveryAck(key, force) {
-    var entry = pendingDeliveryAcks[key];
-    if (!entry || confirmedDeliveryAcks[key] || (!force && entry.timer)) return false;
-    var nowMs = window.serverNow(), generation = sock ? Number(sock.connectionGeneration || 0) : -1;
-    if (nowMs > entry.deadlineMs) { clearPendingDeliveryAck(key); return false; }
-    if (entry.lastGeneration !== generation) { entry.lastGeneration = generation; entry.attempts = 0; }
-    if (entry.timer) { clearTimeout(entry.timer); entry.timer = 0; }
-    var sent = !!(sock && sock.send(entry.payload));
-    if (sent) entry.attempts += 1;
-    var retryDelay = DELIVERY_ACK_RETRY_DELAYS_MS[Math.min(Math.max(entry.attempts - 1, 0), DELIVERY_ACK_RETRY_DELAYS_MS.length - 1)];
-    if (nowMs < entry.deadlineMs) {
-      retryDelay = Math.min(retryDelay, Math.max(250, entry.deadlineMs - nowMs));
-      entry.timer = setTimeout(function () { entry.timer = 0; sendPendingDeliveryAck(key, true); }, retryDelay);
-    }
-    return sent;
+    return deliveryAckQueue.send(key, force === true);
   }
   function acknowledgeClassicCommand(command, target) {
     if (!isRallyCommand(command)) return false;
@@ -948,47 +929,78 @@
       outcome: outcome, targetUTC: target.anchor, scheduledAtMs: nowMs
     });
     var key = deliveryAckKey(payload);
-    if (confirmedDeliveryAcks[key]) return true;
-    var rejected = rejectedDeliveryAcks[key], generation = Number(sock.connectionGeneration || 0);
-    if (rejected && !rejected.terminal && rejected.generation !== generation) {
+    if (deliveryAckQueue.isConfirmed(key)) return true;
+    var rejected = deliveryAckQueue.rejected(key), generation = Number(sock.connectionGeneration || 0);
+    if (rejected && !rejected.terminal && rejected.lastGeneration !== generation) {
       return resumeRejectedDeliveryAck(key, rejected);
     }
     if (rejected) return false;
-    if (!pendingDeliveryAcks[key]) {
-      pendingDeliveryAcks[key] = {
-        payload: payload, timer: 0, lastGeneration: -1, attempts: 0,
-        deadlineMs: Math.max(nowMs + 10000, Number(target.anchor) * 1000 + 30000)
-      };
+    if (!deliveryAckQueue.pending(key)) {
+      return deliveryAckQueue.enqueue({
+        key: key, scope: command.id, payload: payload,
+        deadlineAtMs: Math.max(nowMs + 10000, Number(target.anchor) * 1000 + 30000)
+      });
     }
     return sendPendingDeliveryAck(key, false);
   }
   function handleDeliveryAckSaved(message) {
     if (!message || message.t !== "deliveryAckSaved") return false;
-    var key = deliveryAckKey(message), entry = pendingDeliveryAcks[key];
+    var key = deliveryAckKey(message), entry = deliveryAckQueue.pending(key);
     if (!entry || !sameDeliveryAck(entry.payload, message)) return false;
-    if (entry.timer) clearTimeout(entry.timer);
-    confirmedDeliveryAcks[key] = entry.payload;
-    delete pendingDeliveryAcks[key];
-    return true;
+    return deliveryAckQueue.confirm(key);
+  }
+  function deviceStatusBoundForProfile() {
+    if (!sock || !myPid || !deviceId) return false;
+    var generation = Number(sock.connectionGeneration || 0);
+    var identityPrefix = myPid + ":" + deviceId + ":";
+    return lastDeviceStatusGeneration === generation &&
+      lastDeviceStatusSignature.indexOf(identityPrefix) === 0;
+  }
+  function sendPendingOwnProfileMutation() {
+    var pending = pendingMarchMutation;
+    if (!pending || !sock || sock.connected !== true) return false;
+    if (!deviceStatusBoundForProfile()) {
+      pending.awaitingDeviceStatus = true;
+      sendDeviceStatus("deviceStatus", true);
+      return true;
+    }
+    var mutation = {
+      t: "updateOwnProfile", mutationId: pending.mutationId, pid: pending.pid,
+      identityMode: pending.identityMode, name: pending.name, march: pending.requestedMarch,
+      baseRevision: pending.baseRevision, profileKey: pending.profileKey
+    };
+    if (pending.identityMode === "playerId") mutation.playerId = pending.playerId;
+    pending.awaitingDeviceStatus = false;
+    if (pending.sent !== true) pending.awaitingReconnect = false;
+    var sent = sock.send(mutation);
+    if (sent) pending.sent = true;
+    return sent;
+  }
+  function releasePendingOwnProfileMutation() {
+    if (!pendingMarchMutation) return false;
+    var retryProfile = pendingMarchMutation;
+    pendingMarchMutation = null; draftActive = true; syncIdentityControls(false);
+    restoreResolvedPlayerName(retryProfile); window.toast(tk("notconn"));
+    return false;
   }
   function handleDeviceStatusSaved(message) {
     if (!message || message.t !== "deviceStatusSaved" || message.pid !== myPid || message.deviceId !== deviceId) return false;
     lastDeviceStatusGeneration = sock ? Number(sock.connectionGeneration || 0) : -1;
     lastDeviceStatusSignature = myPid + ":" + deviceId + ":" + (message.soundReady === true ? "1" : "0");
+    if (pendingMarchMutation && pendingMarchMutation.awaitingDeviceStatus &&
+        pendingMarchMutation.connectionGeneration === lastDeviceStatusGeneration &&
+        !sendPendingOwnProfileMutation()) releasePendingOwnProfileMutation();
     if (message.soundReady !== true) return true;
-    Object.keys(rejectedDeliveryAcks).forEach(function (key) {
-      var rejected = rejectedDeliveryAcks[key], payload = rejected && rejected.payload;
-      if (rejected && !rejected.terminal && payload && payload.pid === myPid && payload.deviceId === deviceId) {
+    deliveryAckQueue.snapshot().forEach(function (rejected) {
+      var key = rejected.key, payload = rejected && rejected.payload;
+      if (rejected && rejected.state === "rejected" && !rejected.terminal && payload && payload.pid === myPid && payload.deviceId === deviceId) {
         resumeRejectedDeliveryAck(key, rejected);
       }
     });
     return true;
   }
   function retryPendingDeliveryAcks(force) {
-    Object.keys(pendingDeliveryAcks).forEach(function (key) {
-      var entry = pendingDeliveryAcks[key], generation = sock ? Number(sock.connectionGeneration || 0) : -1;
-      if (force || entry.lastGeneration !== generation) sendPendingDeliveryAck(key, true);
-    });
+    return deliveryAckQueue.retryAll(force === true);
   }
   function scheduleAllCues(win) {
     if (!room) return;
@@ -2594,8 +2606,7 @@
   function saveProfile(profile) {
     myProfile = profile;
     myPid = profile && profile.pid ? profile.pid : "";
-    if (profile) wr(LS("me"), JSON.stringify(profile));
-    else { try { localStorage.removeItem(LS("me")); } catch (e) {} }
+    identityStore.saveConfirmed(profile);
   }
   function canonicalProfileForPlayer(pid, player) {
     if (!player) return null;
@@ -2686,7 +2697,7 @@
     if (profile.identityMode === "playerId") profile.playerId = player.playerId || pending.playerId || (/^\d{1,16}$/.test(String(pending.pid)) ? pending.pid : "");
     else delete profile.playerId;
     saveProfile(profile);
-    if (!deviceId) deviceId = window.getRoomDeviceId(ROOM);
+    if (!deviceId) deviceId = identityStore.deviceId();
     nicknameDraftRoutingKey = ""; cancelIdentityLookup();
     pendingRegistrationProfile = null; registrationPending = false; ownPlayerSeen = true;
     sendDeviceStatus();
@@ -2727,6 +2738,10 @@
     return profile.pid === pending.pid && profile.identityMode === pending.identityMode && playerIdMatches &&
       profile.name === pending.name && profile.march === pending.requestedMarch &&
       profile.revision === pending.baseRevision + 1;
+  }
+  function sentProfileMutationHasFreshReconnectSnapshot(pending, freshSnapshot, snapshotSequence) {
+    return !!(pending && pending.sent === true && pending.awaitingReconnect && freshSnapshot &&
+      snapshotSequence > pending.reconnectAfterSnapshot);
   }
   function handleCommanderMarchAck(message) {
     var pending = pendingCommanderMarchMutation;
@@ -3000,11 +3015,13 @@
           if (profileMatchesPending(canonicalProfile, pendingMarchMutation)) {
             pendingMarchMutation.stateSeen = true;
             pendingMarchMutation.canonicalPlayer = Object.assign({}, canonical);
-            if (pendingMarchMutation.awaitingReconnect && freshRoomSnapshot &&
-                roomSnapshotSequence > pendingMarchMutation.reconnectAfterSnapshot) pendingMarchMutation.ackSeen = true;
+            if (sentProfileMutationHasFreshReconnectSnapshot(
+              pendingMarchMutation, freshRoomSnapshot, roomSnapshotSequence
+            )) pendingMarchMutation.ackSeen = true;
           } else if (canonicalRevision >= pendingMarchMutation.baseRevision + 1 ||
-                     (pendingMarchMutation.awaitingReconnect && freshRoomSnapshot &&
-                      roomSnapshotSequence > pendingMarchMutation.reconnectAfterSnapshot)) {
+                     sentProfileMutationHasFreshReconnectSnapshot(
+                       pendingMarchMutation, freshRoomSnapshot, roomSnapshotSequence
+                     )) {
             var retryProfile = pendingMarchMutation;
             pendingMarchMutation = null; draftActive = true;
             adoptCanonicalPlayer(myProfile.pid, canonical); syncIdentityControls(false); restoreResolvedPlayerName(retryProfile);
@@ -3197,21 +3214,13 @@
           mutationId: crypto.randomUUID(), pid: myProfile.pid, identityMode: mode, name: name, requestedMarch: march,
           baseRevision: Number.isInteger(myProfile.marchRevision) ? myProfile.marchRevision : 0,
           ackSeen: false, stateSeen: false, draftVersion: draftVersion, canonicalPlayer: null,
-          connectionGeneration: Number(sock.connectionGeneration || 0)
+          connectionGeneration: Number(sock.connectionGeneration || 0), profileKey: myProfile.profileKey,
+          awaitingDeviceStatus: false, sent: false
         };
         if (mode === "playerId") pendingMarchMutation.playerId = playerId;
-        var mutation = {
-          t: "updateOwnProfile", mutationId: pendingMarchMutation.mutationId, pid: pendingMarchMutation.pid,
-          identityMode: mode, name: name, march: pendingMarchMutation.requestedMarch,
-          baseRevision: pendingMarchMutation.baseRevision, profileKey: myProfile.profileKey
-        };
-        if (mode === "playerId") mutation.playerId = playerId;
         syncIdentityControls(true);
-        ok = sock.send(mutation);
-        if (!ok) {
-          var retryProfile = pendingMarchMutation;
-          pendingMarchMutation = null; syncIdentityControls(false); restoreResolvedPlayerName(retryProfile); window.toast(tk("notconn"));
-        }
+        ok = sendPendingOwnProfileMutation();
+        if (!ok) releasePendingOwnProfileMutation();
         return;
       }
       if (registrationPending && myProfile && !ownPlayerSeen) return;

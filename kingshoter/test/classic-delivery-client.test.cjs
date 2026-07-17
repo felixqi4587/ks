@@ -8,6 +8,7 @@ const root = path.join(__dirname, '..');
 const script = fs.readFileSync(path.join(root, 'public', 'kvk.js'), 'utf8');
 const audioScript = fs.readFileSync(path.join(root, 'public', 'battle-audio.js'), 'utf8');
 const cuesScript = fs.readFileSync(path.join(root, 'public', 'battle-cues.js'), 'utf8');
+const deliveryScript = fs.readFileSync(path.join(root, 'public', 'battle-delivery.js'), 'utf8');
 const html = fs.readFileSync(path.join(root, 'public', 'kvk.html'), 'utf8');
 const css = fs.readFileSync(path.join(root, 'public', 'app.css'), 'utf8');
 
@@ -36,19 +37,32 @@ test('Classic client confirms only canonical persisted delivery ACKs and retries
   assert.match(script, /outcome\s*=\s*[^;]*["']expired["']/);
   assert.match(script, /message\.t\s*!==\s*["']deliveryAckSaved["']/);
   assert.match(script, /sameDeliveryAck\(entry\.payload,\s*message\)/);
-  assert.match(script, /DELIVERY_ACK_RETRY_DELAYS_MS/);
-  assert.doesNotMatch(script, /DELIVERY_ACK_MAX_ATTEMPTS/);
-  assert.match(script, /if\s*\(sent\)\s*entry\.attempts\s*\+=\s*1/);
-  assert.match(script, /rejectedDeliveryAcks/);
+  assert.match(deliveryScript, /DEFAULT_RETRY_DELAYS_MS\s*=\s*\[1200,\s*2400,\s*5000,\s*10000,\s*15000\]/);
+  assert.doesNotMatch(deliveryScript, /ACK_MAX_ATTEMPTS/);
+  assert.match(deliveryScript, /if\s*\(sent\)\s*entry\.attempts\s*\+=\s*1/);
+  assert.match(deliveryScript, /rejectedEntries/);
   assert.match(script, /function rejectPendingDeliveryAck\(/);
   assert.match(script, /message\.source\s*!==\s*["']deliveryAck["']/);
-  assert.match(script, /rejected\.generation\s*!==\s*generation/);
+  assert.match(script, /rejected\.lastGeneration\s*!==\s*generation/);
   assert.match(script, /function handleDeviceStatusSaved\(/);
   assert.match(script, /message\.t\s*!==\s*["']deviceStatusSaved["']/);
   assert.match(script, /DEVICE_STATUS_RETRY_MS/);
   assert.match(script, /lastDeviceStatusSentAt/);
   assert.match(script, /delivery_persist_failed/);
   assert.match(script, /connectionGeneration/);
+});
+
+test('Classic ACK state is a compatibility adapter over the shared generation-scoped queue', () => {
+  assert.match(html, /battle-delivery\.js\?v=2026071603/);
+  assert.ok(
+    html.indexOf('/battle-delivery.js?v=2026071603') < html.indexOf('/kvk.js?v=2026071603'),
+    'delivery module loads before the Rally controller'
+  );
+  assert.match(script, /BattleDelivery\.createAckQueue\(\{/);
+  assert.match(extractFunction(script, 'deliveryAckKey'), /BattleDelivery\.ackKey\(/);
+  assert.match(extractFunction(script, 'sendPendingDeliveryAck'), /deliveryAckQueue\.send\(key,\s*force/);
+  assert.match(extractFunction(script, 'retryPendingDeliveryAcks'), /deliveryAckQueue\.retryAll\(force/);
+  assert.doesNotMatch(script, /var\s+pendingDeliveryAcks\s*=/);
 });
 
 test('returning profiles force a fresh device binding as soon as canonical registration appears', () => {
@@ -113,9 +127,12 @@ test('identity rejection clears every readiness guard without an immediate retry
   const handler = extractFunction(script, 'handleDeviceStatusError');
   let helperClears = 0;
   let helperRetries = 0;
+  let pendingReleases = 0;
   const handlerSandbox = {
     DEVICE_STATUS_RETRY_MS: 1200,
+    pendingMarchMutation: { awaitingDeviceStatus: true },
     clearDeviceStatusGuards() { helperClears += 1; },
+    releasePendingOwnProfileMutation() { pendingReleases += 1; },
     sendDeviceStatus() { helperRetries += 1; },
     setTimeout() { helperRetries += 1; }
   };
@@ -124,6 +141,7 @@ test('identity rejection clears every readiness guard without an immediate retry
     assert.equal(handlerSandbox.handle({ source: 'deviceStatus', error }), true);
   }
   assert.equal(helperClears, 3);
+  assert.equal(pendingReleases, 3, 'terminal binding errors release a queued profile edit');
   assert.equal(helperRetries, 0, 'identity errors never start an immediate retry loop');
   assert.equal(handlerSandbox.handle({ source: 'deliveryAck', error: 'invalid_device_identity' }), false);
   assert.equal(helperClears, 3);

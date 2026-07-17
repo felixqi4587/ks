@@ -200,6 +200,7 @@ test('profile reconnect recovery is non-creating and preserves the frozen regist
     registrationPending: true, draftVersion: 0, draftActive: true,
     ownPlayerSeen: false, myProfile: null, deviceId: '', ROOM: 'qa',
     nicknameDraftRoutingKey: 'temporary', viewMode: 'attack',
+    identityStore: { deviceId: () => '20000000-0000-4000-8000-000000000002' },
     cancelIdentityLookup() {}, sendDeviceStatus() {}, showInCard() {},
     showExistingIdentity() {}, renderDefense() {},
     window: {

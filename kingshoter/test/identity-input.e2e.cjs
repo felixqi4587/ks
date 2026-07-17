@@ -10,6 +10,7 @@ const base = process.env.BASE || 'http://127.0.0.1:8791';
 const room = makeQaRoom('identity-input');
 const url = qaRoomUrl(base, room, { notour: 1 });
 const meKey = `kingshoter_r_${room}_me`;
+const defenseMeKey = `kingshoter_defense_r_${room}_me`;
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -477,6 +478,18 @@ async function broadcastDeviceStatus(page, pid) {
         !!document.querySelector(`#roster .rp[data-pid="${second}"]`);
     }, { first: retryProfile.pid, second: abortProfile.pid }, { timeout: 8000 });
 
+    await retryPage.locator('#cmdUnlock').click();
+    await retryPage.locator('#pwInput').fill('666');
+    await retryPage.locator('#pwGo').click();
+    await retryPage.locator('#console').waitFor({ state: 'visible', timeout: 8000 });
+    await retryPage.locator('#kingdomPick button[data-k="1"]').click();
+    await retryPage.locator(`#roster .rp[data-pid="${raceProfile.pid}"]`).click();
+    await retryPage.locator(`#roster .rp[data-pid="${abortProfile.pid}"]`).click();
+    await Promise.all([racePage, abortPage].map(openPage => openPage.waitForFunction(pid =>
+      Array.from(document.querySelectorAll('#lanes .lname')).some(node => node.textContent.includes('Current Player')) &&
+      !!document.querySelector(`#roster .rp[data-pid="${pid}"]`),
+    raceProfile.pid, { timeout: 8000 })));
+
     await retryPage.locator('#editBtn').click();
     assert.equal(await retryPage.locator('#identityPlayerId').isDisabled(), false);
     assert.equal(await retryPage.locator('#identityNickname').isDisabled(), false);
@@ -654,6 +667,14 @@ async function broadcastDeviceStatus(page, pid) {
     await racePage.locator('#editBtn').click();
     await racePage.locator('#identityPlayerId').click();
     assert.equal(await racePage.locator('#pid').inputValue(), '222222', 'switching back restores the independent Player ID draft');
+
+    for (const openPage of [racePage, retryPage, abortPage, pendingPage]) {
+      assert.equal(
+        await openPage.evaluate(key => localStorage.getItem(key), defenseMeKey),
+        null,
+        'Rally identity changes never silently confirm a Defense registration'
+      );
+    }
 
     assert.deepEqual(pageErrors, []);
     console.log(`✓ Player ID and nickname identity modes (${room})`);
