@@ -358,7 +358,9 @@ async function clickCommanderMarchAdoptWithTrustedPointer(page) {
     afterDown = await page.evaluate(({ x, y }) => ({
       hit: (document.elementFromPoint(x, y) || {}).id || '',
       position: getComputedStyle(document.querySelector('#fireDock')).position,
-      nofix: document.querySelector('#fireDock').classList.contains('nofix')
+      nofix: document.querySelector('#fireDock').classList.contains('nofix'),
+      commandHidden: document.querySelector('#commanderCommandPane').classList.contains('hide'),
+      fireVisible: document.querySelector('#fireDock').getClientRects().length > 0
     }), point);
   } finally {
     try {
@@ -381,8 +383,10 @@ async function clickCommanderMarchAdoptWithTrustedPointer(page) {
   assert.deepEqual(first('pointerdown'), {
     type: 'pointerdown', target: 'commanderMarchAdopt', trusted: true
   }, `trusted pointerdown starts on Adopt (${diagnostic})`);
-  assert.equal(afterDown.position, 'static',
-    `Fire dock stays yielded while the pointer is down (${diagnostic})`);
+  assert.equal(afterDown.commandHidden, true,
+    `Manage keeps the Command pane separated while editing (${diagnostic})`);
+  assert.equal(afterDown.fireVisible, false,
+    `the hidden Fire dock cannot intercept the editor pointer (${diagnostic})`);
   assert.equal(afterDown.hit, 'commanderMarchAdopt',
     `Adopt remains topmost after pointerdown (${diagnostic})`);
   assert.deepEqual(first('click'), {
@@ -503,11 +507,30 @@ async function registerNickname(role, name, march) {
   });
 }
 
+async function openCommanderCommand(page) {
+  if (await page.locator('#commanderManagePane').isVisible()) await page.locator('#commanderManageBack').click();
+  await page.waitForFunction(() => document.querySelector('#console')?.dataset.drawerState === 'command', null, { timeout: 8_000 });
+}
+
+async function openCommanderManage(page) {
+  if (await page.locator('#commanderCommandPane').isVisible()) await page.locator('#commanderManageOpen').click();
+  await page.waitForFunction(() => document.querySelector('#console')?.dataset.drawerState === 'manage', null, { timeout: 8_000 });
+}
+
 async function unlockCommander(page) {
-  await page.locator('#cmdUnlock').click();
-  await page.locator('#pwInput').fill(password);
-  await page.locator('#pwGo').click();
-  await page.locator('#console').waitFor({ state: 'visible', timeout: 8_000 });
+  if (await page.locator('#roomView').evaluate(element => element.classList.contains('presound'))) {
+    await page.locator('#soundGate').click();
+    await page.waitForFunction(() => !document.querySelector('#roomView')?.classList.contains('presound'));
+  }
+  if (await page.locator('#console').getAttribute('data-drawer-state') === 'closed') {
+    await page.locator('#cmdUnlock').click();
+    if (await page.locator('#pwOvl').evaluate(element => element.classList.contains('show'))) {
+      await page.locator('#pwInput').fill(password);
+      await page.locator('#pwGo').click();
+    }
+  }
+  await page.waitForFunction(() => document.querySelector('#console')?.dataset.drawerState === 'command', null, { timeout: 8_000 });
+  await openCommanderManage(page);
 }
 
 async function selectPlayer(page, pid) {
@@ -519,7 +542,7 @@ async function selectPlayer(page, pid) {
 }
 
 async function waitForSlot(page, pid, role) {
-  await page.locator(`#pickSlots .slot.${role}[data-pid="${pid}"]`).waitFor({ timeout: 8_000 });
+  await page.locator(`#pickSlots .slot.${role}[data-pid="${pid}"]`).waitFor({ state: 'attached', timeout: 8_000 });
 }
 
 async function readSnapshot(page, room) {
@@ -532,6 +555,7 @@ async function readSnapshot(page, room) {
 }
 
 async function fireDouble(page, beforeConfirm) {
+  await openCommanderCommand(page);
   await page.waitForFunction(() => document.querySelector('#cdot')?.classList.contains('on'), null, { timeout: 8_000 });
   await page.locator('#lead button[data-v="10"]').click();
   await page.evaluate(() => {
@@ -547,8 +571,9 @@ async function fireDouble(page, beforeConfirm) {
 }
 
 async function cancelCommand(page, room) {
+  await openCommanderCommand(page);
   await page.locator('#cancelBtn').click();
-  await page.locator('#toast.show').waitFor({ state: 'visible', timeout: 3_000 });
+  await page.locator('#commanderToast.show, #toast.show').waitFor({ state: 'visible', timeout: 3_000 });
   await page.locator('#cancelBtn').click();
   await waitUntil(async () => {
     const snapshot = await readSnapshot(page, room);
@@ -1049,7 +1074,7 @@ async function runCoreScenario(browser, engineName) {
     assert.deepEqual(ackTuple(captainAGate.savedAcks.at(-1)), ackTuple(captainAGate.clientAcks[0]),
       'the primary browser stops only on its exact deliveryAckSaved tuple');
     try {
-      await commander.page.locator(`#pickSlots .slot[data-pid="${captainAProfile.pid}"] .delivery`).filter({ hasText: 'Received 1/2' }).waitFor({ timeout: 8_000 });
+      await commander.page.locator(`#pickSlots .slot[data-pid="${captainAProfile.pid}"] .delivery`).filter({ hasText: 'Received 1/2' }).waitFor({ state: 'attached', timeout: 8_000 });
     } catch (error) {
       const diagnosticSnapshot = await readSnapshot(commander.page, room);
       const diagnosticCommand = diagnosticSnapshot.room.live.commands['1'];
@@ -1114,6 +1139,7 @@ async function runCoreScenario(browser, engineName) {
     assert.equal(await commander.page.locator('#pickSlots #swapRoles').count(), 0,
       'post-Fire live captain slots expose no swap control');
 
+    await openCommanderManage(commander.page);
     await captainA.page.locator('#editBtn').click();
     await captainA.page.locator('#marchRange').fill('64');
     await captainA.page.locator('#saveBtn').click();
@@ -1154,6 +1180,7 @@ async function runCoreScenario(browser, engineName) {
     assert.equal(afterCaptainBCues.find(cue => cue.key === captainBGoCue.key)?.targetMs,
       captainBGoCue.targetMs, 'Captain B original personal GO target remains immutable');
 
+    await openCommanderCommand(commander.page);
     const settledDeliveryHistory = structuredClone(receiptSnapshot.room.live.commands['1'].delivery);
     const captainBClosedIndex = await captainB.page.evaluate(() => {
       const index = window.__qaRoomSockets.findLastIndex(socket => socket.readyState === WebSocket.OPEN);
@@ -1167,14 +1194,43 @@ async function runCoreScenario(browser, engineName) {
     assert.deepEqual(disconnectedHistory.room.live.commands['1'].delivery, settledDeliveryHistory,
       'connection loss cannot erase or alter persisted command receipt history');
 
+    await openCommanderManage(commander.page);
     const activeRemove = commander.page.locator(`#roster .roster-actions[data-pid="${captainAProfile.pid}"]`);
     assert.equal(await activeRemove.getAttribute('aria-disabled'), 'true',
       'an active captain removal remains focusable but unavailable');
-    await activeRemove.click({ force: true });
+    await commander.page.evaluate(pid => {
+      window.__qaActiveRemoveEvents = [];
+      const button = document.querySelector(`#roster .roster-actions[data-pid="${pid}"]`);
+      ['pointerdown', 'pointerup', 'click'].forEach(type => button.addEventListener(type, event => {
+        window.__qaActiveRemoveEvents.push({ type, trusted: event.isTrusted, target: event.target.className });
+      }));
+    }, captainAProfile.pid);
+    await activeRemove.focus();
+    await commander.page.keyboard.press('Enter');
     assert.equal(await commander.page.locator('#removePlayerOvl').isVisible(), false,
       'an active captain cannot open removal confirmation');
-    await commander.page.locator('#toast.show').waitFor({ state: 'visible', timeout: 5_000 });
-    assert.match(await commander.page.locator('#toast').textContent(), /live|active|cancel/i,
+    try {
+      await commander.page.waitForFunction(() => {
+        const toast = document.querySelector('#commanderToast.show, #toast.show');
+        return !!toast && /live|active|cancel/i.test(toast.textContent || '');
+      }, null, { timeout: 5_000 });
+    } catch (error) {
+      const diagnostic = await commander.page.evaluate(pid => {
+        const button = document.querySelector(`#roster .roster-actions[data-pid="${pid}"]`);
+        const toast = document.querySelector('#commanderToast.show, #toast.show');
+        return {
+          events: window.__qaActiveRemoveEvents,
+          connected: !!button && button.isConnected,
+          ariaDisabled: button && button.getAttribute('aria-disabled'),
+          disabled: button && button.disabled,
+          toast: toast && { text: toast.textContent, className: toast.className },
+          overlay: document.querySelector('#removePlayerOvl')?.className,
+          drawer: document.querySelector('#console')?.dataset.drawerState
+        };
+      }, captainAProfile.pid);
+      throw new Error(`active removal toast diagnostic: ${JSON.stringify(diagnostic)}`, { cause: error });
+    }
+    assert.match(await commander.page.locator('#commanderToast.show, #toast.show').textContent(), /live|active|cancel/i,
       'an active captain receives the localized removal explanation');
     const beforeRejectedRemoval = await readSnapshot(commander.page, room);
     const removalError = await forceLiveRemoval(commander.page, room, captainAProfile.pid);
@@ -1198,6 +1254,7 @@ async function runCoreScenario(browser, engineName) {
     assert.deepEqual(restored.room.live.staged['1'].pairs,
       liveCommand.payload.pairs.map(({ pid, role }) => ({ pid, role })),
       'Cancel restores the exact frozen captain roles as editable canonical staging');
+    await Promise.all([openCommanderCommand(commander.page), openCommanderCommand(selectedCommander.page)]);
     for (const role of [commander, selectedCommander]) {
       await role.page.locator('#pickSlots .slot').nth(1).waitFor({ timeout: 8_000 });
       assert.equal(await role.page.locator('#pickSlots .slot.frozen').count(), 0,
@@ -1211,6 +1268,7 @@ async function runCoreScenario(browser, engineName) {
     if (await selectedCommander.page.locator('#console').isHidden()) {
       await unlockCommander(selectedCommander.page);
     }
+    await openCommanderCommand(selectedCommander.page);
     await selectedCommander.page.locator('#pickSlots .slot.filled').nth(1).waitFor({ timeout: 8_000 });
     const reloadedSlots = await selectedCommander.page.locator('#pickSlots .slot.filled').evaluateAll(slots =>
       slots.map(slot => ({
@@ -1256,6 +1314,7 @@ async function runCoreScenario(browser, engineName) {
       return profile && profile.pid === playerId && profile.march === march && profile.marchRevision === revision;
     }, { roomName: room, playerId: captainAProfile.pid, march: canonicalBeforeReconnect.march, revision: canonicalBeforeReconnect.marchRevision }, { timeout: 8_000 });
 
+    await openCommanderManage(commander.page);
     await commander.page.locator(`#roster .rp[data-pid="${captainAProfile.pid}"]`).click();
     await commander.page.waitForFunction(value =>
       document.querySelector(`#roster .rp[data-pid="${value}"]`)?.getAttribute('aria-pressed') === 'false',

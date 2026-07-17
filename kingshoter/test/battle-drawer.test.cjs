@@ -176,6 +176,7 @@ function createHarness(options = {}) {
     root,
     handle,
     background,
+    returnFocus: options.returnFocus ? outside : null,
     reducedMotion,
     onStateChange(state) {
       changes.push(state);
@@ -472,6 +473,16 @@ test('closing returns keyboard focus to the control that opened the drawer', () 
   h.drawer.close();
   assert.equal(h.document.activeElement, h.outside);
   assert.equal(h.outside.focusCount, 1);
+});
+
+test('an explicit return focus target owns first-open focus and prevents focus remaining in a closed drawer', () => {
+  const h = createHarness({ returnFocus: true });
+  h.drawer.openCommand();
+  assert.equal(h.document.activeElement, h.handle, 'Command receives a sensible keyboard focus target');
+
+  h.drawer.close();
+  assert.equal(h.document.activeElement, h.outside, 'Close returns to the stable external entry control');
+  assert.equal(h.root.inert, true);
 });
 
 test('pane swaps focus the revealed Manage target then restore the exact Command trigger', () => {

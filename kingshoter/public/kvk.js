@@ -23,6 +23,7 @@
 
   /* ---------- state ---------- */
   var sock = null, room = null, lead = 15, roomPw = "", lastCmdId = null, myPid = "", fireKingdom = 1;
+  var managerAuthenticated = false, commanderDrawer = null;
   var announcedCountdowns = {};
   var marchTouched = false, pendingUnlock = false, pendingTok = "", removalState = null;
   var initialStateSeen = false, ownPlayerSeen = false, registrationPending = false, pendingMarchMutation = null;
@@ -380,7 +381,7 @@
       as_on: "🔊 提醒已开启 · 可切回游戏", as_warn: "⚠️ 声音被系统暂停 · 点一下恢复", bgtest: "🔒 测后台", bgtest_on: "锁屏切到游戏——马上来一整套 10 秒倒数示范 🔔",
       ready_btn: "✅ 我已就位", ready_done: "✓ 已就位", notready: "有车头还没点「就位」，仍可发", readyon: "✓ 已告诉指挥你就位", readyline: "就位 {n}/{m}", rally_live: "该王国还有进行中的集结，先取消再发 refill", cap_absent: "有车头掉线了，仍可发", syncp: "{n}/{m} 已对时·在线", syncp_pick: "先点 {n} 个车头", land_cap: "落地",
       delivery_sent: "已发送", delivery_received: "已收到 ✓", delivery_received_count: "已收到 {n}/{m}", delivery_missing: "未确认", delivery_expired: "已过期",
-      settings: "⚙️ 提醒设置", bgtest2: "🔔 实测锁屏 / 切游戏提醒", cmdlink: "🔓 我是指挥 → 解锁", marchlab: "到王城行军时间", marchtip2: "实战提示：如果你会使用宠物行军速度增益，请在测量前先开启。",
+      settings: "⚙️ 提醒设置", bgtest2: "🔔 实测锁屏 / 切游戏提醒", cmdlink: "🔓 我是指挥 → 解锁", cmd_reopen: "🎖️ 打开指挥台", cmd_collapse: "收起", cmd_manage: "管理玩家与房间", cmd_back: "返回发令视图", marchlab: "到王城行军时间", marchtip2: "实战提示：如果你会使用宠物行军速度增益，请在测量前先开启。",
       cancel_k: "✖ 取消 {k} 的集结", legend: "● 你 ○ 队友 · 每环 30 秒，越外越远", unlocking: "验证密码中…", checklist_done: "都填好了，等指挥发车就行",
       tab_atk: "进攻", tab_def: "防守", dpanel: "🛡️ 补兵时机（按你的行军算）", dpanelhint: "挑当场来袭的那条敌鲸，照大字发兵。时间线上=敌方（集结→🔴落地），下=我方（🟢发兵→行军→补满✓）。补兵约在敌落地后 1 秒到，把它弹回去。",
       addenemy: "加敌鲸", pubwhales: "📣 发布敌鲸给全队", pub_ok: "✓ 已发布给全队", pub_fail: "发布失败（密码或网络）", pub_neterr: "网络错误", publishing: "发布中…", confirm_over: "有人刚发布了新版，覆盖？", whale_ph: "敌鲸名", pubdef_none: "先加一条敌鲸",
@@ -425,7 +426,7 @@
       as_on: "🔊 Alerts on · switch to game", as_warn: "⚠️ Sound paused by the OS — tap to resume", bgtest: "🔒 Test bg", bgtest_on: "Lock & switch to the game — a full 10s countdown demo starts now 🔔",
       ready_btn: "✅ I'm ready", ready_done: "✓ Ready", notready: "A captain hasn't tapped Ready — firing anyway", readyon: "✓ Told the commander you're ready", readyline: "Ready {n}/{m}", rally_live: "A rally is still live in this kingdom — cancel it before a refill", cap_absent: "A captain went offline — firing anyway", syncp: "{n}/{m} synced & present", syncp_pick: "Pick {n} captains", land_cap: "LAND",
       delivery_sent: "Sent", delivery_received: "Received ✓", delivery_received_count: "Received {n}/{m}", delivery_missing: "No confirmation", delivery_expired: "Expired",
-      settings: "⚙️ Alert settings", bgtest2: "🔔 Test lock-screen / in-game alert", cmdlink: "🔓 I'm the commander → unlock", marchlab: "March time to the castle", marchtip2: "Battle tip: if you will use a pet march-speed buff, activate it before measuring.",
+      settings: "⚙️ Alert settings", bgtest2: "🔔 Test lock-screen / in-game alert", cmdlink: "🔓 I'm the commander → unlock", cmd_reopen: "🎖️ Open commander console", cmd_collapse: "Collapse", cmd_manage: "Manage players & room", cmd_back: "Back to command", marchlab: "March time to the castle", marchtip2: "Battle tip: if you will use a pet march-speed buff, activate it before measuring.",
       cancel_k: "✖ Cancel {k}'s rally", legend: "● you ○ mates · 30s per ring, outer = farther", unlocking: "checking password…", checklist_done: "All set — just wait for the commander",
       tab_atk: "Attack", tab_def: "Defense", dpanel: "🛡️ When to refill (for your march)", dpanelhint: "Pick the incoming whale and follow the big text. Above the line = enemy (gather → 🔴 hits), below = you (🟢 send → march → reinforced✓). Your reinforcement lands ~1s after they hit — bounces them back.",
       addenemy: "Add incoming", pubwhales: "📣 Publish to squad", pub_ok: "✓ Published to squad", pub_fail: "Publish failed (password or network)", pub_neterr: "Network error", publishing: "Publishing…", confirm_over: "Someone just published a newer version. Overwrite?", whale_ph: "Enemy name", pubdef_none: "Add an incoming whale first",
@@ -775,7 +776,7 @@
   // Captains receive their exact personal launch second. Everyone else receives ONE join countdown for the
   // active rally, fixing the old visual-only joiner path while avoiding overlapping cues from both kingdoms.
   function isCommanderDevice() {
-    return document.body.classList.contains("cmdmode");
+    return managerAuthenticated === true;
   }
   function shouldBookJoinAudio() {
     return !!myPid && !isCommanderDevice();
@@ -3087,9 +3088,53 @@
     sock.send({ t: "setConfig", password: pw, config: (room && room.config) || {}, baseUpdatedAt: room ? room.updatedAt : undefined, by: pendingTok });
     setTimeout(function () { if (pendingUnlock) { pendingUnlock = false; roomPw = ""; var m2 = $("pwMsg"); if (m2) { m2.textContent = tk("notconn"); m2.className = "pwmsg err"; } } }, 4000);   // no ack in 4s → fail, don't open
   }
-  function unlockedOK() { pendingUnlock = false; $("pwOvl").classList.remove("show"); openCmd(); wr(LS("pw"), roomPw); }
-  function openCmd() { document.body.classList.add("cmdmode"); cancelJoinCues(); $("cmdGate").classList.add("hide"); $("console").classList.remove("hide"); $("chrome").classList.add("cmd"); renderKingdomPick(); renderLead(); if (room) renderRoster(); adminDirty = false; adminEnemies = ((room && room.config && room.config.enemyWhales) || []).map(function (e) { return { name: e.name, mm: e.mm, ss: e.ss }; }); renderAdmin(); }
-  function lockCmd() { document.body.classList.remove("cmdmode"); roomPw = ""; try { localStorage.removeItem(LS("pw")); } catch (e) {} $("cmdGate").classList.remove("hide"); $("console").classList.add("hide"); $("chrome").classList.remove("cmd"); }
+  function applyCommanderDrawerState(state) {
+    var open = state === "command" || state === "manage", manage = state === "manage";
+    document.body.classList.toggle("cmdmode", open);
+    $("cmdGate").classList.toggle("hide", open);
+    $("chrome").classList.toggle("cmd", open);
+    if (open) $("console").classList.remove("hide");
+    $("commanderCommandPane").classList.toggle("hide", !open || manage);
+    $("commanderManagePane").classList.toggle("hide", !manage);
+  }
+  function initCommanderDrawer() {
+    if (commanderDrawer || !window.BattleDrawer || typeof window.BattleDrawer.create !== "function") return commanderDrawer;
+    commanderDrawer = window.BattleDrawer.create({
+      root: $("console"), handle: $("commanderDrawerHandle"), background: $("battleMain"),
+      returnFocus: $("cmdUnlock"),
+      reducedMotion: window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : false,
+      onStateChange: applyCommanderDrawerState
+    });
+    return commanderDrawer;
+  }
+  function closeCmdDrawer() {
+    if (commanderDrawer) commanderDrawer.close();
+    else applyCommanderDrawerState("closed");
+    if (typeof renderStatics === "function") renderStatics();
+  }
+  function unlockedOK() { pendingUnlock = false; managerAuthenticated = true; $("pwOvl").classList.remove("show"); openCmd(); wr(LS("pw"), roomPw); }
+  function openCmd() {
+    document.body.classList.add("cmdmode"); cancelJoinCues();
+    var drawer = initCommanderDrawer();
+    if (drawer) {
+      // The console starts display:none. Give the browser a closed detent to
+      // paint before moving it, otherwise no transitionend is emitted and the
+      // shared drawer can remain marked as settling forever.
+      $("console").classList.remove("hide");
+      void $("console").offsetHeight;
+      drawer.openCommand();
+    } else applyCommanderDrawerState("command");
+    renderKingdomPick(); renderLead(); if (room) renderRoster(); adminDirty = false;
+    adminEnemies = ((room && room.config && room.config.enemyWhales) || []).map(function (e) { return { name: e.name, mm: e.mm, ss: e.ss }; });
+    renderAdmin(); renderStatics();
+  }
+  function lockCmd() {
+    managerAuthenticated = false; roomPw = "";
+    try { localStorage.removeItem(LS("pw")); } catch (e) {}
+    if (commanderDrawer) commanderDrawer.close();
+    applyCommanderDrawerState("closed"); $("console").classList.add("hide");
+    if (typeof renderStatics === "function") renderStatics();
+  }
 
   /* ---------- static text (one place; re-applied on lang change) ---------- */
   function renderStatics() {
@@ -3097,8 +3142,9 @@
     set("t_join", "join"); set("t_ornew", "ornew"); set("t_joinhint", "joinhint"); set("t_room", "room"); set("joinBtn", "enter");
     set("t_fill", "fill"); set("t_fillsub", "fillsub"); set("t_march", "marchlab"); set("saveBtn", "save"); paintProfileAccess(myProfile);
     set("t_cmd", "cmd"); set("t_kdhint", "kdhint"); set("t_leadhint", "leadhint"); set("t_defsethint", "defsethint"); set("idleWait", "idle_wait");
+    set("commanderDrawerClose", "cmd_collapse"); set("commanderManageOpen", "cmd_manage"); set("commanderManageBack", "cmd_back");
     syncIdentityControls(!!pendingMarchMutation);
-    set("t_pwtitle", "pwtitle"); set("pwCancel", "pwcancel"); set("pwGo", "pwgo"); set("cmdUnlock", "cmdlink");
+    set("t_pwtitle", "pwtitle"); set("pwCancel", "pwcancel"); set("pwGo", "pwgo"); set("cmdUnlock", managerAuthenticated ? "cmd_reopen" : "cmdlink");
     set("bgTest", "bgtest2"); set("t_settings", "settings");
     set("t_tab_atk", "tab_atk"); set("t_tab_def", "tab_def"); set("t_dpanel", "dpanel"); set("t_dpanelhint", "dpanelhint"); set("t_addenemy", "addenemy"); set("t_pubwhales", "pubwhales");
     var cd = $("cstep_def"); if (cd) cd.textContent = L() ? "🛡️ Set incoming whales → publish" : "🛡️ 设敌鲸 → 发布";
@@ -3121,6 +3167,7 @@
 
   /* ---------- wiring ---------- */
   function wireRoom() {
+    initCommanderDrawer(); applyCommanderDrawerState("closed");
     if (myProfile) showProfileDraft(myProfile);
     wireIdentityControls();
     wireRallyMode();
@@ -3245,6 +3292,7 @@
     $("marchPlus").onclick = function () { markDraft(); marchTouched = true; setMarchUI(+$("marchRange").value + 1); };
     if (!myPid) setMarchUI(90);   // only seed the default for a brand-new user; a returning user's saved march was already set by showInCard (don't clobber it to 1:30)
     $("cmdUnlock").onclick = function () {
+      if (managerAuthenticated && roomPw) { openCmd(); return; }
       // a FRESH room has no password yet — the first string typed here silently becomes it (room.js setConfig).
       // The modal must say "you're SETTING a password", or the first commander is stuck asking "what password?"
       var first = !!(room && !room.hasPw);
@@ -3262,7 +3310,10 @@
     });
     $("pwCancel").onclick = function () { $("pwOvl").classList.remove("show"); };
     $("pwGo").onclick = doUnlock; $("pwInput").addEventListener("keydown", function (e) { if (e.key === "Enter") doUnlock(); });
-    try { var sp = localStorage.getItem(LS("pw")); if (sp) { roomPw = sp; openCmd(); } } catch (e) {}
+    $("commanderDrawerClose").onclick = closeCmdDrawer;
+    $("commanderManageOpen").onclick = function () { if (commanderDrawer) commanderDrawer.openManage(); else applyCommanderDrawerState("manage"); };
+    $("commanderManageBack").onclick = function () { if (commanderDrawer) commanderDrawer.backToCommand(); else applyCommanderDrawerState("command"); };
+    try { var sp = localStorage.getItem(LS("pw")); if (sp) { roomPw = sp; managerAuthenticated = true; openCmd(); } } catch (e) {}
     syncFireConfirmation = tapFire($("fireDouble"), $("t_firedbl"), function () { return requiredCaptains(fireKingdom) === 3 ? "firetri" : "firedbl"; }, fireConfirmationKey, fireCurrentRally);
     var cancelArmed = 0;
     $("cancelBtn").onclick = function () { var n = Date.now(); if (cancelArmed && n - cancelArmed < 3000) { cancelArmed = 0; var ok = sock.send({ t: "cmd", password: roomPw, cmd: { type: "cancel", kingdom: fireKingdom } }); window.toast(ok ? tk("cancelled") : tk("notconn")); } else { cancelArmed = n; window.toast(tk("cancelq")); } };

@@ -73,6 +73,7 @@
     var doc = drawerRoot.ownerDocument || (typeof document !== "undefined" ? document : null);
     var view = doc && doc.defaultView ? doc.defaultView : (typeof window !== "undefined" ? window : null);
     var reducedMotion = options.reducedMotion || false;
+    var returnFocus = isElement(options.returnFocus) ? options.returnFocus : null;
     var onStateChange = typeof options.onStateChange === "function" ? options.onStateChange : function () {};
     var destroyed = false;
     var stateName = "closed";
@@ -266,7 +267,7 @@
       var enteringManage = previous !== "manage" && nextState === "manage";
       if (previous === "closed" && nextState !== "closed") {
         closedFocusReturn = doc && doc.activeElement && !drawerRoot.contains(doc.activeElement)
-          ? doc.activeElement
+          ? (returnFocus && isActuallyFocusable(returnFocus) ? returnFocus : doc.activeElement)
           : null;
       }
       if (previous === "manage" && nextState !== "manage") manageFocusTarget = leaveManage(false);
@@ -280,8 +281,13 @@
       }
       onStateChange(nextState);
       if (enteringManage) focusManage();
-      else if (closedFocusTarget && doc.activeElement !== closedFocusTarget
-          && typeof closedFocusTarget.focus === "function") closedFocusTarget.focus();
+      else if (previous === "closed" && nextState === "command" && returnFocus && isActuallyFocusable(handle)) handle.focus();
+      else if (closedFocusTarget && typeof closedFocusTarget.focus === "function") {
+        if (doc.activeElement !== closedFocusTarget) closedFocusTarget.focus();
+        if (view && typeof view.setTimeout === "function") view.setTimeout(function () {
+          if (!destroyed && stateName === "closed" && isActuallyFocusable(closedFocusTarget)) closedFocusTarget.focus();
+        }, 0);
+      }
       else if (nextState !== "closed" && manageFocusTarget
           && typeof manageFocusTarget.focus === "function") manageFocusTarget.focus();
     }

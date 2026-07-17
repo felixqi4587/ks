@@ -7,6 +7,7 @@
 <title>kingshoter · KvK</title>
 <link rel="icon" href="/favicon.svg">
 <link rel="stylesheet" href="app.css?v=2026071603">
+<link rel="stylesheet" href="/battle-ui.css?v=2026071603">
 <style>
   .pond{position:relative;background:radial-gradient(circle at 50% 42%,#e8fbf8,#cdf2ec 55%,#b6ebe2);border:2px solid #bfeee7;border-radius:var(--r-lg);overflow:hidden;margin-bottom:12px;box-shadow:inset 0 2px 10px rgba(15,161,147,.12)}
   .pond svg{display:block;width:100%;height:auto}
@@ -20,11 +21,11 @@
   .hr{border:0;border-top:1px dashed var(--line);margin:14px 0}
 </style>
 </head>
-<body class="kvk-page">
+<body class="kvk-page battle-page">
 <div id="updateGate" class="update-gate" role="status" aria-live="assertive" aria-atomic="true" hidden>
   <div class="update-card">Updating…</div>
 </div>
-<div class="wrap kvk-wrap">
+<div class="wrap kvk-wrap battle-shell">
   <div class="top">
     <span class="sig" style="color:var(--mint)" aria-hidden="true"><svg viewBox="0 0 64 48" width="28" height="20"><path d="M40 24 C40 12 22 10 12 16 C4 21 4 27 12 32 C22 38 40 36 40 24 Z" fill="currentColor"/><path d="M40 24 L58 12 L54 24 L58 36 Z" fill="currentColor"/></svg></span>
     <div><h1 data-i18n="k_h1">KvK 实时指挥</h1><div class="sub" id="roomlabel">—</div></div>
@@ -46,6 +47,7 @@
 
   <!-- ROOM VIEW -->
   <div id="roomView" class="hide">
+    <main id="battleMain" class="battle-main" data-battle-drawer-background>
     <!-- glass status chrome -->
     <div class="chrome" id="chrome">
       <span class="cdot" id="cdot"></span><span id="netlab">连接中…</span>
@@ -118,10 +120,27 @@
       </div>
     </div>
 
-    <!-- commander — right after the situation view, no scrolling to reach it -->
+    <!-- commander entry — ordinary players keep the full tactical page -->
     <div id="cmdGate"><button class="cmdlink" id="cmdUnlock">🔓 我是指挥 → 解锁</button></div>
-    <div class="console hide" id="console">
-      <h2>🎖️ <span id="t_cmd">指挥台</span><span class="cnt" id="pickCnt">0/2</span></h2>
+    <!-- one fixed alert pipeline for everyone (10..6 ticks → 5..1 female voice → GO) -->
+    <details id="settings">
+      <summary id="t_settings">⚙️ 提醒设置</summary>
+      <button class="btn full" id="bgTest" style="margin:10px 0 4px">🔔 测试我的提醒（锁屏也会响）</button>
+    </details>
+    </main>
+    <div class="console battle-drawer hide" id="console" aria-labelledby="commanderDrawerTitle">
+      <header class="battle-drawer__header commander-drawer-header">
+        <div class="commander-drawer-drag" id="commanderDrawerHandle">
+          <div class="battle-drawer__grabber" aria-hidden="true"></div>
+          <h2 id="commanderDrawerTitle">🎖️ <span id="t_cmd">指挥台</span><span class="cnt" id="pickCnt">0/2</span></h2>
+        </div>
+        <button type="button" class="battle-control commander-drawer-close" id="commanderDrawerClose" data-drawer-no-drag>收起</button>
+        <div class="commander-toast" id="commanderToast" role="status" aria-live="polite" aria-atomic="true"></div>
+      </header>
+      <div class="battle-drawer__content commander-drawer-content">
+      <section class="commander-drawer-pane" id="commanderCommandPane" aria-label="Rally command">
+      <div class="commander-command-scroll" id="commanderCommandScroll">
+      <div class="commander-drawer-shared">
       <div class="lab" id="t_kdhint" style="margin-top:0"></div>
       <div class="chiprow" id="kingdomPick"></div>
       <section id="rallyModeControl" class="rally-mode" hidden aria-labelledby="rallyModeScope">
@@ -133,6 +152,20 @@
         <span id="rallyModeStatus" class="hint" aria-live="polite"></span>
       </section>
       <div class="slots" id="pickSlots"></div>
+      </div>
+      <div class="lab" id="t_leadhint"></div>
+      <div class="chiprow" id="lead"></div>
+      </div>
+      <button type="button" class="battle-control commander-manage-open" id="commanderManageOpen">管理玩家与房间</button>
+      <!-- Fire remains a fixed Command row: no setup scrolling is required to launch. -->
+      <div class="firedock battle-fire-dock" id="fireDock">
+        <div class="syncpill" id="syncPill"></div>
+        <button class="fire" id="fireDouble"><span class="fill"></span><span id="t_firedbl">⚔️ 点两下发双集结</span></button>
+        <button class="btn full" id="cancelBtn" id_t="t_cancel">✖ 取消当前</button>
+      </div>
+      </section>
+      <section class="commander-drawer-pane hide" id="commanderManagePane" aria-label="Rally management">
+      <button type="button" class="battle-control commander-manage-back" id="commanderManageBack" data-drawer-focus>返回发令视图</button>
       <div class="roster-search hide" id="rosterSearchWrap"><input id="rosterSearch" type="search" autocomplete="off" aria-label="Search players"></div>
       <div class="hint hide" id="duplicateHint" role="note"></div>
       <div class="roster" id="roster" role="list"></div>
@@ -156,14 +189,6 @@
           <button type="submit" class="btn green full" id="commanderMarchSave"></button>
         </div>
       </form>
-      <div class="lab" id="t_leadhint"></div>
-      <div class="chiprow" id="lead"></div>
-      <!-- fire trio rides a sticky dock: 0px of scrolling to fire, always under the thumb -->
-      <div class="firedock" id="fireDock">
-        <div class="syncpill" id="syncPill"></div>
-        <button class="fire" id="fireDouble"><span class="fill"></span><span id="t_firedbl">⚔️ 点两下发双集结</span></button>
-        <button class="btn full" id="cancelBtn" id_t="t_cancel">✖ 取消当前</button>
-      </div>
       <!-- defense: publish the incoming enemy whales — folded by default, it's pre-battle setup not fight-time -->
       <details class="cdefense" id="cdefense">
         <summary class="cstep" id="cstep_def">🛡️ 设敌鲸 → 发布</summary>
@@ -173,14 +198,9 @@
         <button class="btn green full" id="pubWhales" style="margin-top:8px"><span id="t_pubwhales">📣 发布敌鲸给全队</span></button>
         <div class="hint" id="pubMsg" style="margin-top:6px;text-align:center"></div>
       </details>
+      </section>
+      </div>
     </div>
-
-
-    <!-- one fixed alert pipeline for everyone (10..6 ticks → 5..1 female voice → GO) — nothing to configure but the self-test -->
-    <details id="settings">
-      <summary id="t_settings">⚙️ 提醒设置</summary>
-      <button class="btn full" id="bgTest" style="margin:10px 0 4px">🔔 测试我的提醒（锁屏也会响）</button>
-    </details>
   </div>
   <p class="foot" data-i18n="foot">Kingshot 玩家自制工具 · 非官方 ⚔️🐟</p>
 </div>
@@ -220,6 +240,7 @@
 <script src="/battle-cues.js?v=2026071603"></script>
 <script src="/battle-identity.js?v=2026071603"></script>
 <script src="/battle-delivery.js?v=2026071603"></script>
+<script src="/battle-drawer.js?v=2026071603"></script>
 <script src="/app.js?v=2026071603"></script>
 <script src="/kvk-delivery-shadow.js?v=2026071603"></script>
 <script src="/kvk-rally.js?v=2026071603"></script>

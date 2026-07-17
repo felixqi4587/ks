@@ -7,7 +7,27 @@ window.pad = (n) => (n < 10 ? "0" : "") + n;
 window.hhmmss = (sec) => { sec = ((Math.round(sec) % 86400) + 86400) % 86400; return pad(Math.floor(sec / 3600)) + ":" + pad(Math.floor(sec % 3600 / 60)) + ":" + pad(sec % 60); };
 window.mmss = (s) => { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ":" + pad(s % 60); };
 window.nowUTCsec = () => { const d = new Date(); return d.getUTCHours() * 3600 + d.getUTCMinutes() * 60 + d.getUTCSeconds(); };
-window.toast = (t) => { const el = $("toast"); if (!el) return; el.textContent = t; el.classList.add("show"); setTimeout(() => el.classList.remove("show"), 2200); };
+window.toast = (t) => {
+  const drawer = $("console");
+  const drawerToast = $("commanderToast");
+  const globalToast = $("toast");
+  const drawerOpen = drawer && (drawer.dataset.drawerState === "command" || drawer.dataset.drawerState === "manage") && !drawer.classList.contains("hide");
+  const el = drawerOpen && drawerToast ? drawerToast : globalToast;
+  [drawerToast, globalToast].forEach(candidate => {
+    if (!candidate || candidate === el) return;
+    if (candidate.__toastTimer) clearTimeout(candidate.__toastTimer);
+    candidate.__toastTimer = 0;
+    candidate.classList.remove("show");
+  });
+  if (!el) return;
+  if (el.__toastTimer) clearTimeout(el.__toastTimer);
+  el.textContent = t;
+  el.classList.add("show");
+  el.__toastTimer = setTimeout(() => {
+    el.classList.remove("show");
+    el.__toastTimer = 0;
+  }, 2200);
+};
 
 /* ---- i18n ---- */
 window.LANG_KEY = "kingshoter_lang";
