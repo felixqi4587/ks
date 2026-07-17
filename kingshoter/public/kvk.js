@@ -32,6 +32,8 @@
   var DELIVERY_ACK_RETRY_DELAYS_MS = [1200, 2400, 5000, 10000, 15000], deliveryStatusTimer = 0;
   var lastDeviceStatusSignature = "", lastDeviceStatusGeneration = -1;
   var DEVICE_STATUS_RETRY_MS = 1200, lastDeviceStatusSentSignature = "", lastDeviceStatusSentGeneration = -1, lastDeviceStatusSentAt = 0;
+  var DEVICE_STATUS_GREEN_STABLE_MS = 900, deviceStatusGreenTimer = 0;
+  var pendingGreenGeneration = -1, pendingGreenSignature = "";
   try { myProfile = JSON.parse(localStorage.getItem(LS("me")) || "null"); } catch (e) {}
   if (myProfile && myProfile.pid) {
     myProfile = Object.assign({}, myProfile, {
@@ -55,6 +57,7 @@
   var dAnim = null, dRaf = null, dPlaying = false, dLastTs = null, dTNow = 0;
   var truthLang = "";
   var ac = null, keepAudio = null, keepAlive = false, soundReady = false, syncedOK = false;
+  var KEEP_ALIVE_STALL_CONFIRM_MS = 80, keepAliveStallTimer = 0;
   var syncAttempt = 0, lastAcceptedClockOffset = Number(window.clockOffset) || 0;
   var isIOS = /iP(hone|od|ad)/.test(navigator.userAgent || "") || (navigator.platform === "MacIntel" && (navigator.maxTouchPoints || 0) > 1);
   var isAndroid = /android/i.test(navigator.userAgent || "");
@@ -491,20 +494,44 @@
     paintAudioStatus();
   }
   function startKeepAlive() {
+    function cancelCarrierLossCheck() {
+      if (keepAliveStallTimer) clearTimeout(keepAliveStallTimer);
+      keepAliveStallTimer = 0;
+    }
+    function carrierPlaying() {
+      cancelCarrierLossCheck();
+      setKeepAliveState(true);
+    }
+    function carrierStopped() {
+      cancelCarrierLossCheck();
+      setKeepAliveState(false);
+    }
+    function confirmCarrierLoss() {
+      if (keepAliveStallTimer) return;
+      keepAliveStallTimer = setTimeout(function () {
+        keepAliveStallTimer = 0;
+        if (!keepAudio || keepAudio.paused || keepAudio.ended || keepAudio.error || keepAudio.readyState < 3) {
+          setKeepAliveState(false);
+        }
+      }, KEEP_ALIVE_STALL_CONFIRM_MS);
+    }
     try {
       if (!keepAudio) {
         keepAudio = new Audio(); keepAudio.src = bedURI(isIOS ? .002 : .05); keepAudio.loop = true; keepAudio.volume = bedVol(); keepAudio.preload = "auto"; keepAudio.setAttribute("playsinline", "");
-        keepAudio.addEventListener("playing", function () { setKeepAliveState(true); });
-        keepAudio.addEventListener("pause", function () { setKeepAliveState(false); if (soundReady) setTimeout(resumeAudio, 250); });   // auto-restart if the OS pauses the bed
-        ["waiting", "stalled", "error", "ended"].forEach(function (eventName) {
-          keepAudio.addEventListener(eventName, function () { setKeepAliveState(false); });
+        keepAudio.addEventListener("playing", carrierPlaying);
+        keepAudio.addEventListener("pause", function () { carrierStopped(); if (soundReady) setTimeout(resumeAudio, 250); });   // auto-restart if the OS pauses the bed
+        ["error", "ended"].forEach(function (eventName) {
+          keepAudio.addEventListener(eventName, carrierStopped);
+        });
+        ["waiting", "stalled"].forEach(function (eventName) {
+          keepAudio.addEventListener(eventName, confirmCarrierLoss);
         });
       }
       var pr = keepAudio.play();
-      if (pr && pr.then) pr.then(function () { setKeepAliveState(true); }).catch(function () { setKeepAliveState(false); });
-      else setKeepAliveState(!keepAudio.paused);
+      if (pr && pr.then) pr.then(carrierPlaying).catch(carrierStopped);
+      else if (keepAudio.paused) carrierStopped(); else carrierPlaying();
       if ("mediaSession" in navigator) { try { navigator.mediaSession.metadata = new window.MediaMetadata({ title: "KvK alerts on", artist: "kingshoter" }); navigator.mediaSession.setActionHandler("play", resumeAudio); navigator.mediaSession.setActionHandler("pause", function () { }); } catch (e) {} }
-    } catch (e) { setKeepAliveState(false); }
+    } catch (e) { carrierStopped(); }
   }
   function resumeAudio() {
     ensureAudio();
@@ -834,19 +861,70 @@
       return key.indexOf(baseKey + ":") === 0 && cue && cue.t > nowMs - 150 && cue.nodes && cue.nodes.length > 0;
     });
   }
+  function clearDeviceStatusGuards() {
+    if (deviceStatusGreenTimer) clearTimeout(deviceStatusGreenTimer);
+    deviceStatusGreenTimer = 0; pendingGreenGeneration = -1; pendingGreenSignature = "";
+    lastDeviceStatusSignature = ""; lastDeviceStatusGeneration = -1;
+    lastDeviceStatusSentSignature = ""; lastDeviceStatusSentGeneration = -1; lastDeviceStatusSentAt = 0;
+  }
+  function handleDeviceStatusError(message) {
+    if (!message || message.source !== "deviceStatus") return false;
+    if (message.error === "device_status_persist_failed") {
+      clearDeviceStatusGuards();
+      setTimeout(function () { sendDeviceStatus("deviceStatus", true); }, DEVICE_STATUS_RETRY_MS);
+      return true;
+    }
+    if (["invalid_device_identity", "socket_identity_locked", "device_owned_by_other_pid"].indexOf(message.error) >= 0) {
+      clearDeviceStatusGuards();
+      return true;
+    }
+    return false;
+  }
   function sendDeviceStatus(messageType, force) {
     if (!sock || !myPid || !deviceId) return false;
     var type = messageType || "deviceStatus", ready = audioAlive();
     var generation = Number(sock.connectionGeneration || 0);
     var signature = myPid + ":" + deviceId + ":" + (ready ? "1" : "0");
-    if (type === "deviceStatus" && !force && generation === lastDeviceStatusGeneration && signature === lastDeviceStatusSignature) return true;
-    var nowMs = Date.now();
-    if (type === "deviceStatus" && !force && generation === lastDeviceStatusSentGeneration && signature === lastDeviceStatusSentSignature && nowMs - lastDeviceStatusSentAt < DEVICE_STATUS_RETRY_MS) return true;
-    var sent = sock.send({ t: type, pid: myPid, deviceId: deviceId, soundReady: ready });
-    if (sent && type === "deviceStatus") {
-      lastDeviceStatusSentGeneration = generation; lastDeviceStatusSentSignature = signature; lastDeviceStatusSentAt = nowMs;
+    if (type !== "deviceStatus") {
+      var stableGreen = ready &&
+        generation === lastDeviceStatusSentGeneration && signature === lastDeviceStatusSentSignature;
+      return sock.send({ t: type, pid: myPid, deviceId: deviceId, soundReady: stableGreen });
     }
-    return sent;
+    var nowMs = Date.now();
+    if (!ready) {
+      if (deviceStatusGreenTimer) clearTimeout(deviceStatusGreenTimer);
+      deviceStatusGreenTimer = 0; pendingGreenGeneration = -1; pendingGreenSignature = "";
+      var greenSignature = myPid + ":" + deviceId + ":1";
+      if (generation === lastDeviceStatusGeneration && lastDeviceStatusSignature === greenSignature) {
+        lastDeviceStatusGeneration = -1; lastDeviceStatusSignature = "";
+      }
+      if (generation === lastDeviceStatusSentGeneration && lastDeviceStatusSentSignature === greenSignature) {
+        lastDeviceStatusSentGeneration = -1; lastDeviceStatusSentSignature = ""; lastDeviceStatusSentAt = 0;
+      }
+      if (generation === lastDeviceStatusSentGeneration && signature === lastDeviceStatusSentSignature) return true;
+      var sent = sock.send({ t: type, pid: myPid, deviceId: deviceId, soundReady: false });
+      if (sent) {
+        lastDeviceStatusSentGeneration = generation; lastDeviceStatusSentSignature = signature; lastDeviceStatusSentAt = nowMs;
+      }
+      return sent;
+    }
+    if (generation === lastDeviceStatusSentGeneration && signature === lastDeviceStatusSentSignature) return true;
+    if (deviceStatusGreenTimer) clearTimeout(deviceStatusGreenTimer);
+    pendingGreenGeneration = generation; pendingGreenSignature = signature;
+    deviceStatusGreenTimer = setTimeout(function () {
+      deviceStatusGreenTimer = 0;
+      if (!sock || !myPid || !deviceId || !audioAlive()) return;
+      var currentGeneration = Number(sock.connectionGeneration || 0);
+      var currentSignature = myPid + ":" + deviceId + ":1";
+      if (currentGeneration !== pendingGreenGeneration || currentSignature !== pendingGreenSignature) return;
+      if (currentGeneration === lastDeviceStatusSentGeneration && currentSignature === lastDeviceStatusSentSignature) return;
+      var sent = sock.send({ t: "deviceStatus", pid: myPid, deviceId: deviceId, soundReady: true });
+      if (!sent) return;
+      lastDeviceStatusSentGeneration = currentGeneration;
+      lastDeviceStatusSentSignature = currentSignature;
+      lastDeviceStatusSentAt = Date.now();
+    }, DEVICE_STATUS_GREEN_STABLE_MS);
+    return true;
   }
   function deliveryAckKey(value) {
     return String(value && value.commandId || "") + ":" + String(value && value.pid || "") + ":" + String(value && value.deviceId || "");
@@ -975,9 +1053,6 @@
     if (!message || message.t !== "deviceStatusSaved" || message.pid !== myPid || message.deviceId !== deviceId) return false;
     lastDeviceStatusGeneration = sock ? Number(sock.connectionGeneration || 0) : -1;
     lastDeviceStatusSignature = myPid + ":" + deviceId + ":" + (message.soundReady === true ? "1" : "0");
-    lastDeviceStatusSentGeneration = lastDeviceStatusGeneration;
-    lastDeviceStatusSentSignature = lastDeviceStatusSignature;
-    lastDeviceStatusSentAt = Date.now();
     if (message.soundReady !== true) return true;
     Object.keys(rejectedDeliveryAcks).forEach(function (key) {
       var rejected = rejectedDeliveryAcks[key], payload = rejected && rejected.payload;
@@ -2885,7 +2960,7 @@
     };
     sock.onError = function (m) {
       if (rejectPendingDeliveryAck(m)) return;
-      if (m && m.source === "deviceStatus" && ["invalid_device_identity", "socket_identity_locked", "device_owned_by_other_pid"].indexOf(m.error) >= 0) return;
+      if (handleDeviceStatusError(m)) return;
       if (handleRallyModeError(m)) return;
       if (handleRallyCommandError(m)) return;
       if (handleRallyStageConflict(m)) return;

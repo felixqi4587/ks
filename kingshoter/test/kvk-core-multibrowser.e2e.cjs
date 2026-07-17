@@ -114,6 +114,7 @@ function packetGate(options = {}) {
     serverStateFrames: [],
     ignoredClientFrames: [],
     transformedLegacyFrames: [],
+    deviceStatusEvents: [],
     holdClientAcks: options.holdClientAcks === true,
     dropFirstClientAck: options.dropFirstClientAck === true,
     dropFirstSavedAck: options.dropFirstSavedAck === true,
@@ -129,7 +130,10 @@ function gateOptions(gate) {
     shouldDropClientMessage({ data }) {
       let message = null;
       try { message = JSON.parse(String(data)); } catch (_) {}
-      if (message && message.t === 'deviceStatus') gate.deviceStatuses.push(message);
+      if (message && message.t === 'deviceStatus') {
+        gate.deviceStatuses.push(message);
+        gate.deviceStatusEvents.push({ atMs: Date.now(), direction: 'client', message });
+      }
       if (message && message.t === 'hb') gate.heartbeats.push(message);
       if (message && message.t === 'deliveryAck') gate.clientAcks.push(message);
       if (gate.ignoreDeliveryProtocol && message && ['deviceStatus', 'deliveryAck'].includes(message.t)) {
@@ -148,7 +152,10 @@ function gateOptions(gate) {
       let message = null;
       try { message = JSON.parse(String(data)); } catch (_) {}
       if (message && message.t === 'state') gate.serverStateFrames.push(data);
-      if (message && message.t === 'deviceStatusSaved') gate.deviceStatusSaved.push(message);
+      if (message && message.t === 'deviceStatusSaved') {
+        gate.deviceStatusSaved.push(message);
+        gate.deviceStatusEvents.push({ atMs: Date.now(), direction: 'server', message });
+      }
       if (!message || message.t !== 'deliveryAckSaved') return false;
       gate.savedAcks.push(message);
       if (gate.dropFirstSavedAck && !gate.savedAckDropped) {
@@ -178,6 +185,111 @@ async function waitUntil(read, label, timeout = 10_000) {
     await delay(25);
   }
   throw new Error(`Timed out waiting for ${label}`);
+}
+
+async function restoreCurrentReady(role, pid, deviceId, options = {}) {
+  if (options.foreground) await role.page.bringToFront();
+  await role.page.waitForFunction(() => {
+    const socket = window.__qaCoreRoomSocket;
+    return !!(socket && socket.connected);
+  }, null, { timeout: 8_000 });
+  const socketBefore = await role.page.evaluate(({ expectedPid, expectedDeviceId }) => {
+    const socket = window.__qaCoreRoomSocket;
+    const generation = socket ? Number(socket.connectionGeneration || 0) : -1;
+    const events = (window.__qaDeviceStatusEvents || []).filter(event =>
+      event && event.generation === generation && event.message &&
+      event.message.pid === expectedPid && event.message.deviceId === expectedDeviceId);
+    const latest = direction => events.filter(event => event.direction === direction).at(-1);
+    const outbound = latest('client');
+    const saved = latest('server');
+    return {
+      connected: !!(socket && socket.connected),
+      generation,
+      alive: !!(window.__ac && window.__ac.state === 'running' && window.__keepAlive === true),
+      eventCount: (window.__qaDeviceStatusEvents || []).length,
+      outboundReady: !!(outbound && outbound.message.soundReady === true),
+      savedReady: !!(saved && saved.message.soundReady === true)
+    };
+  }, { expectedPid: pid, expectedDeviceId: deviceId });
+  assert.equal(socketBefore.connected, true, `${role.label} re-arms an already connected RoomSocket`);
+  if (socketBefore.alive && socketBefore.outboundReady && socketBefore.savedReady) return;
+
+  const eventBefore = socketBefore.eventCount;
+  const outboundBefore = role.gate.deviceStatuses.length;
+  const savedBefore = role.gate.deviceStatusSaved.length;
+  await role.page.evaluate(() => document.querySelector('#audioStatus').click());
+  await role.page.waitForFunction(() => window.__ac && window.__ac.state === 'running' && window.__keepAlive === true,
+    null, { timeout: 7_000 });
+  try {
+    await waitUntil(async () => {
+      const socketNow = await role.page.evaluate(({ generation, expectedPid, expectedDeviceId, startIndex }) => {
+        const socket = window.__qaCoreRoomSocket;
+        const events = (window.__qaDeviceStatusEvents || []).slice(startIndex).filter(event =>
+          event && event.generation === generation && event.message &&
+          event.message.pid === expectedPid && event.message.deviceId === expectedDeviceId);
+        const latest = direction => events.filter(event => event.direction === direction).at(-1);
+        const outbound = latest('client');
+        const saved = latest('server');
+        return {
+          connected: !!(socket && socket.connected),
+          generation: socket ? Number(socket.connectionGeneration || 0) : -1,
+          alive: !!(window.__ac && window.__ac.state === 'running' && window.__keepAlive === true),
+          outboundReady: !!(outbound && outbound.message.soundReady === true),
+          savedReady: !!(saved && saved.message.soundReady === true)
+        };
+      }, {
+        generation: socketBefore.generation,
+        expectedPid: pid,
+        expectedDeviceId: deviceId,
+        startIndex: eventBefore
+      });
+      return socketNow.connected && socketNow.generation === socketBefore.generation && socketNow.alive &&
+        socketNow.outboundReady && socketNow.savedReady;
+    }, `${role.label} current ready binding`, 7_000);
+    const socketAfter = await role.page.evaluate(() => {
+      const socket = window.__qaCoreRoomSocket;
+      return {
+        connected: !!(socket && socket.connected),
+        generation: socket ? Number(socket.connectionGeneration || 0) : -1,
+        alive: !!(window.__ac && window.__ac.state === 'running' && window.__keepAlive === true)
+      };
+    });
+    assert.deepEqual(socketAfter, {
+      connected: true, generation: socketBefore.generation, alive: true
+    }, `${role.label} returns only with the same live socket generation`);
+  } catch (error) {
+    const page = await role.page.evaluate(() => {
+      const carrier = window.__qaCarrier;
+      const socket = window.__qaCoreRoomSocket;
+      return {
+        visibilityState: document.visibilityState,
+        acState: window.__ac && window.__ac.state,
+        keepAlive: window.__keepAlive,
+        carrier: carrier ? {
+          paused: carrier.paused,
+          ended: carrier.ended,
+          error: carrier.error && { code: carrier.error.code, message: carrier.error.message },
+          networkState: carrier.networkState,
+          readyState: carrier.readyState,
+          currentTime: carrier.currentTime
+        } : null,
+        carrierEvents: (window.__qaCarrierEvents || []).slice(-30),
+        socket: socket ? {
+          connected: socket.connected,
+          generation: socket.connectionGeneration,
+          readyState: socket.ws && socket.ws.readyState
+        } : null
+      };
+    });
+    throw new Error(`${role.label} readiness diagnostic: ${JSON.stringify({
+      expectedGeneration: socketBefore.generation,
+      pageStatusEvents: await role.page.evaluate(() => (window.__qaDeviceStatusEvents || []).slice(-30)),
+      outboundAfterIndex: role.gate.deviceStatuses.slice(outboundBefore),
+      savedAfterIndex: role.gate.deviceStatusSaved.slice(savedBefore),
+      page,
+      deviceStatusEvents: role.gate.deviceStatusEvents.slice(-30)
+    })}`, { cause: error });
+  }
 }
 
 function lastStatePlayerRecord(gate, pid) {
@@ -293,7 +405,36 @@ async function openRole(browser, options) {
     if (storedProfile) localStorage.setItem(`kingshoter_r_${roomName}_me`, JSON.stringify(storedProfile));
     if (seededDeviceId) localStorage.setItem(`kvk:${roomName}:delivery-device:v1`, seededDeviceId);
     const NativeWebSocket = window.WebSocket;
+    const NativeAudio = window.Audio;
+    let InstrumentedRoomSocket = null;
+    Object.defineProperty(window, 'RoomSocket', {
+      configurable: true,
+      get() { return InstrumentedRoomSocket; },
+      set(RoomSocketClass) {
+        InstrumentedRoomSocket = class extends RoomSocketClass {
+          constructor(...args) {
+            super(...args);
+            window.__qaCoreRoomSocket = this;
+          }
+        };
+      }
+    });
+    window.__qaCarrierEvents = [];
+    window.Audio = function (...args) {
+      const media = new NativeAudio(...args);
+      window.__qaCarrier = media;
+      ['loadstart', 'canplay', 'playing', 'pause', 'waiting', 'stalled', 'error', 'ended', 'emptied', 'suspend']
+        .forEach(type => media.addEventListener(type, () => window.__qaCarrierEvents.push({
+          atMs: Date.now(), type, paused: media.paused, ended: media.ended,
+          networkState: media.networkState, readyState: media.readyState,
+          error: media.error && { code: media.error.code, message: media.error.message }
+        })));
+      return media;
+    };
+    window.Audio.prototype = NativeAudio.prototype;
+    Object.setPrototypeOf(window.Audio, NativeAudio);
     window.__qaRoomSockets = [];
+    window.__qaDeviceStatusEvents = [];
     window.WebSocket = class extends NativeWebSocket {
       constructor(...args) {
         super(...args);
@@ -301,12 +442,34 @@ async function openRole(browser, options) {
         this.addEventListener('message', event => {
           try {
             const message = JSON.parse(String(event.data));
+            const roomSocket = window.__qaCoreRoomSocket;
+            if (roomSocket && roomSocket.ws === this && message && message.t === 'deviceStatusSaved') {
+              window.__qaDeviceStatusEvents.push({
+                generation: Number(roomSocket.connectionGeneration || 0),
+                direction: 'server',
+                message: structuredClone(message)
+              });
+            }
             if (message && message.t === 'state') {
               window.__qaObservedStateFrames.push(String(event.data));
               window.__qaObservedStates.push(structuredClone(message));
             }
           } catch (_) {}
         });
+      }
+      send(data) {
+        try {
+          const message = JSON.parse(String(data));
+          const roomSocket = window.__qaCoreRoomSocket;
+          if (roomSocket && roomSocket.ws === this && message && message.t === 'deviceStatus') {
+            window.__qaDeviceStatusEvents.push({
+              generation: Number(roomSocket.connectionGeneration || 0),
+              direction: 'client',
+              message: structuredClone(message)
+            });
+          }
+        } catch (_) {}
+        return super.send(data);
       }
     };
     window.__qaObservedStateFrames = [];
@@ -368,7 +531,7 @@ async function readSnapshot(page, room) {
   }, room);
 }
 
-async function fireDouble(page) {
+async function fireDouble(page, beforeConfirm) {
   await page.waitForFunction(() => document.querySelector('#cdot')?.classList.contains('on'), null, { timeout: 8_000 });
   await page.locator('#lead button[data-v="10"]').click();
   await page.evaluate(() => {
@@ -377,7 +540,8 @@ async function fireDouble(page) {
   });
   await page.locator('#fireDouble').click();
   await page.locator('#fireDouble.armed').waitFor({ state: 'visible', timeout: 3_000 });
-  await page.locator('#fireDouble').click();
+  if (typeof beforeConfirm === 'function') await beforeConfirm();
+  await page.evaluate(() => document.querySelector('#fireDouble').click());
   await page.locator('#pickSlots.frozen').waitFor({ state: 'visible', timeout: 8_000 });
   return page.evaluate(() => window.__qaFireClicks.at(-1));
 }
@@ -765,37 +929,40 @@ async function runCoreScenario(browser, engineName) {
       'canonical march sync never leaks the owner capability to the second device');
     assert.equal(storedCaptainProfiles[1].editable, false);
 
-    const readyDevices = [
-      [captainAGate, captainAProfile.pid, '11111111-1111-4111-8111-111111111111'],
-      [captainASecondGate, captainAProfile.pid, '22222222-2222-4222-8222-222222222222'],
-      [captainBGate, captainBProfile.pid, '33333333-3333-4333-8333-333333333333'],
-      [ordinaryGate, ordinaryProfile.pid, '44444444-4444-4444-8444-444444444444'],
-      [selectedCommanderGate, selectedCommanderProfile.pid, '55555555-5555-4555-8555-555555555555']
+    const readyRoles = [
+      [captainA, captainAGate, captainAProfile.pid, '11111111-1111-4111-8111-111111111111'],
+      [captainASecond, captainASecondGate, captainAProfile.pid, '22222222-2222-4222-8222-222222222222'],
+      [captainB, captainBGate, captainBProfile.pid, '33333333-3333-4333-8333-333333333333'],
+      [ordinary, ordinaryGate, ordinaryProfile.pid, '44444444-4444-4444-8444-444444444444'],
+      [selectedCommander, selectedCommanderGate, selectedCommanderProfile.pid, '55555555-5555-4555-8555-555555555555']
     ];
-    await waitUntil(() => readyDevices.every(([gate, pid, deviceId]) => gate.deviceStatusSaved.some(message =>
-      message.pid === pid && message.deviceId === deviceId && message.soundReady === true)),
-    'every exact ready PID/device binding persisted before Fire');
-    await captainA.page.evaluate(({ roomName, pid, deviceId }) => new Promise((resolve, reject) => {
+    await Promise.all(readyRoles.map(([role, , pid, deviceId]) =>
+      restoreCurrentReady(role, pid, deviceId)));
+    await commander.page.evaluate(({ roomName, pid, deviceId }) => new Promise((resolve, reject) => {
       const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
       const socket = new WebSocket(`${protocol}://${location.host}/api/ws?room=${encodeURIComponent(roomName)}`);
       const timer = setTimeout(() => reject(new Error('heartbeat binding timeout')), 5_000);
-      socket.onopen = () => socket.send(JSON.stringify({ t: 'deviceStatus', pid, deviceId, soundReady: true }));
+      socket.onopen = () => socket.send(JSON.stringify({ t: 'deviceStatus', pid, deviceId, soundReady: false }));
       socket.onmessage = event => {
         const message = JSON.parse(String(event.data));
         if (message.t !== 'deviceStatusSaved' || message.pid !== pid || message.deviceId !== deviceId) return;
-        socket.send(JSON.stringify({ t: 'hb', pid, deviceId, soundReady: true }));
+        socket.send(JSON.stringify({ t: 'hb', pid, deviceId, soundReady: false }));
         clearTimeout(timer);
         window.__qaHeartbeatSocket = socket;
         resolve();
       };
       socket.onerror = () => { clearTimeout(timer); reject(new Error('heartbeat binding failed')); };
-    }), { roomName: room, pid: captainAProfile.pid, deviceId: '11111111-1111-4111-8111-111111111111' });
-    await waitUntil(() => captainAGate.heartbeats.some(message => message.pid === captainAProfile.pid && message.soundReady === true),
+    }), { roomName: room, pid: ordinaryProfile.pid, deviceId: '66666666-6666-4666-8666-666666666666' });
+    await waitUntil(() => commander.gate.heartbeats.some(message => message.pid === ordinaryProfile.pid && message.soundReady === false),
       'identity-bearing heartbeat before Fire');
-    await captainA.page.evaluate(() => window.__qaHeartbeatSocket.close());
+    await commander.page.evaluate(() => window.__qaHeartbeatSocket.close());
     assert.equal(await commander.page.locator('#pickSlots .delivery.received').count(), 0,
       'presence, WebSocket, AudioContext, and heartbeat readiness never masquerade as Received');
-    const confirmedMs = await fireDouble(commander.page);
+    const confirmedMs = await fireDouble(commander.page, () => Promise.all([
+      restoreCurrentReady(captainA, captainAProfile.pid, '11111111-1111-4111-8111-111111111111'),
+      restoreCurrentReady(captainASecond, captainAProfile.pid, '22222222-2222-4222-8222-222222222222'),
+      restoreCurrentReady(captainB, captainBProfile.pid, '33333333-3333-4333-8333-333333333333')
+    ]));
     const fired = await readSnapshot(commander.page, room);
     const liveCommand = fired.room.live.commands['1'];
     assert.ok(liveCommand, 'the first command is live');
@@ -812,6 +979,9 @@ async function runCoreScenario(browser, engineName) {
     assert.equal(liveCommand.payload.pairs.find(pair => pair.pid === captainAProfile.pid).march, 63,
       'Fire snapshots the latest canonical march');
     assert.equal(fired.room.live.staged['1'], null, 'Fire clears canonical staging');
+    assert.deepEqual(liveCommand.delivery.map(entry => [entry.pid, entry.expected]), [
+      [captainAProfile.pid, 2], [captainBProfile.pid, 1]
+    ], 'Fire snapshots only the three currently ready captain devices');
 
     const cueState = role => role.page.evaluate(() => Object.entries(window.__cues || {}).map(([key, cue]) => ({
       key,
@@ -849,8 +1019,19 @@ async function runCoreScenario(browser, engineName) {
     assert.equal(captainBGoCue.targetMs, frozenPairsByPid[captainBProfile.pid].pressUTC * 1000,
       'Captain B personal GO cue targets Captain B own frozen press time');
 
-    await waitUntil(() => captainAGate.clientAcks.length >= 2 && captainAGate.savedAcks.length >= 2,
-      'retry after the first deliveryAckSaved is lost');
+    try {
+      await waitUntil(() => captainAGate.clientAcks.length >= 2 && captainAGate.savedAcks.length >= 2,
+        'retry after the first deliveryAckSaved is lost');
+    } catch (error) {
+      const diagnostic = await readSnapshot(commander.page, room);
+      throw new Error(`Primary ACK retry diagnostic: ${JSON.stringify({
+        clientAcks: captainAGate.clientAcks,
+        savedAcks: captainAGate.savedAcks,
+        deviceStatuses: captainAGate.deviceStatuses,
+        delivery: diagnostic.room.live.commands['1'] && diagnostic.room.live.commands['1'].delivery,
+        errors
+      })}`, { cause: error });
+    }
     await waitUntil(() => captainASecondGate.clientAcks.length >= 2,
       'immutable retry while the second device client ACK is lost');
     assert.deepEqual(captainAGate.clientAcks[1], captainAGate.clientAcks[0],
@@ -888,6 +1069,8 @@ async function runCoreScenario(browser, engineName) {
     assert.deepEqual({ expected: captainADelivery.expected, received: captainADelivery.received }, { expected: 2, received: 1 },
       'one exact persisted device ACK produces stable Received 1/2');
 
+    await restoreCurrentReady(captainASecond, captainAProfile.pid,
+      '22222222-2222-4222-8222-222222222222', { foreground: true });
     captainASecondGate.holdClientAcks = false;
     await waitUntil(() => captainASecondGate.savedAcks.length >= 1, 'second-device persisted ACK');
     assert.deepEqual(ackTuple(captainASecondGate.savedAcks.at(-1)), ackTuple(captainASecondGate.clientAcks[0]),
@@ -999,8 +1182,12 @@ async function runCoreScenario(browser, engineName) {
     assert.deepEqual(removalError, { t: 'error', error: 'player_in_live_command', pid: captainAProfile.pid });
     assert.deepEqual(afterRejectedRemoval.room.live, beforeRejectedRemoval.room.live,
       'live-command removal is rejected atomically without mutating live or staged state');
-    assert.deepEqual(afterRejectedRemoval.room.players[captainAProfile.pid],
-      beforeRejectedRemoval.room.players[captainAProfile.pid],
+    const canonicalPlayerFields = player => {
+      const { lastSeen, ...canonical } = player;
+      return canonical;
+    };
+    assert.deepEqual(canonicalPlayerFields(afterRejectedRemoval.room.players[captainAProfile.pid]),
+      canonicalPlayerFields(beforeRejectedRemoval.room.players[captainAProfile.pid]),
       'live-command removal rejection preserves the protected player full canonical record');
 
     await cancelCommand(commander.page, room);

@@ -313,6 +313,9 @@ function createHarness(config = {}) {
     function clearPendingRallyMode() {}
     function markRemovalDisconnected() {}
     function rejectPendingDeliveryAck() { return false; }
+    var DEVICE_STATUS_RETRY_MS = 1200;
+    function clearDeviceStatusGuards() { __state.log.push('core:clearDeviceStatusGuards'); }
+    ${extractFunction(script, 'handleDeviceStatusError')}
     function handleRallyModeError() { return false; }
     function handleRallyCommandError() { return false; }
     function handleRallyStageConflict() { return false; }
@@ -397,13 +400,13 @@ function sentType(state, type) {
 }
 
 test('the updater bootstrap and isolated delivery controller load in one build generation', () => {
-  const updateIndex = html.indexOf('<script src="/kvk-update.js?v=2026071602"></script>');
-  const appIndex = html.indexOf('<script src="/app.js?v=2026071602"></script>');
-  const shadowTag = '<script src="/kvk-delivery-shadow.js?v=2026071602"></script>';
+  const updateIndex = html.indexOf('<script src="/kvk-update.js?v=2026071603"></script>');
+  const appIndex = html.indexOf('<script src="/app.js?v=2026071603"></script>');
+  const shadowTag = '<script src="/kvk-delivery-shadow.js?v=2026071603"></script>';
   const shadowIndex = html.indexOf(shadowTag);
-  const rallyTag = '<script src="/kvk-rally.js?v=2026071602"></script>';
+  const rallyTag = '<script src="/kvk-rally.js?v=2026071603"></script>';
   const rallyIndex = html.indexOf(rallyTag);
-  const kvkIndex = html.indexOf('<script src="/kvk.js?v=2026071602"></script>');
+  const kvkIndex = html.indexOf('<script src="/kvk.js?v=2026071603"></script>');
 
   assert.ok(updateIndex >= 0, 'supported-build updater loads');
   assert.ok(appIndex > updateIndex, 'shared app loads after the updater');
@@ -420,7 +423,7 @@ test('KvK cache assertions move atomically to the supported build', () => {
   const cacheSources = [html, ...CACHE_TEST_PATHS.map(read)];
   for (const source of cacheSources) {
     assert.equal(source.includes('kvk.js?v=41') || source.includes('kvk\\.js\\?v=41'), false);
-    assert.equal(source.includes('kvk.js?v=2026071602') || source.includes('kvk\\.js\\?v=2026071602'), true);
+    assert.equal(source.includes('kvk.js?v=2026071603') || source.includes('kvk\\.js\\?v=2026071603'), true);
   }
 });
 

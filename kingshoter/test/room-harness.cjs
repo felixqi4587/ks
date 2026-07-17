@@ -47,6 +47,7 @@ function createRoomHarness(Room, options = {}) {
   room.now = () => new Date(nowMs).toISOString();
   room.persist = async () => { calls.push('persist'); };
   room.persistAll = async () => { calls.push('persistAll'); };
+  room.persistDevices = async () => { calls.push('persistDevices'); };
   room.broadcast = () => { calls.push('broadcast'); };
   room.scheduleExpiry = async () => { calls.push('alarm'); };
   let attachment = null;

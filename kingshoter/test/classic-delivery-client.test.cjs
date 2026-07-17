@@ -53,6 +53,80 @@ test('returning profiles force a fresh device binding as soon as canonical regis
   assert.match(script, /becameCanonical[\s\S]{0,180}sendDeviceStatus\(["']deviceStatus["'],\s*true\)/);
 });
 
+test('a rejected readiness persistence clears coalescing guards before retrying', () => {
+  assert.match(script, /device_status_persist_failed/);
+  assert.match(script, /function clearDeviceStatusGuards\([\s\S]{0,500}clearTimeout\(deviceStatusGreenTimer\)/);
+  assert.match(script, /function clearDeviceStatusGuards\([\s\S]{0,700}lastDeviceStatusSentSignature\s*=\s*["']["']/);
+
+  const handler = extractFunction(script, 'handleDeviceStatusError');
+  const calls = [];
+  const timers = [];
+  const sandbox = {
+    DEVICE_STATUS_RETRY_MS: 1200,
+    clearDeviceStatusGuards() { calls.push('clear'); },
+    sendDeviceStatus(type, force) { calls.push([type, force]); },
+    setTimeout(callback, delay) { timers.push({ callback, delay }); }
+  };
+  vm.runInNewContext(`${handler}; this.handle = handleDeviceStatusError;`, sandbox);
+  assert.equal(sandbox.handle({ source: 'deviceStatus', error: 'device_status_persist_failed' }), true);
+  assert.deepEqual(calls, ['clear']);
+  assert.equal(timers.length, 1);
+  assert.equal(timers[0].delay, 1200);
+  timers[0].callback();
+  assert.deepEqual(calls, ['clear', ['deviceStatus', true]]);
+});
+
+test('identity rejection clears every readiness guard without an immediate retry loop', () => {
+  const reset = extractFunction(script, 'clearDeviceStatusGuards');
+  const cleared = [];
+  const sandbox = {
+    deviceStatusGreenTimer: 9,
+    pendingGreenGeneration: 7,
+    pendingGreenSignature: 'pending',
+    lastDeviceStatusSignature: 'confirmed',
+    lastDeviceStatusGeneration: 7,
+    lastDeviceStatusSentSignature: 'sent',
+    lastDeviceStatusSentGeneration: 7,
+    lastDeviceStatusSentAt: 123,
+    clearTimeout(id) { cleared.push(id); }
+  };
+  vm.runInNewContext(`${reset}; this.reset = clearDeviceStatusGuards;`, sandbox);
+  sandbox.reset();
+  assert.deepEqual(cleared, [9]);
+  assert.deepEqual({
+    timer: sandbox.deviceStatusGreenTimer,
+    pendingGeneration: sandbox.pendingGreenGeneration,
+    pendingSignature: sandbox.pendingGreenSignature,
+    confirmedGeneration: sandbox.lastDeviceStatusGeneration,
+    confirmedSignature: sandbox.lastDeviceStatusSignature,
+    sentGeneration: sandbox.lastDeviceStatusSentGeneration,
+    sentSignature: sandbox.lastDeviceStatusSentSignature,
+    sentAt: sandbox.lastDeviceStatusSentAt
+  }, {
+    timer: 0, pendingGeneration: -1, pendingSignature: '',
+    confirmedGeneration: -1, confirmedSignature: '',
+    sentGeneration: -1, sentSignature: '', sentAt: 0
+  });
+
+  const handler = extractFunction(script, 'handleDeviceStatusError');
+  let helperClears = 0;
+  let helperRetries = 0;
+  const handlerSandbox = {
+    DEVICE_STATUS_RETRY_MS: 1200,
+    clearDeviceStatusGuards() { helperClears += 1; },
+    sendDeviceStatus() { helperRetries += 1; },
+    setTimeout() { helperRetries += 1; }
+  };
+  vm.runInNewContext(`${handler}; this.handle = handleDeviceStatusError;`, handlerSandbox);
+  for (const error of ['invalid_device_identity', 'socket_identity_locked', 'device_owned_by_other_pid']) {
+    assert.equal(handlerSandbox.handle({ source: 'deviceStatus', error }), true);
+  }
+  assert.equal(helperClears, 3);
+  assert.equal(helperRetries, 0, 'identity errors never start an immediate retry loop');
+  assert.equal(handlerSandbox.handle({ source: 'deliveryAck', error: 'invalid_device_identity' }), false);
+  assert.equal(helperClears, 3);
+});
+
 test('every AudioContext transition immediately refreshes canonical device readiness', () => {
   assert.match(script, /ac\.onstatechange\s*=\s*function\s*\(\)\s*\{[\s\S]{0,220}ac\.state\s*!==\s*["']running["'][\s\S]{0,160}sendDeviceStatus\(["']deviceStatus["'],\s*true\)/);
   assert.doesNotMatch(script, /if\s*\(ac\.state\s*===\s*["']running["']\)\s*sendDeviceStatus/);
@@ -91,10 +165,10 @@ test('Classic commander keeps fired slots visible and reserves green for receipt
 });
 
 test('KvK cache versions move atomically with the delivery client and styles', () => {
-  assert.match(html, /app\.css\?v=2026071602/);
-  assert.match(html, /kvk-update\.js\?v=2026071602/);
-  assert.match(html, /app\.js\?v=2026071602/);
-  assert.match(html, /kvk-delivery-shadow\.js\?v=2026071602/);
-  assert.match(html, /kvk-rally\.js\?v=2026071602/);
-  assert.match(html, /kvk\.js\?v=2026071602/);
+  assert.match(html, /app\.css\?v=2026071603/);
+  assert.match(html, /kvk-update\.js\?v=2026071603/);
+  assert.match(html, /app\.js\?v=2026071603/);
+  assert.match(html, /kvk-delivery-shadow\.js\?v=2026071603/);
+  assert.match(html, /kvk-rally\.js\?v=2026071603/);
+  assert.match(html, /kvk\.js\?v=2026071603/);
 });

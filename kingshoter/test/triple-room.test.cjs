@@ -2,6 +2,21 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { loadRoom, createRoomHarness, claimRoom } = require('./room-harness.cjs');
 
+function attachLiveDevice(room, roomName, { pid, deviceId }) {
+  let attachment = null;
+  const ws = {
+    send() {},
+    close() {},
+    serializeAttachment(value) { attachment = structuredClone(value); },
+    deserializeAttachment() { return attachment == null ? null : structuredClone(attachment); }
+  };
+  room.attachSocket(ws, roomName);
+  room.writeSocketAttachment(ws, {
+    pid, deviceId, soundReady: true, lastSeenMs: room.nowMs()
+  });
+  return ws;
+}
+
 test('mode updates authenticate, revision, persist once, ack, and broadcast once', async () => {
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room, { env: { TRIPLE_RALLY_ENABLED: '1' } });
@@ -75,11 +90,15 @@ test('Triple stage and Fire require the current mode revision and freeze canonic
   await claimRoom(h);
   h.room.delivery = { v: 1, roomName: h.roomName, commands: [] };
   h.room.persistDelivery = async () => { h.calls.push('delivery-persist'); };
-  h.room.devices = [
-    { pid: 'a', deviceId: '00000000-0000-4000-8000-000000000001', soundReady: true, lastSeenMs: 1_000_750 },
-    { pid: 'b', deviceId: '00000000-0000-4000-8000-000000000002', soundReady: true, lastSeenMs: 1_000_750 },
-    { pid: 'c', deviceId: '00000000-0000-4000-8000-000000000003', soundReady: true, lastSeenMs: 1_000_750 }
-  ];
+  attachLiveDevice(h.room, h.roomName, {
+    pid: 'a', deviceId: '00000000-0000-4000-8000-000000000001'
+  });
+  attachLiveDevice(h.room, h.roomName, {
+    pid: 'b', deviceId: '00000000-0000-4000-8000-000000000002'
+  });
+  attachLiveDevice(h.room, h.roomName, {
+    pid: 'c', deviceId: '00000000-0000-4000-8000-000000000003'
+  });
   await h.room.webSocketMessage(h.ws, JSON.stringify({
     t: 'setRallyMode', mutationId: 'm-2', password: 'commander-secret',
     kingdom: 1, mode: 'triple', baseRevision: 0
@@ -306,7 +325,7 @@ test('real broadcast projects by socket build and merge-safe attachments retain 
   }
   const legacy = socket(0, '00000000-0000-4000-8000-000000000010');
   socket(0, '00000000-0000-4000-8000-000000000012', true);
-  const current = socket(2026071602, '00000000-0000-4000-8000-000000000011');
+  const current = socket(2026071603, '00000000-0000-4000-8000-000000000011');
   h.room.room.live.commands[1] = {
     id: 'c', type: 'triple_rally', kingdom: 1,
     payload: { pairs: [{ pid: 'a', role: 'weak' }, { pid: 'b', role: 'weak2' }, { pid: 'c', role: 'main' }] }
@@ -323,7 +342,7 @@ test('real broadcast projects by socket build and merge-safe attachments retain 
   assert.equal(Object.prototype.hasOwnProperty.call(h.room.snapshot(), 'capabilities'), false);
   const attachment = h.room.readSocketAttachment(current.ws);
   assert.equal(attachment.roomName, h.roomName);
-  assert.equal(attachment.clientBuild, 2026071602);
+  assert.equal(attachment.clientBuild, 2026071603);
   assert.equal(attachment.lastProbeId, 'probe-1');
   assert.equal(attachment.deviceId, '00000000-0000-4000-8000-000000000011');
 });
@@ -363,7 +382,7 @@ test('fetch binds the canonical room, client build, and Reliable defaults before
     h.room.ensureDeliveryLoaded = async () => {};
     await h.room.fetch({
       headers: { get: (name) => name === 'Upgrade' ? 'websocket' : null },
-      url: 'https://qa-kvk.invalid/api/ws?room=operation-room&clientBuild=2026071602'
+      url: 'https://qa-kvk.invalid/api/ws?room=operation-room&clientBuild=2026071603'
     });
   } finally {
     globalThis.WebSocketPair = originalPair;
@@ -372,7 +391,7 @@ test('fetch binds the canonical room, client build, and Reliable defaults before
 
   assert.ok(server);
   assert.equal(attachmentAtFirstSend.roomName, h.roomName);
-  assert.equal(attachmentAtFirstSend.clientBuild, 2026071602);
+  assert.equal(attachmentAtFirstSend.clientBuild, 2026071603);
   assert.equal(attachmentAtFirstSend.v, 1);
   assert.equal(attachmentAtFirstSend.qa, true);
   assert.equal(attachmentAtFirstSend.view, 'player');

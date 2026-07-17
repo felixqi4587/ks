@@ -111,6 +111,11 @@ lead time              -> selected value is the actual start of personal countdo
 - Modify: `test/reliable-room-delivery.test.cjs`
 - Modify: `test/audio-readiness.test.cjs`
 - Modify: `test/classic-delivery-client.test.cjs`
+- Create: `test/audio-carrier-longrun.e2e.cjs`
+- Modify: `src/client-build.js`
+- Modify: `public/kvk-update.js`
+- Modify: `public/kvk-rally.js`
+- Modify: `public/kvk.html`
 
 **Interfaces:**
 - Consumes: existing `normalizeCoreSocketAttachment`, `bindCoreSocketIdentity`, hibernation WebSocket attachments, `audioAlive()`, and `sendDeviceStatus(messageType, force)`.
@@ -130,8 +135,8 @@ Room.prototype.persistDevices();
 
 An identical `deviceStatus` still receives `deviceStatusSaved`; it produces no storage write, no full-room broadcast, and no alarm change. `hb` is transient presence: it refreshes live attachment/in-memory liveness but never writes `room`, `devices`, `deliveryAcks`, or `profileOwners`. `snapshot()` and command audience construction project live presence/readiness from WebSocket attachments so removing heartbeat persistence cannot make a connected client look offline. A red transition is reported immediately; a green transition is coalesced until stable for 900ms. An unchanged generation/signature is suppressed even when legacy callers pass `force=true`; reconnect and explicit server rejection may reset the signature and retry.
 
-- [ ] **Step 1: Run and record GitNexus impact before touching the hot path.** Analyze `Room.persistAll`, `Room.webSocketMessage`, `Room.observeDevice`, `Room.snapshot`, `Room.scheduleExpiry`, `touchDevice`, `sendDeviceStatus`, and `setKeepAliveState` upstream with tests included. Warn that shared status, delivery, and alarm paths are HIGH/CRITICAL before editing, then continue under the characterization gates.
-- [ ] **Step 2: Write the failing server write-budget tests.** In `test/room-write-budget.test.cjs`, use a storage spy that counts map entries as rows and assert: the first real status transition writes only `devices`; 100 identical status messages each receive an ACK but add zero rows and zero broadcasts; 100 sockets over four heartbeat rounds add zero rows, zero alarms, and zero broadcasts; clearing in-memory throttle fields between rounds does not change that result; `true → false → duplicate false → true` creates exactly two canonical transitions; a failed transition write restores the prior attachment and registry and sends no success ACK.
+- [x] **Step 1: Run and record GitNexus impact before touching the hot path.** Analyze `Room.persistAll`, `Room.webSocketMessage`, `Room.observeDevice`, `Room.snapshot`, `Room.scheduleExpiry`, `touchDevice`, `sendDeviceStatus`, and `setKeepAliveState` upstream with tests included. Warn that shared status, delivery, and alarm paths are HIGH/CRITICAL before editing, then continue under the characterization gates.
+- [x] **Step 2: Write the failing server write-budget tests.** In `test/room-write-budget.test.cjs`, use a storage spy that counts map entries as rows and assert: the first real status transition writes only `devices`; 100 identical status messages each receive an ACK but add zero rows and zero broadcasts; 100 sockets over four heartbeat rounds add zero rows, zero alarms, and zero broadcasts; clearing in-memory throttle fields between rounds does not change that result; `true → false → duplicate false → true` creates exactly two canonical transitions; a failed transition write restores the prior durable registry, keeps the current socket identity, forces that live socket red, and sends no success ACK.
 
 ```js
 assert.equal(metrics.rowsWrittenAfterSteadyState, 0);
@@ -140,13 +145,13 @@ assert.equal(metrics.broadcastsAfterSteadyState, 0);
 assert.equal(savedMessages.length, 100);
 ```
 
-- [ ] **Step 3: Run the new tests and confirm the current implementation fails for the intended reason.** Run `node --test test/room-write-budget.test.cjs`; expect failures showing four rows per duplicate `deviceStatus` and periodic rows from heartbeat.
-- [ ] **Step 4: Add live attachment projection and transition-aware observation.** Implement `projectLiveCoreDevices` as a pure export in `src/room-delivery.js`. In `Room.observeDevice`, capture before/after canonical identity/readiness, update the hibernation attachment, merge live siblings, and return `changed` without treating `lastSeenMs` as a canonical change. Add `persistDevices()` and roll back both attachment and in-memory devices if that one-key write fails.
-- [ ] **Step 5: Make `deviceStatus` idempotent and heartbeat transient.** In `Room.webSocketMessage`, only persist/broadcast a real transition; always ACK a valid duplicate. For `hb`, apply a real readiness transition through the same path, otherwise only refresh transient memory. In `snapshot()` clone player records and project current connected pids as online; in command delivery/ACK checks merge the live attachment registry before deriving expected devices.
-- [ ] **Step 6: Remove the idle QA alarm loop.** `scheduleExpiry()` may set an alarm for command expiry or an active delivery retry/lease, but a ready idle socket with no active delivery record must not maintain the three-second probe loop. Run the existing reliable-delivery retry, cancellation, and expiry tests to prove active windows still wake.
-- [ ] **Step 7: Write the failing client coalescing tests.** Simulate repeated `playing/waiting` carrier events and `AudioContext` transitions. Assert local readiness turns red immediately, identical network signatures are coalesced, green is sent once after 900ms stable, a new socket generation retries once, and explicit identity rejection clears the retry guard.
-- [ ] **Step 8: Implement minimal client coalescing.** Keep the current audio graph, carrier, and local `paintAudioStatus()` behavior. Replace forced duplicate sends from `ac.onstatechange` and `setKeepAliveState` with a single status publisher whose negative edge is immediate and whose positive edge uses one replaceable 900ms timer.
-- [ ] **Step 9: Run focused and full hotfix gates.** Run `node --test test/room-write-budget.test.cjs test/room-delivery.test.cjs test/reliable-room-delivery.test.cjs test/audio-readiness.test.cjs test/classic-delivery-client.test.cjs`, then `npm test && npm run test:delivery && npm run test:triple && npm run test:kvk-core:all`; expect all to pass and the budget assertions to remain exactly zero in steady state.
+- [x] **Step 3: Run the new tests and confirm the current implementation fails for the intended reason.** Run `node --test test/room-write-budget.test.cjs`; expect failures showing four rows per duplicate `deviceStatus` and periodic rows from heartbeat.
+- [x] **Step 4: Add live attachment projection and transition-aware observation.** Implement `projectLiveCoreDevices` as a pure export in `src/room-delivery.js`. In `Room.observeDevice`, capture before/after canonical identity/readiness, update the hibernation attachment, merge live siblings, and return `changed` without treating `lastSeenMs` as a canonical change. Add `persistDevices()` and roll back the durable registry while keeping the live socket fail-closed if that one-key write fails.
+- [x] **Step 5: Make `deviceStatus` idempotent and heartbeat transient.** In `Room.webSocketMessage`, only persist/broadcast a real transition; always ACK a valid duplicate. For `hb`, apply a real readiness transition through the same path, otherwise only refresh transient memory. In `snapshot()` clone player records and project current connected pids as online; in command delivery/ACK checks merge the live attachment registry before deriving expected devices.
+- [x] **Step 6: Remove the idle QA alarm loop.** `scheduleExpiry()` may set an alarm for command expiry or an active delivery retry/lease, but a ready idle socket with no active delivery record must not maintain the three-second probe loop. Run the existing reliable-delivery retry, cancellation, and expiry tests to prove active windows still wake.
+- [x] **Step 7: Write the failing client coalescing tests.** Simulate repeated `playing/waiting` carrier events and `AudioContext` transitions. Assert local readiness turns red immediately, identical network signatures are coalesced, green is sent once after 900ms stable, a new socket generation retries once, and explicit identity rejection clears the retry guard.
+- [x] **Step 8: Implement minimal client coalescing.** Keep the current audio graph, carrier, and local `paintAudioStatus()` behavior. Replace forced duplicate sends from `ac.onstatechange` and `setKeepAliveState` with a single status publisher whose negative edge is immediate and whose positive edge uses one replaceable 900ms timer. Treat the 1-second loop boundary as healthy when `playing` recovers within 80ms, while persistent stalls still turn red.
+- [x] **Step 9: Run focused and full hotfix gates.** Run `node --test test/room-write-budget.test.cjs test/room-delivery.test.cjs test/reliable-room-delivery.test.cjs test/audio-readiness.test.cjs test/classic-delivery-client.test.cjs`, then `npm test && npm run test:delivery && npm run test:triple && npm run test:kvk-core:all`; expect all to pass and the budget assertions to remain exactly zero in steady state. Final evidence: `npm test` 412/412, Delivery 125/125, Triple 193/193, Chromium/Firefox/WebKit core and compatibility flows passed, and the two-page carrier long-run passed on build `2026071603`.
 - [ ] **Step 10: Commit the hotfix and validate it independently in fixed QA.** Run GitNexus change detection, commit `fix: stop idle durable object write amplification`, deploy that exact commit to `kingshoter-qa`, run the fixed `qa` room write/readiness smoke, and record its QA version ID. Because the daily write limit is an active production incident, promote this server/client hotfix after its own QA gate and record the production rollback version; the later Rally/Defense/UI release remains atomic.
 
 ---
@@ -790,8 +795,8 @@ The upper role bars retain a fixed 120-second scale and exact `M:SS` text so cro
 **Legacy redirect:**
 
 ```text
-/kvk?room=qa&lang=en&notour=1&__kvk_build=2026071602&junk=x
-  -> 302 /rally?room=qa&lang=en&notour=1&__rally_build=2026071602
+/kvk?room=qa&lang=en&notour=1&__kvk_build=2026071603&junk=x
+  -> 302 /rally?room=qa&lang=en&notour=1&__rally_build=2026071603
 Cache-Control: no-store
 ```
 

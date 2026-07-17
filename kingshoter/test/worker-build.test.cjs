@@ -25,9 +25,9 @@ test('GET /api/build returns uncached build metadata and does not reach other ro
   assert.equal(response.headers.get('cache-control'), 'no-store, max-age=0');
   assert.equal(response.headers.get('access-control-allow-origin'), '*');
   assert.deepEqual(await response.json(), {
-    currentBuild: 2026071602,
-    minKvkBuild: 2026071602,
-    minTripleBuild: 2026071602,
+    currentBuild: 2026071603,
+    minKvkBuild: 2026071603,
+    minTripleBuild: 2026071603,
     tripleEnabled: false,
     tripleQaEnabled: true
   });
@@ -45,16 +45,16 @@ test('GET /api/build enables gates only for the exact string value 1', async () 
   });
 
   assert.deepEqual(await enabled.json(), {
-    currentBuild: 2026071602,
-    minKvkBuild: 2026071602,
-    minTripleBuild: 2026071602,
+    currentBuild: 2026071603,
+    minKvkBuild: 2026071603,
+    minTripleBuild: 2026071603,
     tripleEnabled: true,
     tripleQaEnabled: true
   });
   assert.deepEqual(await malformed.json(), {
-    currentBuild: 2026071602,
-    minKvkBuild: 2026071602,
-    minTripleBuild: 2026071602,
+    currentBuild: 2026071603,
+    minKvkBuild: 2026071603,
+    minTripleBuild: 2026071603,
     tripleEnabled: false,
     tripleQaEnabled: false
   });

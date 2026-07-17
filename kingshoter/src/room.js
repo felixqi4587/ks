@@ -23,6 +23,7 @@ import {
   deliveryAckError,
   normalizeCoreSocketAttachment,
   normalizeDeviceId,
+  projectLiveCoreDevices,
   pruneDevices,
   recordCommandAck,
   registryMatchesAck,
@@ -126,6 +127,17 @@ function registrationError(error, registrationId, pid = "") {
   const message = { t: "error", error, registrationId };
   if (pid) message.pid = pid;
   return message;
+}
+
+function deliveryAckReceiptKey(value) {
+  return JSON.stringify([
+    String(value && value.commandId || ""),
+    normalizeRoutingKey(value && value.pid),
+    normalizeDeviceId(value && value.deviceId),
+    value && value.outcome === "expired" ? "expired" : value && value.outcome === "scheduled" ? "scheduled" : "",
+    Number(value && value.targetUTC),
+    Number(value && value.scheduledAtMs)
+  ]);
 }
 
 function clampStr(s, n) { return (s == null ? "" : String(s)).slice(0, n); }
@@ -258,7 +270,15 @@ export class Room {
   }
 
   snapshot() {
-    const r = { ...this.room, presence: this.state.getWebSockets().length };
+    const sockets = this.liveCoreSockets();
+    const players = Object.fromEntries(Object.entries(this.room.players || {}).map(([pid, player]) => [
+      pid, { ...(player && typeof player === "object" ? player : {}) }
+    ]));
+    const liveSeen = new Date(this.nowMs()).toISOString();
+    for (const device of this.liveCoreDevices()) {
+      if (Object.prototype.hasOwnProperty.call(players, device.pid)) players[device.pid].lastSeen = liveSeen;
+    }
+    const r = { ...this.room, players, presence: sockets.length };
     delete r.delivery;
     delete r.deliveryShadow;
     r.hasPw = !!r.pwHash; delete r.pwHash;   // clients only need "is this room claimed?" — never ship the hash itself
@@ -279,7 +299,7 @@ export class Room {
     if (!isQaRoomName(this.roomName) || !this.state ||
         typeof this.state.getWebSockets !== "function") return null;
     let next = null;
-    for (const ws of this.state.getWebSockets()) {
+    for (const ws of this.liveCoreSockets()) {
       const attachment = this.readReliableAttachment(ws);
       if (attachment.roomName !== this.roomName || !attachment.shadow) continue;
       const coreReady = !!attachment.pid && !!attachment.deviceId &&
@@ -310,7 +330,8 @@ export class Room {
     const reliable = [];
     if (isQaRoomName(this.roomName)) {
       const deliveryAt = this.delivery ? nextDeliveryWakeAt(this.delivery, nowMs) : null;
-      const probeAt = this.nextProbeWakeAt(nowMs);
+      const hasActiveDelivery = !!(this.delivery && Array.isArray(this.delivery.commands) && this.delivery.commands.length);
+      const probeAt = hasActiveDelivery ? this.nextProbeWakeAt(nowMs) : null;
       if (Number.isFinite(deliveryAt) && deliveryAt > 0) {
         const failureNotBeforeMs = Number.isFinite(this._deliveryFailureNotBeforeMs)
           ? this._deliveryFailureNotBeforeMs : 0;
@@ -333,15 +354,22 @@ export class Room {
         attachment.soundReady !== true) return false;
     try {
       await this.scheduleExpiry();
+      for (const socket of this.liveCoreSockets()) {
+        const sibling = this.readReliableAttachment(socket);
+        if (sibling.roomName !== this.roomName || sibling.qa !== true ||
+            sibling.shadow !== true || sibling.reliableWakeRetryNeeded !== true) continue;
+        try { this.writeSocketAttachment(socket, { reliableWakeRetryNeeded: false }); } catch (error) {}
+      }
       return true;
     } catch (error) {
+      try { this.writeSocketAttachment(ws, { reliableWakeRetryNeeded: true }); } catch (attachmentError) {}
       return false;
     }
   }
   async runDeliveryWake(nowMs) {
     if (!isQaRoomName(this.roomName)) return false;
     const sockets = this.state && typeof this.state.getWebSockets === "function"
-      ? this.state.getWebSockets() : [];
+      ? this.liveCoreSockets() : [];
     let attachmentChanged = false;
 
     for (const ws of sockets) {
@@ -443,7 +471,7 @@ export class Room {
   }
   broadcast() {
     const canonicalSnapshot = this.snapshot();
-    for (const ws of this.state.getWebSockets()) {
+    for (const ws of this.liveCoreSockets()) {
       try {
         const attachment = this.readSocketAttachment(ws);
         ws.send(this.stateMsg(attachment.clientBuild, canonicalSnapshot));
@@ -480,6 +508,9 @@ export class Room {
       deliveryAcks: this.deliveryAcks,
       [PROFILE_OWNERS_STORAGE_KEY]: this.profileOwners
     });
+  }
+  async persistDevices() {
+    await this.state.storage.put("devices", this.devices);
   }
   async ensureDeliveryLoaded() {
     this.profileOwners = normalizeProfileOwners(this.profileOwners);
@@ -518,6 +549,23 @@ export class Room {
     const next = { ...merged, ...normalizeCoreSocketAttachment(merged, merged.roomName || this.roomName) };
     ws.serializeAttachment(next);
     return next;
+  }
+  liveCoreSockets(excludeSocket = null) {
+    return this.state.getWebSockets().filter(socket =>
+      socket !== excludeSocket &&
+      (typeof socket.readyState !== "number" || socket.readyState === 1)
+    );
+  }
+  liveCoreDevices(excludeSocket = null) {
+    const attachments = this.liveCoreSockets(excludeSocket)
+      .map(socket => this.readSocketAttachment(socket));
+    return projectLiveCoreDevices(attachments, this.nowMs());
+  }
+  coreDeliveryDevices() {
+    // Canonical devices remain useful for short-lived identity conflict and
+    // history checks, but only a currently attached socket can receive a new
+    // command or acknowledge it. Never count a recently closed stored device.
+    return this.liveCoreDevices();
   }
   readReliableAttachment(ws) {
     const core = this.readSocketAttachment(ws);
@@ -582,7 +630,7 @@ export class Room {
     return next;
   }
   deliverySocketFor(action, nowMs) {
-    for (const ws of this.state.getWebSockets()) {
+    for (const ws of this.liveCoreSockets()) {
       const attachment = this.readReliableAttachment(ws);
       if (attachment.qa && attachment.soundReady === true && attachment.shadow &&
           attachment.audioArmed && attachment.armedUntilMs > nowMs &&
@@ -601,6 +649,17 @@ export class Room {
     }
     return changed;
   }
+  markReliableWakeRetryTargets(record) {
+    const targets = new Set((record && Array.isArray(record.targets) ? record.targets : [])
+      .map(target => `${target.pid}\n${target.deviceId}`));
+    if (!targets.size) return;
+    for (const ws of this.liveCoreSockets()) {
+      const attachment = this.readReliableAttachment(ws);
+      if (!attachment.qa || !attachment.shadow || attachment.soundReady !== true ||
+          !targets.has(`${attachment.pid}\n${attachment.deviceId}`)) continue;
+      try { this.writeSocketAttachment(ws, { reliableWakeRetryNeeded: true }); } catch (error) {}
+    }
+  }
   async dispatchDeliveryForCommand(command, nowMs) {
     if (!isQaRoomName(this.roomName)) return false;
     const record = createDeliveryRecord(command, nowMs);
@@ -609,7 +668,7 @@ export class Room {
     this.delivery = normalizeDeliveryState(previousDelivery, nowMs);
     this.delivery.roomName = this.roomName;
     this.delivery.commands.push(record);
-    for (const ws of this.state.getWebSockets()) {
+    for (const ws of this.liveCoreSockets()) {
       upsertDeliveryTarget(
         this.delivery, record.commandId, this.readReliableAttachment(ws), nowMs
       );
@@ -622,7 +681,12 @@ export class Room {
       this.delivery = previousDelivery;
       throw error;
     }
-    await this.scheduleExpiry();
+    try {
+      await this.scheduleExpiry();
+    } catch (error) {
+      this.markReliableWakeRetryTargets(record);
+      throw error;
+    }
     return true;
   }
   async cancelDeliveryCommand(commandId, nowMs) {
@@ -775,34 +839,50 @@ export class Room {
     if (!pid || !Object.prototype.hasOwnProperty.call(this.room.players, pid)) {
       return { ok: false, error: 'player_missing' };
     }
-    const result = bindCoreSocketIdentity(this.readSocketAttachment(ws), this.devices, message, this.nowMs());
+    const nowMs = this.nowMs();
+    const attachmentBefore = this.readSocketAttachment(ws);
+    const devicesBefore = this.devices.slice();
+    const registry = pruneDevices(devicesBefore, nowMs).concat(this.liveCoreDevices());
+    const result = bindCoreSocketIdentity(attachmentBefore, registry, message, nowMs);
     if (!result.ok) return result;
-    this.writeSocketAttachment(ws, result.attachment);
-    const attachment = this.readSocketAttachment(ws);
-    const siblingReady = this.state.getWebSockets().some(socket => {
-      const candidate = socket === ws ? attachment : this.readSocketAttachment(socket);
-      return candidate.pid === attachment.pid && candidate.deviceId === attachment.deviceId && candidate.soundReady === true;
-    });
-    this.devices = touchDevice(result.devices, { ...attachment, soundReady: siblingReady }, this.nowMs());
-    return { ok: true };
+    this.writeSocketAttachment(ws, { ...result.attachment, lastSeenMs: nowMs });
+    const attachmentAfter = this.readSocketAttachment(ws);
+    const presenceChanged = (!attachmentBefore.pid || !attachmentBefore.deviceId) &&
+      !!attachmentAfter.pid && !!attachmentAfter.deviceId;
+    const liveDevice = this.liveCoreDevices().find(device => device.deviceId === attachmentAfter.deviceId);
+    const canonicalBefore = (Array.isArray(devicesBefore) ? devicesBefore : [])
+      .find(device => normalizeDeviceId(device.deviceId) === attachmentAfter.deviceId);
+    const changed = !!liveDevice && (!canonicalBefore ||
+      normalizeRoutingKey(canonicalBefore.pid) !== liveDevice.pid ||
+      (canonicalBefore.soundReady === true) !== liveDevice.soundReady);
+    const devicesAfter = changed ? touchDevice(devicesBefore, liveDevice, nowMs) : devicesBefore;
+    this.devices = devicesAfter;
+    return {
+      ok: true,
+      changed,
+      presenceChanged,
+      attachmentBefore,
+      attachmentAfter,
+      devicesBefore,
+      devicesAfter
+    };
+  }
+  failClosedSocketReadiness(ws, observation) {
+    const attachment = observation && observation.attachmentAfter
+      ? observation.attachmentAfter : this.readSocketAttachment(ws);
+    try {
+      this.writeSocketAttachment(ws, {
+        pid: attachment.pid,
+        deviceId: attachment.deviceId,
+        soundReady: false,
+        lastSeenMs: attachment.lastSeenMs
+      });
+    } catch (error) {}
   }
   async releaseSocketDevice(ws) {
-    const attachment = this.readSocketAttachment(ws);
-    if (!attachment.pid || !attachment.deviceId) return;
-    const before = this.devices;
-    const siblings = this.state.getWebSockets().filter(socket => socket !== ws).map(socket => this.readSocketAttachment(socket))
-      .filter(candidate => candidate.pid === attachment.pid && candidate.deviceId === attachment.deviceId);
-    if (siblings.length) {
-      this.devices = touchDevice(this.devices, {
-        ...attachment,
-        soundReady: siblings.some(candidate => candidate.soundReady === true)
-      }, this.nowMs());
-    } else {
-      this.devices = pruneDevices(this.devices, this.nowMs()).filter(device =>
-        !(normalizeDeviceId(device.deviceId) === attachment.deviceId && normalizeRoutingKey(device.pid) === attachment.pid)
-      );
-    }
-    try { await this.persistAll(); } catch (error) { this.devices = before; }
+    // Presence/readiness is projected from OPEN socket attachments. Keep the
+    // fresh canonical record untouched so ownership rules stay identical
+    // before and after Durable Object hibernation; normal TTL pruning owns it.
   }
   async authOK(pw) {
     if (!pw) return false;
@@ -868,20 +948,39 @@ export class Room {
     if (m.t === "deviceStatus") {
       const observation = this.observeDevice(ws, m);
       if (!observation.ok) return ws.send(JSON.stringify({ t: "error", source: "deviceStatus", error: observation.error }));
-      this.room.players[normalizeRoutingKey(m.pid)].lastSeen = this.now();
-      await this.persistAll();
+      if (observation.changed) {
+        try {
+          await this.persistDevices();
+        } catch (error) {
+          this.devices = observation.devicesBefore;
+          this.failClosedSocketReadiness(ws, observation);
+          return ws.send(JSON.stringify({
+            t: "error", source: "deviceStatus", error: "device_status_persist_failed"
+          }));
+        }
+      }
       const attachment = this.readSocketAttachment(ws);
       ws.send(JSON.stringify({
         t: "deviceStatusSaved", pid: attachment.pid, deviceId: attachment.deviceId, soundReady: attachment.soundReady
       }));
-      this.broadcast();
-      await this.ensureReliableWakeForReadySocket(ws);
+      if (observation.changed || observation.presenceChanged) this.broadcast();
+      const activeDelivery = !!(this.delivery && Array.isArray(this.delivery.commands) && this.delivery.commands.length);
+      const reliableAttachment = this.readReliableAttachment(ws);
+      if (activeDelivery && reliableAttachment.shadow && reliableAttachment.soundReady &&
+          (observation.changed || observation.presenceChanged || reliableAttachment.reliableWakeRetryNeeded === true)) {
+        await this.ensureReliableWakeForReadySocket(ws);
+      }
       return;
     }
 
     if (m.t === "deliveryAck") {
       const attachment = this.readSocketAttachment(ws);
-      if (!coreAttachmentMatchesAck(attachment, m) || !registryMatchesAck(this.devices, attachment, this.nowMs())) {
+      const receiptKey = deliveryAckReceiptKey(m);
+      const receiptKeys = Array.isArray(attachment.deliveryAckReceiptKeys)
+        ? attachment.deliveryAckReceiptKeys.filter(value => typeof value === "string").slice(-8) : [];
+      const sameSocketReceipt = receiptKeys.includes(receiptKey);
+      if (!sameSocketReceipt &&
+          (!coreAttachmentMatchesAck(attachment, m) || !registryMatchesAck(this.coreDeliveryDevices(), attachment, this.nowMs()))) {
         return ws.send(JSON.stringify(deliveryAckError(m, "bad_delivery_identity")));
       }
       let command = null;
@@ -903,6 +1002,11 @@ export class Room {
           return ws.send(JSON.stringify(deliveryAckError(m, "delivery_persist_failed")));
         }
         try { this.broadcast(); } catch (error) {}
+      }
+      if (!sameSocketReceipt) {
+        this.writeSocketAttachment(ws, {
+          deliveryAckReceiptKeys: receiptKeys.concat(receiptKey).slice(-8)
+        });
       }
       const { atMs, ...savedAck } = result.savedAck;
       try { ws.send(JSON.stringify({ t: "deliveryAckSaved", ...savedAck })); } catch (error) {}
@@ -1158,7 +1262,7 @@ export class Room {
         if (!built.ok) {
           return ws.send(JSON.stringify({ t: "error", error: built.error, pid: built.pid }));
         }
-        built.command.delivery = startCommandDelivery(built.command, this.devices, commandNowMs);
+        built.command.delivery = startCommandDelivery(built.command, this.coreDeliveryDevices(), commandNowMs);
         this.room.live.commands[kd] = built.command;
         this.room.live.staged[kd] = null;
         this.room.live.mode = "live";
@@ -1204,7 +1308,7 @@ export class Room {
         if (type === "ping") expiresUTC = anchorUTC + 6;
         else if (type === "double_rally" && Array.isArray(payload.pairs) && payload.pairs.length) expiresUTC = Math.max(...payload.pairs.map(p => (+p.pressUTC || anchorUTC) + GATHER + (+p.march || 0))) + 30;
         const command = { id: crypto.randomUUID(), type, kingdom: kd, anchorUTC, expiresUTC, payload, text: clampStr(c.text, 200), at: this.now() };
-        command.delivery = startCommandDelivery(command, this.devices, this.nowMs());
+        command.delivery = startCommandDelivery(command, this.coreDeliveryDevices(), this.nowMs());
         this.room.live.commands[kd] = command;
       }
       if (type !== "cancel") {
@@ -1288,17 +1392,31 @@ export class Room {
     if (m.t === "hb") {   // app-level heartbeat: keep this player "fresh" so eviction never targets someone who's present.
       const pid = clampStr(m.pid, 24);
       if (pid && this.room.players[pid]) {
+        let observation = null;
         if (m.deviceId != null || typeof m.soundReady === "boolean") {
-          const observation = this.observeDevice(ws, m);
-          if (!observation.ok) return ws.send(JSON.stringify({ t: "error", error: observation.error }));
+          observation = this.observeDevice(ws, m);
+          if (!observation.ok) return ws.send(JSON.stringify({
+            t: "error", source: "deviceStatus", error: observation.error
+          }));
+          if (observation.changed) {
+            try {
+              await this.persistDevices();
+            } catch (error) {
+              this.devices = observation.devicesBefore;
+              this.failClosedSocketReadiness(ws, observation);
+              return ws.send(JSON.stringify({
+                t: "error", source: "deviceStatus", error: "device_status_persist_failed"
+              }));
+            }
+          }
+          if (observation.changed || observation.presenceChanged) this.broadcast();
         }
-        this.room.players[pid].lastSeen = this.now();
-        // fan the freshness out (and PERSIST it) at most once per 20s per room — otherwise the commander's
-        // sync pill decays to 0/2 between mutations, and a hibernating DO would reload stale lastSeen from
-        // storage and mark everyone absent even though they're all connected
-        const t = Date.now();
-        if (!this._lastHbCast || t - this._lastHbCast > 20000) { this._lastHbCast = t; await this.persistAll(); this.broadcast(); }
-        await this.ensureReliableWakeForReadySocket(ws);
+        const activeDelivery = !!(this.delivery && Array.isArray(this.delivery.commands) && this.delivery.commands.length);
+        const reliableAttachment = this.readReliableAttachment(ws);
+        if (activeDelivery && reliableAttachment.shadow && reliableAttachment.soundReady &&
+            ((observation && (observation.changed || observation.presenceChanged)) || reliableAttachment.reliableWakeRetryNeeded === true)) {
+          await this.ensureReliableWakeForReadySocket(ws);
+        }
       }
       return;
     }

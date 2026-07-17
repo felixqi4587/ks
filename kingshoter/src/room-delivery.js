@@ -102,6 +102,32 @@ export function touchDevice(devices, observation, nowMs) {
   return next.slice(-600);
 }
 
+export function projectLiveCoreDevices(socketAttachments, nowMs) {
+  const projected = new Map();
+  for (const raw of Array.isArray(socketAttachments) ? socketAttachments : []) {
+    const attachment = normalizeCoreSocketAttachment(raw, raw && raw.roomName);
+    if (!attachment.pid || !attachment.deviceId) continue;
+    const observedAtMs = Number(raw && raw.lastSeenMs);
+    const lastSeenMs = Number.isFinite(observedAtMs) ? observedAtMs : Number(nowMs);
+    if (!Number.isFinite(lastSeenMs) || Number(nowMs) - lastSeenMs >= DEVICE_TTL_MS) continue;
+    const current = projected.get(attachment.deviceId);
+    if (current && current.pid === attachment.pid) {
+      current.soundReady = current.soundReady || attachment.soundReady;
+      continue;
+    }
+    // A later live binding wins only after the canonical TTL/conflict gate has
+    // allowed it. This keeps an older hibernating socket from shadowing a
+    // legitimate rebind while still deduplicating sibling tabs by device.
+    projected.set(attachment.deviceId, {
+      pid: attachment.pid,
+      deviceId: attachment.deviceId,
+      soundReady: attachment.soundReady === true,
+      lastSeenMs
+    });
+  }
+  return Array.from(projected.values()).slice(-600);
+}
+
 export function startCommandDelivery(command, devices, nowMs) {
   const fresh = pruneDevices(devices, nowMs);
   return rallyTargetPids(command).map(pid => ({

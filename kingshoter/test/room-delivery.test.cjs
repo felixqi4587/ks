@@ -47,7 +47,7 @@ test('Room binds device identity to the sending socket before accepting a Classi
   assert.deepEqual(b1.sent, [{ t: 'deviceStatusSaved', pid: 'kimchi', deviceId: IDS.b1, soundReady: true }]);
   a1.sent.length = 0; a2.sent.length = 0; b1.sent.length = 0;
   assert.deepEqual(a1.attachment(), {
-    roomName: h.roomName, pid: '001', deviceId: IDS.a1, soundReady: true
+    roomName: h.roomName, pid: '001', deviceId: IDS.a1, soundReady: true, lastSeenMs: nowMs
   });
   assert.equal(h.room.devices.length, 3);
 
@@ -104,8 +104,48 @@ test('Room binds device identity to the sending socket before accepting a Classi
   a1.sent.length = 0;
   await send(h.room, a1.ws, ack);
   assert.equal(command.delivery[0].received, 1);
+  assert.equal(h.room.deliveryAcks.length, 1);
   assert.deepEqual(h.calls, []);
   assert.equal(a1.sent[0].t, 'deliveryAckSaved', 'an idempotent retry receives the persisted private ACK again');
+
+  await send(h.room, a1.ws, {
+    t: 'deviceStatus', pid: '001', deviceId: IDS.a1, soundReady: false
+  });
+  h.reset();
+  a1.sent.length = 0;
+  await send(h.room, a1.ws, ack);
+  assert.equal(command.delivery[0].received, 1);
+  assert.deepEqual(h.calls, []);
+  assert.deepEqual(a1.sent, [{
+    t: 'deliveryAckSaved', commandId: command.id, pid: '001', deviceId: IDS.a1, outcome: 'scheduled',
+    targetUTC: ack.targetUTC, scheduledAtMs: nowMs
+  }], 'the same bound socket can recover a lost Saved frame after readiness turns red');
+  a1.sent.length = 0;
+  await send(h.room, a1.ws, { ...ack, commandId: 'not-previously-saved' });
+  assert.equal(command.delivery[0].received, 1);
+  assert.equal(h.room.deliveryAcks.length, 1);
+  assert.deepEqual(h.calls, []);
+  assert.equal(a1.sent.at(-1).error, 'bad_delivery_identity',
+    'the red socket bypass is scoped to the exact previously saved ACK');
+
+  const reconnectedRed = socketFor(h.room, h.roomName);
+  await send(h.room, reconnectedRed.ws, {
+    t: 'deviceStatus', pid: '001', deviceId: IDS.a1, soundReady: false
+  });
+  reconnectedRed.sent.length = 0;
+  h.reset();
+  await send(h.room, reconnectedRed.ws, ack);
+  assert.equal(command.delivery[0].received, 1);
+  assert.equal(h.room.deliveryAcks.length, 1);
+  assert.deepEqual(h.calls, []);
+  assert.equal(reconnectedRed.sent.at(-1).error, 'bad_delivery_identity',
+    'a different red socket generation cannot replay another socket receipt');
+
+  await send(h.room, a1.ws, {
+    t: 'deviceStatus', pid: '001', deviceId: IDS.a1, soundReady: true
+  });
+  h.reset();
+  a1.sent.length = 0;
 
   await send(h.room, a1.ws, { ...ack, scheduledAtMs: nowMs + 1 });
   assert.deepEqual(a1.sent.at(-1), {
@@ -122,7 +162,7 @@ test('Room binds device identity to the sending socket before accepting a Classi
 
   await send(h.room, a2.ws, { t: 'deviceStatus', pid: 'kimchi', deviceId: IDS.a2, soundReady: true });
   assert.deepEqual(a2.attachment(), {
-    roomName: h.roomName, pid: '001', deviceId: IDS.a2, soundReady: false
+    roomName: h.roomName, pid: '001', deviceId: IDS.a2, soundReady: false, lastSeenMs: nowMs
   }, 'a socket cannot change its bound player/device tuple');
   assert.deepEqual(a2.sent.at(-1), { t: 'error', source: 'deviceStatus', error: 'socket_identity_locked' });
   h.reset();
@@ -137,6 +177,14 @@ test('Room binds device identity to the sending socket before accepting a Classi
     roomName: h.roomName, pid: '', deviceId: '', soundReady: false
   }, 'a fresh registry device cannot be claimed by a different player');
   assert.deepEqual(conflict.sent.at(-1), { t: 'error', source: 'deviceStatus', error: 'device_owned_by_other_pid' });
+
+  const heartbeatConflict = socketFor(h.room, h.roomName);
+  await send(h.room, heartbeatConflict.ws, {
+    t: 'hb', pid: 'kimchi', deviceId: IDS.a1, soundReady: true
+  });
+  assert.deepEqual(heartbeatConflict.sent.at(-1), {
+    t: 'error', source: 'deviceStatus', error: 'device_owned_by_other_pid'
+  }, 'heartbeat identity errors use the same readiness error source');
 });
 
 test('identity-bearing heartbeat refreshes the same private binding without exposing it', async () => {
@@ -148,7 +196,7 @@ test('identity-bearing heartbeat refreshes the same private binding without expo
   });
 
   assert.deepEqual(player.attachment(), {
-    roomName: h.roomName, pid: '001', deviceId: IDS.a1, soundReady: true
+    roomName: h.roomName, pid: '001', deviceId: IDS.a1, soundReady: true, lastSeenMs: h.nowMs
   });
   assert.equal(h.room.devices[0].pid, '001');
   assert.equal(h.room.devices[0].deviceId, IDS.a1);
@@ -159,12 +207,14 @@ test('deviceStatusSaved is emitted only after private device persistence succeed
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room, { nowMs: 2_500_000 });
   const player = socketFor(h.room, h.roomName);
-  h.room.persistAll = async () => { throw new Error('storage unavailable'); };
+  h.room.persistDevices = async () => { throw new Error('storage unavailable'); };
 
-  await assert.rejects(send(h.room, player.ws, {
+  await assert.doesNotReject(send(h.room, player.ws, {
     t: 'deviceStatus', pid: '001', deviceId: IDS.a1, soundReady: true
-  }), /storage unavailable/);
-  assert.deepEqual(player.sent, [], 'a failed persistence never sends a positive binding receipt');
+  }));
+  assert.deepEqual(player.sent, [{
+    t: 'error', source: 'deviceStatus', error: 'device_status_persist_failed'
+  }], 'a failed persistence sends only a scoped retryable error');
 });
 
 test('attachment writes preserve fields owned by later Reliable and Triple layers', async () => {
@@ -232,16 +282,76 @@ test('same-device sibling tabs aggregate readiness and close without deleting a 
   await send(h.room, ready.ws, { t: 'deviceStatus', pid: '001', deviceId: IDS.a1, soundReady: true });
   await send(h.room, paused.ws, { t: 'deviceStatus', pid: '001', deviceId: IDS.a1, soundReady: false });
   assert.equal(h.room.devices[0].soundReady, true, 'one ready sibling keeps the shared device ready');
+  h.reset();
 
   await h.room.webSocketClose(ready.ws);
   assert.equal(h.room.devices.length, 1);
-  assert.equal(h.room.devices[0].soundReady, false, 'remaining paused sibling is retained truthfully');
+  assert.equal(h.room.devices[0].soundReady, true,
+    'close does not rewrite the fresh canonical ownership/readiness cache');
+  assert.equal(h.room.liveCoreDevices()[0].soundReady, false,
+    'live projection still reflects the remaining paused sibling truthfully');
 
   await h.room.webSocketClose(paused.ws);
-  assert.equal(h.room.devices.length, 0, 'the device disappears only after its last sibling closes');
+  assert.equal(h.room.devices.length, 1, 'fresh canonical ownership remains until its normal TTL');
+  assert.deepEqual(h.room.liveCoreDevices(), [], 'the live delivery projection is empty after the last close');
+  assert.deepEqual(h.calls, ['broadcast', 'broadcast'],
+    'close broadcasts transient presence but never rewrites canonical storage');
 });
 
-test('a hibernation close loads private delivery state before removing one socket device', async () => {
+test('a clean close preserves the same fresh device ownership rule before and after hibernation', async () => {
+  const { Room } = await loadRoom();
+  const nowMs = 4_250_000;
+  const sameInstance = createRoomHarness(Room, { nowMs });
+  const getSockets = sameInstance.room.state.getWebSockets.bind(sameInstance.room.state);
+  sameInstance.room.state.getWebSockets = () => getSockets().filter(socket => !socket.closed);
+  const original = socketFor(sameInstance.room, sameInstance.roomName);
+  await send(sameInstance.room, original.ws, {
+    t: 'deviceStatus', pid: '001', deviceId: IDS.a1, soundReady: true
+  });
+  const storedCanonical = structuredClone(sameInstance.room.devices);
+  await sameInstance.room.webSocketClose(original.ws);
+
+  const sameInstanceClaim = socketFor(sameInstance.room, sameInstance.roomName);
+  await send(sameInstance.room, sameInstanceClaim.ws, {
+    t: 'deviceStatus', pid: 'kimchi', deviceId: IDS.a1, soundReady: true
+  });
+  assert.equal(sameInstanceClaim.sent.at(-1).error, 'device_owned_by_other_pid');
+
+  const afterReload = createRoomHarness(Room, { roomName: sameInstance.roomName, nowMs });
+  afterReload.room.devices = storedCanonical;
+  const reloadClaim = socketFor(afterReload.room, afterReload.roomName);
+  await send(afterReload.room, reloadClaim.ws, {
+    t: 'deviceStatus', pid: 'kimchi', deviceId: IDS.a1, soundReady: true
+  });
+  assert.equal(reloadClaim.sent.at(-1).error, 'device_owned_by_other_pid');
+  assert.deepEqual(sameInstanceClaim.sent.at(-1), reloadClaim.sent.at(-1));
+});
+
+test('CLOSING sockets disappear from live projection and close broadcast presence immediately', async () => {
+  const { Room } = await loadRoom();
+  const h = createRoomHarness(Room, { nowMs: 4_400_000 });
+  h.room.room.players['001'].lastSeen = 'stale-before-closing';
+  const player = socketFor(h.room, h.roomName);
+  player.ws.readyState = 1;
+  player.ws.close = function () { this.readyState = 2; this.closed = true; };
+  await send(h.room, player.ws, {
+    t: 'deviceStatus', pid: '001', deviceId: IDS.a1, soundReady: true
+  });
+  assert.equal(h.room.liveCoreDevices().length, 1);
+  assert.equal(h.room.snapshot().presence, 2);
+
+  let broadcastSnapshot = null;
+  h.room.broadcast = () => { broadcastSnapshot = h.room.snapshot(); };
+  await h.room.webSocketClose(player.ws);
+
+  assert.deepEqual(h.room.liveCoreDevices(), []);
+  assert.equal(broadcastSnapshot.presence, 1,
+    'the close broadcast excludes a socket already in CLOSING state');
+  assert.equal(broadcastSnapshot.players['001'].lastSeen, 'stale-before-closing',
+    'CLOSING never refreshes the canonical lastSeen sentinel');
+});
+
+test('a hibernation close removes only transient socket readiness without a canonical write', async () => {
   const { Room } = await loadRoom();
   const h = createRoomHarness(Room, { nowMs: 4_500_000 });
   const closing = socketFor(h.room, h.roomName);
@@ -261,15 +371,15 @@ test('a hibernation close loads private delivery state before removing one socke
   h.room.state.storage = {
     async get() { return new Map([['devices', storedDevices], ['deliveryAcks', storedAcks]]); }
   };
-  let persisted = null;
-  h.room.persistAll = async () => {
-    persisted = { devices: structuredClone(h.room.devices), deliveryAcks: structuredClone(h.room.deliveryAcks) };
-  };
+  let persisted = false;
+  h.room.persistAll = async () => { persisted = true; };
 
   await h.room.webSocketClose(closing.ws);
 
-  assert.deepEqual(persisted.devices, [storedDevices[1]], 'only the closing socket device is removed');
-  assert.deepEqual(persisted.deliveryAcks, storedAcks, 'persisted command receipt history survives hibernation close');
+  assert.equal(persisted, false, 'presence teardown never rewrites canonical rows');
+  assert.deepEqual(h.room.devices, storedDevices,
+    'a hibernation close preserves fresh canonical ownership until its normal TTL');
+  assert.deepEqual(h.room.deliveryAcks, storedAcks, 'command receipt history remains untouched in memory');
 });
 
 test('a failed ACK persistence never leaks green delivery state or a saved confirmation', async () => {
