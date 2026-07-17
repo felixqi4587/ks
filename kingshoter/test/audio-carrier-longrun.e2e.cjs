@@ -92,8 +92,23 @@ async function openPlayer(browser, profile) {
   await page.goto(qaRoomUrl(base, room, { notour: 1, lang: 'en' }), { waitUntil: 'domcontentloaded' });
   await page.locator('#youChip').waitFor({ state: 'visible', timeout: 8_000 });
   await page.locator('#soundGate').click({ force: true });
-  await page.waitForFunction(() => window.__probe.frames.some(frame =>
-    frame.direction === 'server' && frame.message.soundReady === true), null, { timeout: 8_000 });
+  try {
+    await page.waitForFunction(() => window.__probe.frames.some(frame =>
+      frame.direction === 'server' && frame.message.soundReady === true), null, { timeout: 8_000 });
+  } catch (error) {
+    const diagnostic = await page.evaluate(() => ({
+      acState: window.__ac && window.__ac.state,
+      keepAlive: window.__keepAlive,
+      statusText: document.querySelector('#audioStatus')?.textContent || '',
+      soundGateHidden: document.querySelector('#soundGate')?.hidden,
+      socketStates: window.__probe.sockets.map(socket => socket.readyState),
+      carrierEvents: window.__probe.carrierEvents,
+      frames: window.__probe.frames
+    }));
+    error.message += `\ncarrier readiness diagnostic: ${JSON.stringify(diagnostic)}`;
+    error.stack += `\ncarrier readiness diagnostic: ${JSON.stringify(diagnostic)}`;
+    throw error;
+  }
   return { context, page, profile };
 }
 

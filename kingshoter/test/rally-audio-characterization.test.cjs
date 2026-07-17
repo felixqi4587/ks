@@ -6,6 +6,8 @@ const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, '../public/kvk.js'), 'utf8');
 const html = fs.readFileSync(path.join(__dirname, '../public/kvk.html'), 'utf8');
+const audioSource = fs.readFileSync(path.join(__dirname, '../public/battle-audio.js'), 'utf8');
+const cuesSource = fs.readFileSync(path.join(__dirname, '../public/battle-cues.js'), 'utf8');
 const sfxDir = path.join(__dirname, '../public/sfx');
 
 function count(sourceText, token) {
@@ -34,6 +36,15 @@ function extractFunction(sourceText, name) {
   assert.fail(`unterminated ${name}`);
 }
 
+function loadCueApi() {
+  const moduleValue = { exports: {} };
+  vm.runInNewContext(cuesSource, {
+    module: moduleValue, exports: moduleValue.exports, globalThis: {},
+    Object, Array, Number, Math, TypeError, Error
+  });
+  return moduleValue.exports;
+}
+
 function instrumentedNode(actions, kind = 'node') {
   return {
     kind,
@@ -54,36 +65,56 @@ function instrumentedNode(actions, kind = 'node') {
 function cueHarness(nowMs = 100_000) {
   const calls = [];
   const nodeActions = [];
-  const clock = { nowMs };
+  const clock = { nowMs, offset: 0 };
+  const scheduledBeeps = {};
   function node(kind) {
     const actions = [];
     nodeActions.push({ kind, actions });
     return instrumentedNode(actions, kind);
   }
-  const context = {
-    scheduledBeeps: {}, BEEP_HZ: 740, clock,
-    ensureAudio() {}, ac: { state: 'running', currentTime: 10 },
-    window: { serverNow: () => clock.nowMs, clockOffset: 0, __beeps: 0 },
-    L: () => true,
-    sfxBuf: {
-      en: { '5': 'five', '4': 'four', '3': 'three', '2': 'two', '1': 'one', go: 'go' },
-      zh: {}
+  const audio = {
+    nowSeconds: () => 10,
+    schedule(event, when) {
+      calls.push({ ...event, when });
+      if (event.kind === 'go') return [node('clip'), node('beep'), node('beep')];
+      if (event.kind === 'prepare') return [node('beep'), node('beep')];
+      return [node(event.kind)];
     },
-    playClip(when, buffer) { calls.push({ kind: 'clip', when, buffer }); return node('clip'); },
-    beep(when, frequency) { calls.push({ kind: 'beep', when, frequency }); return node('beep'); },
+    cancel(nodes) {
+      for (const value of nodes || []) {
+        value.g.gain.cancelScheduledValues(0);
+        value.g.gain.setValueAtTime(0.0001, 0);
+        value.o.stop(0);
+        value.o.disconnect();
+        value.g.disconnect();
+      }
+    }
+  };
+  const window = {
+    serverNow: () => clock.nowMs,
+    clockOffset: 0,
+    __beeps: 0
+  };
+  const battleCues = loadCueApi().createCueScheduler({
+    audio,
+    registry: scheduledBeeps,
+    nowMs: () => clock.nowMs,
+    clockOffsetMs: () => window.clockOffset,
+    onScheduled: () => { window.__beeps += 1; }
+  });
+  const context = {
+    scheduledBeeps, battleCues, clock, window,
+    ensureAudio() {}, ac: { state: 'running' }, L: () => true,
     calls, nodeActions
   };
-  vm.runInNewContext([
-    extractFunction(source, 'stopCue'),
-    extractFunction(source, 'scheduleBeeps')
-  ].join('\n'), context);
+  vm.runInNewContext(extractFunction(source, 'scheduleBeeps'), context);
   return context;
 }
 
 test('Rally keeps one shared 10-to-Now cue grammar and the shipped clips', () => {
-  assert.equal(count(source, 'function scheduleBeeps('), 1, 'one countdown scheduler owns the beep phase');
-  assert.equal(count(source, '[10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0].forEach'), 1);
-  assert.equal(count(source, '["5", "4", "3", "2", "1", "go"].forEach'), 1);
+  assert.equal(count(source, 'function scheduleBeeps('), 1, 'one Rally adapter owns countdown policy');
+  assert.match(extractFunction(source, 'scheduleBeeps'), /\[10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0\]\.map/);
+  assert.match(audioSource, /var SFX_NAMES = \["5", "4", "3", "2", "1", "go"\]/);
   assert.deepEqual(fs.readdirSync(sfxDir).sort(), [
     'en_1.mp3', 'en_2.mp3', 'en_3.mp3', 'en_4.mp3', 'en_5.mp3', 'en_go.mp3',
     'zh_1.mp3', 'zh_2.mp3', 'zh_3.mp3', 'zh_4.mp3', 'zh_5.mp3', 'zh_go.mp3'
@@ -104,46 +135,38 @@ test('one command schedules one GO and duplicate reconciliation cannot schedule 
   assert.deepEqual(Object.keys(h.scheduledBeeps).sort(), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     .map(offset => `command-me:${offset}`).sort());
   assert.equal(h.window.__beeps, 11);
-  assert.equal(h.calls.filter(call => call.kind === 'clip' && call.buffer === 'go').length, 1);
+  assert.equal(h.calls.filter(call => call.kind === 'go').length, 1);
   assert.equal(h.scheduledBeeps['command-me:0'].nodes.length, 3,
     'GO retains one voice node and its two-tone reinforcement');
+  assert.deepEqual(h.calls.map(call => call.kind), [
+    'tick', 'tick', 'tick', 'tick', 'tick',
+    'countdown', 'countdown', 'countdown', 'countdown', 'countdown', 'go'
+  ]);
 });
 
 test('cancellation stops only obsolete future cues and preserves live/self-test history', () => {
-  const cancelledActions = [];
-  const liveActions = [];
-  const pastActions = [];
-  const lockActions = [];
+  const h = cueHarness();
+  h.scheduleBeeps('cancelled-me', 101, 360_000);
+  h.scheduleBeeps('live-me', 102, 360_000);
+  h.scheduleBeeps('past-me', 99, 360_000);
+  h.scheduleBeeps('locktest-1', 103, 360_000);
   const context = {
-    room: {},
-    scheduledBeeps: {
-      'cancelled:0': { base: 'cancelled-me', t: 101_000, nodes: [instrumentedNode(cancelledActions)] },
-      'live:0': { base: 'live-me', t: 102_000, nodes: [instrumentedNode(liveActions)] },
-      'past:0': { base: 'past-me', t: 99_000, nodes: [instrumentedNode(pastActions)] },
-      'lock:0': { base: 'locktest-1', t: 103_000, nodes: [instrumentedNode(lockActions)] }
-    },
+    room: {}, battleCues: h.battleCues,
     liveCommands: () => [{ id: 'live' }],
-    window: { serverNow: () => 100_000 }
+    window: h.window
   };
-  vm.runInNewContext([
-    extractFunction(source, 'stopCue'),
-    extractFunction(source, 'reconcileCues')
-  ].join('\n'), context);
+  vm.runInNewContext(extractFunction(source, 'reconcileCues'), context);
   assert.equal(context.reconcileCues(), true);
-  assert.deepEqual(cancelledActions, [
-    'gain.cancel:0', 'gain.set:0.0001:0', 'oscillator.stop',
-    'oscillator.disconnect', 'gain.disconnect'
-  ]);
-  assert.deepEqual(liveActions, []);
-  assert.deepEqual(pastActions, []);
-  assert.deepEqual(lockActions, []);
-  assert.deepEqual(Object.keys(context.scheduledBeeps).sort(), ['live:0', 'lock:0', 'past:0']);
+  assert.equal(h.battleCues.hasFutureCue('cancelled-me'), false);
+  assert.equal(h.battleCues.hasFutureCue('live-me'), true);
+  assert.equal(h.battleCues.hasFutureCue('locktest-1'), true);
+  assert.ok(h.battleCues.snapshot().some(entry => entry.base === 'past-me'));
 });
 
 test('clock-drift replanning never replays a GO whose target already passed', () => {
   const h = cueHarness();
   h.scheduleBeeps('command-me', 111, 360_000);
-  assert.equal(h.calls.filter(call => call.kind === 'clip' && call.buffer === 'go').length, 1);
+  assert.equal(h.calls.filter(call => call.kind === 'go').length, 1);
 
   h.clock.nowMs = 112_000;
   h.window.clockOffset = 1_000;
@@ -151,30 +174,31 @@ test('clock-drift replanning never replays a GO whose target already passed', ()
   vm.runInNewContext(extractFunction(source, 'rebookCuesOnDrift'), h);
   h.rebookCuesOnDrift();
 
-  assert.equal(h.calls.filter(call => call.kind === 'clip' && call.buffer === 'go').length, 1,
+  assert.equal(h.calls.filter(call => call.kind === 'go').length, 1,
     'past GO becomes a node-free tombstone instead of replaying');
   assert.deepEqual(JSON.parse(JSON.stringify(h.scheduledBeeps['command-me:0'].nodes)), []);
   assert.equal(h.nodeActions.length, 13);
-  assert.ok(h.nodeActions.every(node => node.actions.join('|') === [
+  assert.ok(h.nodeActions.every(value => value.actions.join('|') === [
     'gain.cancel:0', 'gain.set:0.0001:0', 'oscillator.stop',
     'oscillator.disconnect', 'gain.disconnect'
   ].join('|')), 'every stale oscillator/source and gain is muted, stopped, and disconnected');
 });
 
 test('the background carrier, MediaSession, and readiness truth remain coupled', () => {
-  assert.match(source, /Math\.sin\(i \/ sr \* 2 \* Math\.PI \* 40\)/);
-  assert.match(source, /keepAudio\.loop = true/);
-  assert.match(source, /navigator\.mediaSession\.metadata = new window\.MediaMetadata/);
-  assert.match(source, /soundReady && ac && ac\.state === "running" && keepAlive && keepAudio && !keepAudio\.paused && !keepAudio\.ended/);
+  assert.match(audioSource, /Math\.sin\(index \/ sampleRate \* 2 \* Math\.PI \* 40\)/);
+  assert.match(audioSource, /carrier\.loop = true/);
+  assert.match(audioSource, /nav\.mediaSession\.metadata/);
+  assert.match(extractFunction(source, 'audioAlive'), /battleReadiness\(\)\.green/);
   assert.match(html, /id="soundGate"/);
+  assert.match(html, /battle-status\.js[\s\S]*battle-audio\.js[\s\S]*battle-cues\.js[\s\S]*kvk\.js/);
 });
 
 test('cancel and clock correction retain stoppable Web Audio node wiring', () => {
   assert.match(source, /nodes are RETAINED so a cue can be killed/);
-  assert.match(source, /cancelScheduledValues\(0\)/);
-  assert.match(source, /function reconcileCues\(\)/);
-  assert.match(source, /function rebookCuesOnDrift\(\)/);
-  assert.match(source, /stopCue\(e\); delete scheduledBeeps\[k\]/);
+  assert.match(audioSource, /cancelScheduledValues\(0\)/);
+  assert.match(cuesSource, /function cancelDrifted/);
+  assert.match(extractFunction(source, 'reconcileCues'), /battleCues\.cancelWhere/);
+  assert.match(extractFunction(source, 'rebookCuesOnDrift'), /battleCues\.cancelDrifted\(window\.clockOffset, 300\)/);
 });
 
 test('an unselected commander has a visual-only all-captain monitor', () => {

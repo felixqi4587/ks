@@ -11,6 +11,9 @@ const HTML_PATH = path.join(PUBLIC, 'kvk.html');
 const SCRIPT_PATH = path.join(PUBLIC, 'kvk.js');
 const APP_PATH = path.join(PUBLIC, 'app.js');
 const SHADOW_PATH = path.join(PUBLIC, 'kvk-delivery-shadow.js');
+const BATTLE_AUDIO_PATH = path.join(PUBLIC, 'battle-audio.js');
+const BATTLE_STATUS_PATH = path.join(PUBLIC, 'battle-status.js');
+const BATTLE_CUES_PATH = path.join(PUBLIC, 'battle-cues.js');
 const CACHE_TEST_PATHS = [
   path.join(__dirname, 'classic-delivery-client.test.cjs'),
   path.join(__dirname, 'march-sync.e2e.cjs'),
@@ -24,6 +27,9 @@ const html = read(HTML_PATH);
 const script = read(SCRIPT_PATH);
 const app = read(APP_PATH);
 const shadow = read(SHADOW_PATH);
+const battleAudio = read(BATTLE_AUDIO_PATH);
+const battleStatus = read(BATTLE_STATUS_PATH);
+const battleCues = read(BATTLE_CUES_PATH);
 
 const DEVICE_ID = 'abcdefab-cdef-4abc-8def-abcdefabcdef';
 const QA_ROOM = 'qa-kvk-browser-a';
@@ -966,4 +972,14 @@ test('protected Core/audio/identity authorities contain no shadow wiring', () =>
     /getRoomDeviceId|localStorage|randomUUID|scheduleAllCues|scheduleBeeps|schedulePrepareCue|acknowledgeClassicCommand|\bt\s*:\s*["']deliveryAck["']/);
   assert.doesNotMatch(block, /\b(?:const|let|class|async)\b|=>/,
     'the shipped browser seam stays ES5-compatible');
+
+  for (const [name, sharedSource] of [
+    ['BattleAudio', battleAudio], ['BattleStatus', battleStatus], ['BattleCues', battleCues]
+  ]) {
+    assert.doesNotMatch(sharedSource, /deliveryShadow|KvkDeliveryShadow|__kvkDeliveryQa|deliveryAck/,
+      `${name} remains independent of Rally delivery and QA wiring`);
+  }
+  assert.match(html,
+    /battle-status\.js[\s\S]*battle-audio\.js[\s\S]*battle-cues\.js[\s\S]*kvk\.js/,
+    'shared readiness, audio, and cues load before the Rally adapter');
 });

@@ -64,13 +64,13 @@ test('the selected lead is the personal countdown lead for every supported optio
     scheduledBeeps: {}, ensureAudio() {},
     ac: { state: 'running', currentTime: 20 },
     window: { serverNow: () => 1_000_000, clockOffset: 0, __beeps: 0 },
-    beep(when) {
-      return {
-        when,
-        o: { stop() {}, disconnect() {} },
-        g: { disconnect() {}, gain: { cancelScheduledValues() {}, setValueAtTime() {} } }
+    battleCues: { upsert(plan) {
+      const event = plan.events[0];
+      const atMs = plan.targetAtMs + event.offsetMs;
+      prepareContext.scheduledBeeps[`${plan.id}:${event.id}`] = {
+        t: atMs, base: plan.id, nodes: [{ when: 20 + (atMs - 1_000_000) / 1000 }]
       };
-    },
+    } },
     Number
   };
   vm.runInNewContext(extractFunction(clientSource, 'schedulePrepareCue'), prepareContext);
@@ -238,8 +238,11 @@ test('cancel restores the staged team instead of clearing it', () => {
 });
 
 test('reconnect and clock drift keep command-scoped cancellation wiring', () => {
-  assert.match(clientSource, /if \(e\.base\.indexOf\("locktest"\) === 0 \|\| e\.t <= nowMs\) continue/);
-  assert.match(clientSource, /if \(!alive\) \{ stopCue\(e\); delete scheduledBeeps\[k\]/);
-  assert.match(clientSource, /Math\.abs\(\(e\.off \|\| 0\) - window\.clockOffset\) > 300/);
-  assert.match(clientSource, /if \(moved\) scheduleAllCues\(\)/);
+  const reconcile = extractFunction(clientSource, 'reconcileCues');
+  const rebook = extractFunction(clientSource, 'rebookCuesOnDrift');
+  assert.match(reconcile, /battleCues\.cancelWhere/);
+  assert.match(reconcile, /entry\.base\.indexOf\("locktest"\) === 0 \|\| entry\.atMs <= nowMs/);
+  assert.match(reconcile, /entry\.base\.indexOf\(id\) === 0/);
+  assert.match(rebook, /battleCues\.cancelDrifted\(window\.clockOffset, 300\)/);
+  assert.match(rebook, /if \(moved\) scheduleAllCues\(\)/);
 });

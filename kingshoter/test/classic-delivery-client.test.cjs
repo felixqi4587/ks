@@ -6,6 +6,8 @@ const vm = require('node:vm');
 
 const root = path.join(__dirname, '..');
 const script = fs.readFileSync(path.join(root, 'public', 'kvk.js'), 'utf8');
+const audioScript = fs.readFileSync(path.join(root, 'public', 'battle-audio.js'), 'utf8');
+const cuesScript = fs.readFileSync(path.join(root, 'public', 'battle-cues.js'), 'utf8');
 const html = fs.readFileSync(path.join(root, 'public', 'kvk.html'), 'utf8');
 const css = fs.readFileSync(path.join(root, 'public', 'app.css'), 'utf8');
 
@@ -128,8 +130,9 @@ test('identity rejection clears every readiness guard without an immediate retry
 });
 
 test('every AudioContext transition immediately refreshes canonical device readiness', () => {
-  assert.match(script, /ac\.onstatechange\s*=\s*function\s*\(\)\s*\{[\s\S]{0,220}ac\.state\s*!==\s*["']running["'][\s\S]{0,160}sendDeviceStatus\(["']deviceStatus["'],\s*true\)/);
-  assert.doesNotMatch(script, /if\s*\(ac\.state\s*===\s*["']running["']\)\s*sendDeviceStatus/);
+  assert.match(audioScript, /context\.onstatechange = function \(\)[\s\S]*context\.state !== "running"[\s\S]*notify\(\)/);
+  assert.match(extractFunction(script, 'onBattleAudioStateChange'), /sendDeviceStatus\("deviceStatus", true\)/);
+  assert.doesNotMatch(extractFunction(script, 'onBattleAudioStateChange'), /if\s*\([^)]*running[^)]*\)\s*sendDeviceStatus/);
 });
 
 test('every reconnect and resume closes the ACK gate until a fresh time sync succeeds', () => {
@@ -141,8 +144,9 @@ test('every reconnect and resume closes the ACK gate until a fresh time sync suc
 });
 
 test('a large clock correction stops stale audio nodes even when the target is now past', () => {
-  assert.doesNotMatch(script, /e\.t\s*>\s*nowMs\s*\+\s*400\s*&&\s*Math\.abs\(/);
-  assert.match(script, /Math\.abs\(\(e\.off\s*\|\|\s*0\)\s*-\s*window\.clockOffset\)\s*>\s*300\)\s*\{\s*stopCue\(e\);\s*delete scheduledBeeps\[k\]/);
+  assert.doesNotMatch(cuesScript, /entry\.atMs\s*>[\s\S]{0,80}Math\.abs/);
+  assert.match(cuesScript, /Math\.abs\(entry\.clockOffsetMs - current\) > threshold/);
+  assert.match(extractFunction(script, 'rebookCuesOnDrift'), /battleCues\.cancelDrifted\(window\.clockOffset, 300\)/);
 });
 
 test('Fire consumes same-kingdom queued stage intent before a late broadcast can revive it', () => {

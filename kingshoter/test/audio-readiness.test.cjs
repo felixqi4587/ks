@@ -5,6 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, '../public/kvk.js'), 'utf8');
+const audioSource = fs.readFileSync(path.join(__dirname, '../public/battle-audio.js'), 'utf8');
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}`);
@@ -18,178 +19,107 @@ function extractFunction(name) {
   throw new Error(`unterminated ${name}`);
 }
 
-test('green readiness requires both the audio clock and a playing keep-alive carrier', () => {
+test('Rally readiness projects all five conditions through one shared truth', () => {
+  let audioState = { userEnabled: true, audioContextRunning: true, carrierAlive: true };
+  let clockIsFresh = true;
+  const inputs = [];
   const sandbox = {
-    soundReady: true,
-    ac: { state: 'running' },
-    keepAlive: true,
-    keepAudio: { paused: false, ended: false }
+    battleAudio: { state: () => audioState },
+    sock: { connected: true, clockFresh: () => clockIsFresh }, syncedOK: true,
+    window: { BattleStatus: { deriveReadiness(input) {
+      inputs.push(structuredClone(input));
+      return { green: Object.values(input).every(value => value === true) };
+    } } }
   };
-  vm.runInNewContext(`${extractFunction('audioAlive')}\nthis.audioAlive = audioAlive;`, sandbox);
-
+  vm.runInNewContext(`${extractFunction('battleReadiness')}\n${extractFunction('audioAlive')}\nthis.audioAlive = audioAlive;`, sandbox);
   assert.equal(sandbox.audioAlive(), true);
-  sandbox.keepAlive = false;
-  assert.equal(sandbox.audioAlive(), false, 'a rejected carrier play cannot stay green');
-  sandbox.keepAlive = true;
-  sandbox.keepAudio.paused = true;
-  assert.equal(sandbox.audioAlive(), false, 'a paused carrier cannot stay green');
-  sandbox.keepAudio.paused = false;
-  sandbox.keepAudio.ended = true;
-  assert.equal(sandbox.audioAlive(), false, 'an ended carrier cannot stay green');
-  sandbox.keepAudio.ended = false;
-  sandbox.ac.state = 'suspended';
-  assert.equal(sandbox.audioAlive(), false, 'a suspended audio clock cannot stay green');
-});
-
-test('carrier lifecycle transitions immediately refresh canonical readiness', () => {
-  const start = extractFunction('startKeepAlive');
-  const resume = extractFunction('resumeAudio');
-  const transition = extractFunction('setKeepAliveState');
-
-  assert.match(start, /addEventListener\(["']playing["'],\s*carrierPlaying\)/);
-  assert.match(start, /addEventListener\(["']pause["'][\s\S]*carrierStopped\(\)/);
-  assert.match(start, /\[["']error["'],\s*["']ended["']\]\.forEach[\s\S]*carrierStopped/);
-  assert.match(start, /\[["']waiting["'],\s*["']stalled["']\]\.forEach[\s\S]*confirmCarrierLoss/);
-  assert.match(start, /KEEP_ALIVE_STALL_CONFIRM_MS/);
-  assert.match(resume, /\.then\(function \(\) \{ setKeepAliveState\(true\); \}\)[\s\S]*\.catch\(function \(\) \{ setKeepAliveState\(false\); \}\)/);
-  assert.match(transition, /sendDeviceStatus\(["']deviceStatus["'],\s*true\)/);
-});
-
-function carrierLifecycleHarness() {
-  let nowMs = 0;
-  let nextTimer = 1;
-  const timers = new Map();
-  const readiness = [];
-  class FakeAudio {
-    constructor() {
-      this.paused = false;
-      this.ended = false;
-      this.error = null;
-      this.readyState = 4;
-      this.listeners = Object.create(null);
-    }
-    addEventListener(type, listener) {
-      (this.listeners[type] ||= []).push(listener);
-    }
-    emit(type) {
-      (this.listeners[type] || []).forEach(listener => listener());
-    }
-    play() { this.paused = false; }
-    setAttribute() {}
+  assert.deepEqual(inputs.at(-1), {
+    userEnabled: true, audioContextRunning: true, carrierAlive: true,
+    connected: true, clockFresh: true
+  });
+  for (const field of ['userEnabled', 'audioContextRunning', 'carrierAlive']) {
+    audioState = { ...audioState, [field]: false };
+    assert.equal(sandbox.audioAlive(), false, field);
+    audioState = { userEnabled: true, audioContextRunning: true, carrierAlive: true };
   }
+  sandbox.sock.connected = false;
+  assert.equal(sandbox.audioAlive(), false, 'socket');
+  sandbox.sock.connected = true; sandbox.syncedOK = false;
+  assert.equal(sandbox.audioAlive(), true, 'canonical connection sample remains fresh');
+  clockIsFresh = false; sandbox.syncedOK = true;
+  assert.equal(sandbox.audioAlive(), false, 'clock');
+});
+
+test('clock freshness transitions re-enter the existing readiness publisher', () => {
+  const sent = [];
   const sandbox = {
-    keepAudio: null,
-    keepAlive: false,
-    keepAliveStallTimer: 0,
-    KEEP_ALIVE_STALL_CONFIRM_MS: 80,
-    soundReady: true,
-    isIOS: false,
-    navigator: {},
-    window: {},
-    Audio: FakeAudio,
-    bedURI() { return 'data:audio/wav;base64,test'; },
-    bedVol() { return 0; },
-    resumeAudio() {},
-    paintAudioStatus() {},
-    sendDeviceStatus() { readiness.push(sandbox.keepAlive); },
-    setTimeout(callback, delay) {
-      const id = nextTimer++;
-      timers.set(id, { callback, at: nowMs + Number(delay) });
-      return id;
+    syncedOK: false,
+    paintChrome() {}, paintAudioStatus() {}, rebookCuesOnDrift() {}, scheduleAllCues() {},
+    sendDeviceStatus(type, force) { sent.push([type, force]); }
+  };
+  vm.runInNewContext(`${extractFunction('updateSync')}\nthis.updateSync = updateSync;`, sandbox);
+
+  sandbox.updateSync({ fresh: true, rtt: null });
+  assert.equal(sandbox.syncedOK, true, 'a failed refresh does not discard a still-fresh canonical sample');
+  assert.deepEqual(sent, [['deviceStatus', true]]);
+
+  sandbox.updateSync({ fresh: true, rtt: 4 });
+  assert.deepEqual(sent, [['deviceStatus', true]], 'unchanged freshness does not create another edge');
+
+  sandbox.updateSync({ fresh: false, rtt: 4 });
+  assert.equal(sandbox.syncedOK, false, 'fresh=false wins even when an RTT was observed');
+  assert.deepEqual(sent, [['deviceStatus', true], ['deviceStatus', true]]);
+});
+
+test('starting a clock refresh preserves the shared connection freshness contract', async () => {
+  let resolveSync;
+  const sent = [];
+  const sandbox = {
+    syncAttempt: 0, syncedOK: true, lastAcceptedClockOffset: 12,
+    sock: { clockFresh: () => true },
+    window: {
+      clockOffset: 12,
+      syncClock: () => new Promise(resolve => { resolveSync = resolve; })
     },
-    clearTimeout(id) { timers.delete(id); }
+    paintChrome() {}, paintAudioStatus() {},
+    updateSync(result) { sandbox.syncedOK = result.fresh === true; },
+    sendDeviceStatus(type, force) { sent.push([type, force]); }
   };
-  vm.runInNewContext(`${extractFunction('setKeepAliveState')}\n${extractFunction('startKeepAlive')}\nthis.startKeepAlive = startKeepAlive;`, sandbox);
-  sandbox.startKeepAlive();
-  readiness.length = 0;
-  function advance(ms) {
-    const target = nowMs + ms;
-    while (true) {
-      const due = [...timers.entries()]
-        .filter(([, timer]) => timer.at <= target)
-        .sort((a, b) => a[1].at - b[1].at)[0];
-      if (!due) break;
-      nowMs = due[1].at;
-      timers.delete(due[0]);
-      due[1].callback();
-    }
-    nowMs = target;
-  }
-  return { sandbox, audio: sandbox.keepAudio, readiness, advance };
-}
+  vm.runInNewContext(`${extractFunction('beginClockSync')}\nthis.beginClockSync = beginClockSync;`, sandbox);
 
-test('loop-boundary waiting followed by playing within 80ms never publishes red', () => {
-  const h = carrierLifecycleHarness();
-  h.audio.readyState = 1;
-  h.audio.emit('waiting');
-  h.advance(4); // observed Chromium loop boundary gap is 0-4ms; 80ms leaves a bounded scheduling margin.
-  h.audio.readyState = 4;
-  h.audio.emit('playing');
-  h.advance(100);
-  assert.deepEqual(h.readiness, []);
-  assert.equal(h.sandbox.keepAlive, true);
+  const pending = sandbox.beginClockSync();
+  assert.equal(sandbox.syncedOK, true, 'an in-flight refresh must not invalidate a fresh prior sample');
+  assert.deepEqual(sent, []);
+  resolveSync({ fresh: true, rtt: null });
+  assert.equal(await pending, true);
 });
 
-test('persistent waiting publishes red once after the 80ms carrier-loss confirmation', () => {
-  const h = carrierLifecycleHarness();
-  h.audio.readyState = 1;
-  h.audio.emit('waiting');
-  h.advance(79);
-  assert.deepEqual(h.readiness, []);
-  h.advance(1);
-  assert.deepEqual(h.readiness, [false]);
-  h.audio.emit('stalled');
-  h.advance(80);
-  assert.deepEqual(h.readiness, [false]);
-
-  const stalled = carrierLifecycleHarness();
-  stalled.audio.readyState = 2; // HAVE_CURRENT_DATA cannot guarantee continued playback.
-  stalled.audio.emit('stalled');
-  stalled.advance(80);
-  assert.deepEqual(stalled.readiness, [false]);
-
-  const buffered = carrierLifecycleHarness();
-  buffered.audio.readyState = 3; // HAVE_FUTURE_DATA remains a healthy playing carrier.
-  buffered.audio.emit('stalled');
-  buffered.advance(80);
-  assert.deepEqual(buffered.readiness, []);
+test('lamp, status publisher, and ACK path cannot fork the readiness calculation', () => {
+  assert.match(extractFunction('audioAlive'), /return battleReadiness\(\)\.green/);
+  assert.match(extractFunction('paintAudioStatus'), /var readiness = battleReadiness\(\)[\s\S]*if \(readiness\.green\)/);
+  assert.match(extractFunction('sendDeviceStatus'), /ready = audioAlive\(\)/);
+  assert.match(extractFunction('acknowledgeClassicCommand'), /sendDeviceStatus\(\)/);
+  assert.match(extractFunction('onBattleAudioStateChange'), /sendDeviceStatus\("deviceStatus", true\)[\s\S]*paintAudioStatus\(\)/);
 });
 
-test('pause, ended, and error synchronously publish red and cancel pending carrier loss', () => {
-  for (const eventName of ['pause', 'ended', 'error']) {
-    const h = carrierLifecycleHarness();
-    h.audio.readyState = 1;
-    h.audio.emit('waiting');
-    if (eventName === 'pause') h.audio.paused = true;
-    if (eventName === 'ended') h.audio.ended = true;
-    if (eventName === 'error') h.audio.error = { code: 3 };
-    h.audio.emit(eventName);
-    assert.deepEqual(h.readiness, [false], `${eventName} is synchronous`);
-    h.advance(100);
-    assert.deepEqual(h.readiness, [false], `${eventName} cancels the pending check`);
-  }
+test('the shared engine retains carrier debounce, recovery, MediaSession, and Wake Lock', () => {
+  assert.match(audioSource, /var STALL_CONFIRM_MS = 80/);
+  assert.match(audioSource, /var PAUSE_RECOVERY_MS = 250/);
+  assert.match(audioSource, /listen\(carrier, "playing", carrierPlaying\)/);
+  assert.match(audioSource, /listen\(carrier, "pause"/);
+  assert.match(audioSource, /listen\(carrier, "error", carrierStopped\)/);
+  assert.match(audioSource, /listen\(carrier, "ended", carrierStopped\)/);
+  assert.match(audioSource, /listen\(carrier, "waiting", confirmCarrierLoss\)/);
+  assert.match(audioSource, /listen\(carrier, "stalled", confirmCarrierLoss\)/);
+  assert.match(audioSource, /nav\.mediaSession\.metadata/);
+  assert.match(audioSource, /nav\.audioSession\.type !== "playback"/);
+  assert.match(audioSource, /nav\.wakeLock\.request\("screen"\)/);
 });
 
-test('a suspended AudioContext immediately reports not-ready before resume completes', () => {
-  function FakeAudioContext() {
-    this.state = 'suspended';
-    this.resume = () => {};
-    this.onstatechange = null;
-  }
-  const statuses = [];
-  const sandbox = {
-    ac: null,
-    AC: () => FakeAudioContext,
-    window: {},
-    navigator: {},
-    sendDeviceStatus(type, force) { statuses.push({ type, force }); },
-    paintAudioStatus() {}
-  };
-  vm.runInNewContext(`${extractFunction('ensureAudio')}\nthis.ensureAudio = ensureAudio;`, sandbox);
-  sandbox.ensureAudio();
-  statuses.length = 0;
-  sandbox.ac.onstatechange();
-  assert.deepEqual(statuses, [{ type: 'deviceStatus', force: true }]);
+test('every AudioContext transition immediately reprojects device readiness', () => {
+  assert.match(audioSource, /context\.onstatechange = function \(\)[\s\S]*context\.state !== "running"[\s\S]*notify\(\)/);
+  assert.match(source, /onStateChange: onBattleAudioStateChange/);
+  assert.match(extractFunction('onBattleAudioStateChange'), /syncLegacyAudioState\(state\)[\s\S]*sendDeviceStatus\("deviceStatus", true\)/);
 });
 
 function statusPublisherHarness() {

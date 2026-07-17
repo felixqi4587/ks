@@ -57,11 +57,29 @@
   var dAnim = null, dRaf = null, dPlaying = false, dLastTs = null, dTNow = 0;
   var truthLang = "";
   var ac = null, keepAudio = null, keepAlive = false, soundReady = false, syncedOK = false;
-  var KEEP_ALIVE_STALL_CONFIRM_MS = 80, keepAliveStallTimer = 0;
+  var battleAudio = null, battleCues = null;
   var syncAttempt = 0, lastAcceptedClockOffset = Number(window.clockOffset) || 0;
   var isIOS = /iP(hone|od|ad)/.test(navigator.userAgent || "") || (navigator.platform === "MacIntel" && (navigator.maxTouchPoints || 0) > 1);
   var isAndroid = /android/i.test(navigator.userAgent || "");
   var $ = window.$;
+
+  function syncLegacyAudioState(state) {
+    state = state || battleAudio.state();
+    ac = battleAudio.context(); keepAudio = battleAudio.carrier();
+    keepAlive = state.carrierAlive === true; soundReady = state.userEnabled === true;
+    try { window.__ac = ac; window.__keepAlive = keepAlive; } catch (e) {}
+    return state;
+  }
+  function onBattleAudioStateChange(state) {
+    syncLegacyAudioState(state);
+    sendDeviceStatus("deviceStatus", true);
+    paintAudioStatus();
+  }
+  battleAudio = window.BattleAudio.createAudioEngine({
+    language: function () { return L() ? "en" : "zh"; },
+    mediaTitle: "KvK alerts on",
+    onStateChange: onBattleAudioStateChange
+  });
 
   /* ---------- reliable delivery shadow QA ---------- */
   var deliveryShadowInitialized = false, deliveryShadowController = null;
@@ -459,99 +477,31 @@
        reschedule on message (timers freeze in background; the socket message handler does not).
      - Best-effort, never a hard guarantee: a phone call / jetsam / Low-Power-Mode / OEM killer can
        still break it. UI surfaces the live status + a lock-screen self-test. */
-  function AC() { return window.AudioContext || window.webkitAudioContext; }
   function ensureAudio() {
-    try {
-      if (!ac) { ac = new (AC())(); window.__ac = ac; ac.onstatechange = function () { if (ac.state !== "running") { try { ac.resume(); } catch (e) {} } sendDeviceStatus("deviceStatus", true); paintAudioStatus(); }; }
-      if (ac.state !== "running") ac.resume();
-      if (navigator.audioSession && navigator.audioSession.type !== "playback") navigator.audioSession.type = "playback";
-    } catch (e) {} return ac;
+    try { ac = battleAudio.ensure(); syncLegacyAudioState(); } catch (e) {}
+    return ac;
   }
-  /* keep-alive bed = a clean 40Hz sub-bass sine (below phone-speaker response → humans don't hear it).
-     Amplitude strategy differs per platform:
-     - iOS Safari IGNORES audio.volume, so the file itself must be near-silent (amp .002); any playing media
-       element exempts the page from suspension regardless of loudness.
-     - Android/desktop Chrome FREEZES hidden tabs after ~5min unless the tab is AUDIBLE — and its audibility
-       check is an energy threshold on the actual output. amp .002 reads as silence → tab frozen → WebSocket
-       killed → the red dot the Android users saw. Bake a louder sample (amp .05, still 40Hz) and gate loudness
-       with audio.volume, which Chrome DOES honor: 0 in the foreground, up when hidden. */
-  function bedURI(amp) {
-    var sr = 8000, n = sr, d = new Int16Array(n);
-    for (var i = 0; i < n; i++) d[i] = Math.sin(i / sr * 2 * Math.PI * 40) * amp * 32767;
-    var buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf), o = 0;
-    function S(t) { for (var j = 0; j < t.length; j++) v.setUint8(o++, t.charCodeAt(j)); } function U32(x) { v.setUint32(o, x, true); o += 4; } function U16(x) { v.setUint16(o, x, true); o += 2; }
-    S("RIFF"); U32(36 + n * 2); S("WAVE"); S("fmt "); U32(16); U16(1); U16(1); U32(sr); U32(sr * 2); U16(2); U16(16); S("data"); U32(n * 2);
-    for (var k = 0; k < n; k++) { v.setInt16(o, d[k], true); o += 2; }
-    var u8 = new Uint8Array(buf), b = ""; for (var m = 0; m < u8.length; m++) b += String.fromCharCode(u8[m]);
-    return "data:audio/wav;base64," + btoa(b);
-  }
-  function bedVol() { if (!document.hidden) return 0; return isIOS ? .04 : (isAndroid ? 1 : .3); }   // foreground always silent; hidden → loud enough for the Chrome audibility check (40Hz stays inaudible to people)
-  function syncBedVol() { try { if (keepAudio) keepAudio.volume = bedVol(); } catch (e) {} }
-  function setKeepAliveState(alive) {
-    var next = !!(alive && keepAudio && keepAudio.paused === false && !keepAudio.ended), changed = next !== keepAlive;
-    keepAlive = next; try { window.__keepAlive = next; } catch (e) {}
-    if (changed && soundReady) sendDeviceStatus("deviceStatus", true);
-    paintAudioStatus();
-  }
-  function startKeepAlive() {
-    function cancelCarrierLossCheck() {
-      if (keepAliveStallTimer) clearTimeout(keepAliveStallTimer);
-      keepAliveStallTimer = 0;
-    }
-    function carrierPlaying() {
-      cancelCarrierLossCheck();
-      setKeepAliveState(true);
-    }
-    function carrierStopped() {
-      cancelCarrierLossCheck();
-      setKeepAliveState(false);
-    }
-    function confirmCarrierLoss() {
-      if (keepAliveStallTimer) return;
-      keepAliveStallTimer = setTimeout(function () {
-        keepAliveStallTimer = 0;
-        if (!keepAudio || keepAudio.paused || keepAudio.ended || keepAudio.error || keepAudio.readyState < 3) {
-          setKeepAliveState(false);
-        }
-      }, KEEP_ALIVE_STALL_CONFIRM_MS);
-    }
-    try {
-      if (!keepAudio) {
-        keepAudio = new Audio(); keepAudio.src = bedURI(isIOS ? .002 : .05); keepAudio.loop = true; keepAudio.volume = bedVol(); keepAudio.preload = "auto"; keepAudio.setAttribute("playsinline", "");
-        keepAudio.addEventListener("playing", carrierPlaying);
-        keepAudio.addEventListener("pause", function () { carrierStopped(); if (soundReady) setTimeout(resumeAudio, 250); });   // auto-restart if the OS pauses the bed
-        ["error", "ended"].forEach(function (eventName) {
-          keepAudio.addEventListener(eventName, carrierStopped);
-        });
-        ["waiting", "stalled"].forEach(function (eventName) {
-          keepAudio.addEventListener(eventName, confirmCarrierLoss);
-        });
-      }
-      var pr = keepAudio.play();
-      if (pr && pr.then) pr.then(carrierPlaying).catch(carrierStopped);
-      else if (keepAudio.paused) carrierStopped(); else carrierPlaying();
-      if ("mediaSession" in navigator) { try { navigator.mediaSession.metadata = new window.MediaMetadata({ title: "KvK alerts on", artist: "kingshoter" }); navigator.mediaSession.setActionHandler("play", resumeAudio); navigator.mediaSession.setActionHandler("pause", function () { }); } catch (e) {} }
-    } catch (e) { carrierStopped(); }
-  }
+  function syncBedVol() { try { battleAudio.syncCarrierVolume(); } catch (e) {} }
   function resumeAudio() {
-    ensureAudio();
-    try {
-      if (keepAudio) {
-        syncBedVol();
-        if (keepAudio.paused || !keepAlive) {
-          var p = keepAudio.play();
-          if (p && p.then) p.then(function () { setKeepAliveState(true); }).catch(function () { setKeepAliveState(false); });
-          else setKeepAliveState(!keepAudio.paused);
-        }
-      }
-    } catch (e) { setKeepAliveState(false); }
-    paintAudioStatus();
+    try { battleAudio.resume(); syncLegacyAudioState(); } catch (e) {}
+    return ac;
   }
-  function audioAlive() { return !!(soundReady && ac && ac.state === "running" && keepAlive && keepAudio && !keepAudio.paused && !keepAudio.ended); }
+  function battleReadiness() {
+    var state = battleAudio.state();
+    return window.BattleStatus.deriveReadiness({
+      userEnabled: state.userEnabled,
+      audioContextRunning: state.audioContextRunning,
+      carrierAlive: state.carrierAlive,
+      connected: !!(sock && sock.connected),
+      clockFresh: !!(sock && typeof sock.clockFresh === "function" ? sock.clockFresh() : syncedOK === true)
+    });
+  }
+  function audioAlive() { return battleReadiness().green; }
   var astatOkAt = 0;
   function paintAudioStatus() {
     var el = $("audioStatus"); if (!el) return; if (!soundReady) { el.style.display = "none"; return; }
-    if (audioAlive()) {   // healthy = quiet: show the reassurance for 6s, then get out of the way (warn state stays until tapped)
+    var readiness = battleReadiness();
+    if (readiness.green) {   // healthy = quiet: show the reassurance for 6s, then get out of the way (warn state stays until tapped)
       if (!astatOkAt) { astatOkAt = Date.now(); setTimeout(paintAudioStatus, 6300); }
       el.style.display = Date.now() - astatOkAt > 6000 ? "none" : "";
       el.className = "astat on"; el.textContent = tk("as_on") + " · " + tk(isIOS ? "plat_ios" : isAndroid ? "plat_android" : "plat_desktop");
@@ -559,83 +509,55 @@
   }
   // screen wake lock (Android/desktop): while this page stays visible the screen never sleeps, so timers/audio never throttle.
   // Auto-released by the OS on tab switch; re-acquired on every resume. Best-effort — no-op where unsupported.
-  var wakeLock = null;
-  function keepAwake() { try { if (document.visibilityState === "visible" && navigator.wakeLock && !wakeLock) navigator.wakeLock.request("screen").then(function (wl) { wakeLock = wl; wl.addEventListener("release", function () { wakeLock = null; }); }).catch(function () {}); } catch (e) {} }
-  function beep(when, freq, dur, vol) { var o = ac.createOscillator(), g = ac.createGain(); o.connect(g); g.connect(ac.destination); o.type = "sine"; o.frequency.value = freq; g.gain.setValueAtTime(.0001, when); g.gain.exponentialRampToValueAtTime(vol, when + .012); g.gain.exponentialRampToValueAtTime(.0001, when + dur); o.start(when); o.stop(when + dur + .03); return { o: o, g: g }; }
+  function keepAwake() { try { battleAudio.requestWakeLock(); } catch (e) {} }
   // scheduledBeeps[key] = {t: targetMs (server clock), off: clockOffset used when booked, base: command key, nodes:[{o,g}]}
   // nodes are RETAINED so a cue can be killed: cancelled rallies must go silent (they used to beep 5..GO anyway).
-  var scheduledBeeps = {}, BEEP_HZ = 740;   // 10..6 = constant-pitch ticks; 5..1 + GO = pre-generated female voice clips
+  var scheduledBeeps = {};   // 10..6 = constant-pitch ticks; 5..1 + GO = pre-generated female voice clips
   try { window.__cues = scheduledBeeps; } catch (e) {}
-  /* countdown voice: pre-generated neural clips (zh 小晓 / en Aria), decoded into Web Audio buffers and
-     pre-scheduled on ac.currentTime exactly like the beeps — sample-accurate, identical on every device,
-     and still fires when the phone is backgrounded (device TTS was robotic, per-device random, and dies in bg). */
-  var sfxBuf = { zh: {}, en: {} }, sfxStarted = false;
-  function loadSfx() {
-    if (sfxStarted || !ac) return; sfxStarted = true; window.__sfx = 0;
-    ["zh", "en"].forEach(function (lg) {
-      ["5", "4", "3", "2", "1", "go"].forEach(function (n) {
-        fetch("/sfx/" + lg + "_" + n + ".mp3").then(function (r) { return r.arrayBuffer(); })
-          .then(function (ab) { return ac.decodeAudioData(ab); })
-          .then(function (buf) { sfxBuf[lg][n] = buf; window.__sfx = (window.__sfx || 0) + 1; })
-          .catch(function () {});   // a missing clip just falls back to a beep at schedule time
-      });
-    });
-  }
-  function playClip(when, buf, vol) { var s = ac.createBufferSource(), g = ac.createGain(); s.buffer = buf; s.connect(g); g.connect(ac.destination); g.gain.setValueAtTime(vol, when); s.start(when); return { o: s, g: g }; }
-  function stopCue(e) { (e.nodes || []).forEach(function (n) { try { n.g.gain.cancelScheduledValues(0); n.g.gain.setValueAtTime(0.0001, 0); n.o.stop(0); n.o.disconnect(); n.g.disconnect(); } catch (x) {} }); }
+  battleCues = window.BattleCues.createCueScheduler({
+    audio: battleAudio,
+    registry: scheduledBeeps,
+    nowMs: function () { return window.serverNow(); },
+    clockOffsetMs: function () { return window.clockOffset; },
+    onScheduled: function () { try { window.__beeps = (window.__beeps || 0) + 1; } catch (e) {} }
+  });
+  function loadSfx() { try { battleAudio.loadSfx(); } catch (e) {} }
+  function stopCue(e) { battleAudio.cancel(e && e.nodes || []); }
   function scheduleBeeps(key, targetSec, windowMs) {
     ensureAudio(); if (!ac || ac.state !== "running") return;
-    var win = windowMs || 360000, nowMs = window.serverNow();   // long default horizon: an arg-less call must never silently swallow a >12s cue (the core-promise bug)
-    for (var pk in scheduledBeeps) if (scheduledBeeps[pk].t < nowMs - 4000) { stopCue(scheduledBeeps[pk]); delete scheduledBeeps[pk]; }   // stop before pruning: a clock correction can make a still-booked WebAudio node look expired
     var lg = L() ? "en" : "zh";
-    [10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0].forEach(function (off) {
-      var k = key + ":" + off, tMs = (targetSec - off) * 1000; if (scheduledBeeps[k]) return;
-      var dtMs = tMs - nowMs;
-      if (dtMs < -150) { scheduledBeeps[k] = { t: tMs, off: window.clockOffset, base: key, nodes: [] }; return; } if (dtMs > win) return;
-      var when = ac.currentTime + Math.max(0, dtMs) / 1000, nodes;
-      if (off === 0) {
-        var go = sfxBuf[lg].go;   // GO = spoken 出发!/GO! + a soft chord underneath for punch through game audio
-        nodes = go ? [playClip(when, go, 1), beep(when, 1320, .4, .3), beep(when, 1760, .4, .2)]
-                   : [beep(when, 1320, .5, .7), beep(when, 1760, .5, .5)];
-      } else if (off <= 5) {
-        var b = sfxBuf[lg][String(off)];   // 5..1 = female voice; beep fallback until clips finish decoding
-        nodes = b ? [playClip(when, b, .95)] : [beep(when, BEEP_HZ, .13, .55)];
-      } else nodes = [beep(when, BEEP_HZ, .12, .5)];   // 10..6 = constant-pitch ticks
-      scheduledBeeps[k] = { t: tMs, off: window.clockOffset, base: key, nodes: nodes }; try { window.__beeps = (window.__beeps || 0) + 1; } catch (e) {}
+    var events = [10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0].map(function (off) {
+      return {
+        id: String(off), offsetMs: -off * 1000, language: lg,
+        kind: off === 0 ? "go" : off <= 5 ? "countdown" : "tick",
+        name: off === 0 ? "go" : String(off)
+      };
     });
+    battleCues.upsert({ id: key, targetAtMs: targetSec * 1000, events: events },
+      { merge: true, windowMs: windowMs || 360000 });
   }
   // A later captain waits for their own selected countdown window. Pre-book a distinct start cue for
   // leads above 10s; at 10s the shared countdown scheduler already owns the exact T-10 cue.
   function schedulePrepareCue(key, targetSec, leadSeconds, windowMs) {
     ensureAudio(); if (!ac || ac.state !== "running") return;
     var offset = Number(leadSeconds); if (!Number.isFinite(offset) || offset < 1 || offset > 120) offset = 10;
-    var k = key + ":" + offset, tMs = (targetSec - offset) * 1000; if (scheduledBeeps[k]) return;
-    var nowMs = window.serverNow(), dtMs = tMs - nowMs, win = windowMs || 360000;
-    if (dtMs < -150) { scheduledBeeps[k] = { t: tMs, off: window.clockOffset, base: key, nodes: [] }; return; }
-    if (dtMs > win) return;
-    var when = ac.currentTime + Math.max(0, dtMs) / 1000;
-    var nodes = [beep(when, 587, .14, .5), beep(when + .18, 784, .18, .58)];
-    scheduledBeeps[k] = { t: tMs, off: window.clockOffset, base: key, nodes: nodes }; try { window.__beeps = (window.__beeps || 0) + 1; } catch (e) {}
+    battleCues.upsert({ id: key, targetAtMs: targetSec * 1000, events: [
+      { id: String(offset), offsetMs: -offset * 1000, kind: "prepare" }
+    ] }, { merge: true, windowMs: windowMs || 360000 });
   }
   // kill any FUTURE booked cue whose command no longer exists (cancelled / superseded). Self-tests ("locktest-…") are exempt.
   function reconcileCues() {
     if (!room) return;
-    var ids = liveCommands(room).map(function (c) { return c.id; }), nowMs = window.serverNow(), killed = false;
-    for (var k in scheduledBeeps) {
-      var e = scheduledBeeps[k];
-      if (e.base.indexOf("locktest") === 0 || e.t <= nowMs) continue;
-      var alive = ids.some(function (id) { return e.base.indexOf(id) === 0; });
-      if (!alive) { stopCue(e); delete scheduledBeeps[k]; killed = true; }
-    }
-    return killed;
+    var ids = liveCommands(room).map(function (c) { return c.id; }), nowMs = window.serverNow();
+    var killed = battleCues.cancelWhere(function (entry) {
+      if (entry.base.indexOf("locktest") === 0 || entry.atMs <= nowMs) return false;
+      return !ids.some(function (id) { return entry.base.indexOf(id) === 0; });
+    });
+    return killed > 0;
   }
   // clock offset drifted (post-suspend resync)? re-book future cues on the corrected clock — a booked oscillator can't be moved, only killed+rebooked
   function rebookCuesOnDrift() {
-    var moved = false;
-    for (var k in scheduledBeeps) {
-      var e = scheduledBeeps[k];
-      if (Math.abs((e.off || 0) - window.clockOffset) > 300) { stopCue(e); delete scheduledBeeps[k]; moved = true; }
-    }
+    var moved = battleCues.cancelDrifted(window.clockOffset, 300);
     if (moved) scheduleAllCues();
   }
   function liveCommands(r) { var out = []; if (r && r.live) { if (r.live.mode === "sim" && r.live.sim) { var sc = simCommand(r.live.sim); if (sc) out.push(sc); } else if (r.live.commands) { [1, 2].forEach(function (kk) { if (r.live.commands[kk]) out.push(r.live.commands[kk]); }); } } return out; }
@@ -1095,13 +1017,13 @@
       } else cancelJoinCues();
     }
   }
-  function beepCancelled() { try { ensureAudio(); if (!ac || ac.state !== "running") return; var w = ac.currentTime; beep(w, 740, .16, .5); beep(w + .2, 494, .3, .5); } catch (e) {} }   // two falling tones ≠ the rising countdown
+  function beepCancelled() { try { battleAudio.playCancelled(); } catch (e) {} }   // two falling tones ≠ the rising countdown
   function lockTest() { ensureAudio(); loadSfx(); var t = window.serverNowSec() + 11; scheduleBeeps("locktest-" + t, t, 60000); window.toast(tk("bgtest_on")); }   // t=+11 → the whole 10..GO hybrid plays
-  function beepConfirm() { try { ensureAudio(); if (!ac) return; var w = ac.currentTime; beep(w, 880, .12, .55); beep(w + .15, 1175, .14, .55); } catch (e) {} }
-  function fireAlert() { try { navigator.vibrate && navigator.vibrate([110, 55, 110]); } catch (e) {} try { ensureAudio(); if (!ac || ac.state !== "running") return; var o = ac.createOscillator(), g = ac.createGain(); o.connect(g); g.connect(ac.destination); o.type = "sine"; o.frequency.value = 880; g.gain.setValueAtTime(.001, ac.currentTime); g.gain.exponentialRampToValueAtTime(.4, ac.currentTime + .02); g.gain.exponentialRampToValueAtTime(.001, ac.currentTime + .5); o.start(); o.stop(ac.currentTime + .5); } catch (e) {} }
+  function beepConfirm() { try { battleAudio.playConfirm(); } catch (e) {} }
+  function fireAlert() { try { navigator.vibrate && navigator.vibrate([110, 55, 110]); } catch (e) {} try { battleAudio.playFire(); } catch (e) {} }
   function primeAudioOnce() { var f = function () { enableSound(true); document.removeEventListener("pointerdown", f); }; document.addEventListener("pointerdown", f); }
   function enableSound(silent) {
-    soundReady = true; ensureAudio(); loadSfx(); startKeepAlive(); keepAwake();
+    try { battleAudio.enable(); syncLegacyAudioState(); } catch (e) {}
     try { if (window.speechSynthesis) { loadVoices(); var u = new SpeechSynthesisUtterance(" "); u.volume = 0; speechSynthesis.speak(u); } } catch (e) {}
     var g = $("soundGate"); if (g) g.style.display = "none";
     var rv = $("roomView"); if (rv) rv.classList.remove("presound");   // step ① done → unlock the rest of the page
@@ -2991,10 +2913,13 @@
     else if (!syncedOK) { dot.className = "cdot"; lab.textContent = tk("syncing"); }
     else { dot.className = "cdot on"; lab.textContent = tkf("online_n", { n: presenceN }); }
   }
-  function setNet(on) { connFlag = on; paintChrome(); }
+  function setNet(on) { connFlag = on; paintChrome(); paintAudioStatus(); }
   function beginClockSync(done) {
     var attempt = ++syncAttempt;
-    syncedOK = false; paintChrome();
+    var nextFresh = !!(sock && typeof sock.clockFresh === "function" ? sock.clockFresh() : syncedOK === true);
+    var freshnessChanged = syncedOK !== nextFresh;
+    syncedOK = nextFresh; paintChrome(); paintAudioStatus();
+    if (freshnessChanged) sendDeviceStatus("deviceStatus", true);
     return window.syncClock().then(function (result) {
       if (attempt !== syncAttempt) { window.clockOffset = lastAcceptedClockOffset; return false; }
       lastAcceptedClockOffset = Number(window.clockOffset) || 0;
@@ -3003,7 +2928,7 @@
       return syncedOK;
     });
   }
-  function updateSync(r) { if (r) syncedOK = r.rtt != null; paintChrome(); rebookCuesOnDrift(); if (syncedOK) scheduleAllCues(); }   // post-suspend resync: future beeps re-book on the corrected clock, then ACK only the corrected schedule
+  function updateSync(r) { var nextFresh = !!(r && r.fresh === true), freshnessChanged = syncedOK !== nextFresh; syncedOK = nextFresh; paintChrome(); paintAudioStatus(); rebookCuesOnDrift(); if (syncedOK) scheduleAllCues(); if (freshnessChanged) sendDeviceStatus("deviceStatus", true); }   // post-suspend resync: future beeps re-book on the corrected clock, then ACK only the corrected schedule
   var lastStagedKey = "", lastMyMarch = 0;
   function onState(r) {
     var freshRoomSnapshot = r !== room, settledStageFocusPid = "";
