@@ -195,7 +195,7 @@ For example, Rally room `qa` at this release connects to `/api/ws?room=qa&surfac
 - [x] **Step 4: Adapt Rally through a thin compatibility wrapper.** `/battle-connection.js` loads before `app.js`; the legacy `RoomSocket` API delegates to it and Rally explicitly connects with `surface=rally`. Existing callbacks, global clock fields, initial sync, reconnect, and visible behavior remain compatible.
 - [x] **Step 5: Run focused tests.** Final focused evidence: 41/41 passed, including the three independent review follow-ups.
 - [x] **Step 6: Run the Rally regression gate.** Fresh final evidence: `npm test` 423/423, Delivery 125/125, Triple 193/193, and Chromium Core + Compatibility 1/1. Two independent read-only reviews found zero Critical and zero Important issues.
-- [ ] **Step 7: Run GitNexus change detection and commit.** Commit with `refactor: share battle connection and clock`.
+- [x] **Step 7: Run GitNexus change detection and commit.** Final detection reported HIGH fan-out across ten connection-dependent Rally/Delivery/audio flows; the verified implementation was committed as `1c23931` with `refactor: share battle connection and clock`.
 
 ---
 
