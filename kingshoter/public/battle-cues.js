@@ -216,6 +216,7 @@
         targetAtMs: entry.targetAtMs,
         offsetMs: entry.offsetMs,
         clockOffsetMs: entry.off,
+        scheduled: Array.isArray(entry.nodes) && entry.nodes.length > 0,
         event: entry.event
       });
     }

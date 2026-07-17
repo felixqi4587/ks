@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f8f8f0">
+  <title>kingshoter · Defense</title>
+  <link rel="icon" href="/favicon.svg">
+  <link rel="stylesheet" href="/app.css?v=2026071603">
+  <link rel="stylesheet" href="/battle-ui.css?v=2026071603">
+  <link rel="stylesheet" href="/defense.css?v=2026071603">
+</head>
+<body class="battle-page defense-page">
+  <main class="battle-shell defense-shell" id="defenseMain">
+    <header class="defense-header">
+      <span class="defense-header__fish" aria-hidden="true">🐟</span>
+      <div class="defense-header__copy">
+        <h1 class="battle-title" id="defenseTitle">Defense Coordination</h1>
+        <p class="battle-support" id="defenseRoomLabel">—</p>
+      </div>
+      <button class="battle-control defense-language" id="defenseLanguage" type="button" aria-label="Switch language">中文</button>
+    </header>
+
+    <section class="battle-card defense-join" id="defenseJoin">
+      <h2 class="battle-title" id="defenseJoinTitle">Enter a Defense room</h2>
+      <p class="battle-support" id="defenseJoinHint">Use the same room name as your alliance.</p>
+      <form id="defenseJoinForm" novalidate>
+        <label class="defense-label" for="defenseRoomInput" id="defenseRoomInputLabel">Room</label>
+        <input class="defense-identity-input" id="defenseRoomInput" autocomplete="off" maxlength="48">
+        <button class="battle-action defense-full" id="defenseJoinButton" type="submit">Enter</button>
+      </form>
+    </section>
+
+    <div id="defenseRoom" hidden>
+      <div class="battle-status-strip" id="defenseStatus" role="status" aria-live="polite" aria-atomic="true" data-level="danger">
+        <span class="battle-status-strip__mark" aria-hidden="true">!</span>
+        <span class="defense-status__label" id="defenseStatusLabel">Connection lost · reconnecting</span>
+        <time class="battle-time defense-status__clock" id="defenseLocalClock" aria-hidden="true">--:--:--</time>
+      </div>
+
+      <section class="battle-card battle-form defense-profile" id="defenseProfileCard" aria-labelledby="defenseProfileTitle">
+        <h2 class="battle-title" id="defenseProfileTitle">Your info</h2>
+        <p class="battle-support" id="defenseProfileHint">Enter Player ID or nickname and your march time to the castle.</p>
+        <div class="defense-identity-mode" id="defenseIdentityMode" role="radiogroup" aria-label="Identity type">
+          <button type="button" class="battle-control is-selected" id="defenseModePlayerId" role="radio" aria-checked="true" data-mode="playerId">Player ID · Recommended</button>
+          <button type="button" class="battle-control" id="defenseModeNickname" role="radio" aria-checked="false" data-mode="nickname">Nickname</button>
+        </div>
+        <label class="defense-label" for="defenseIdentityValue" id="defenseIdentityLabel">Player ID</label>
+        <input id="defenseIdentityValue" class="defense-identity-input battle-identity-input" inputmode="numeric" autocomplete="off" maxlength="24">
+        <div class="defense-field-status" id="defenseProfileStatus" role="status" aria-live="polite"></div>
+        <label class="defense-label" for="defenseMarchRange" id="defenseMarchLabel">March time to the castle</label>
+        <div class="defense-march-control">
+          <button type="button" class="battle-control defense-step" id="defenseMarchMinus" aria-label="Decrease march time">−</button>
+          <input id="defenseMarchRange" type="range" min="5" max="120" step="1" value="90" aria-describedby="defenseMarchValue">
+          <button type="button" class="battle-control defense-step" id="defenseMarchPlus" aria-label="Increase march time">＋</button>
+        </div>
+        <output class="battle-time defense-march-value" id="defenseMarchValue" for="defenseMarchRange">1:30</output>
+        <button class="battle-action defense-full" id="defenseSaveProfile" type="button">Save</button>
+      </section>
+
+      <section class="battle-card defense-you" id="defenseYouCard" hidden aria-label="Your Defense profile">
+        <div class="defense-you__identity">
+          <span class="defense-you__prefix" id="defenseYouPrefix">You</span>
+          <strong id="defenseYouName">—</strong>
+        </div>
+        <span class="battle-time defense-you__march" id="defenseYouMarch">—:—</span>
+        <button class="battle-control defense-you__edit" id="defenseEditProfile" type="button">Edit</button>
+        <div class="defense-field-status defense-you__status" id="defenseYouStatus" role="status" aria-live="polite"></div>
+      </section>
+
+      <button class="battle-control defense-audio-row" id="defenseAudioRow" type="button">
+        <span aria-hidden="true">🔊</span>
+        <span id="defenseAudioLabel">Enable page alerts</span>
+      </button>
+
+      <section class="battle-card battle-progress defense-progress-card" id="defenseProgressCard" hidden aria-labelledby="defenseProgressTitle">
+        <div class="defense-section-row">
+          <h2 class="battle-title" id="defenseProgressTitle">Your march time</h2>
+          <span class="battle-time" id="defenseProgressTime">—:—</span>
+        </div>
+        <div id="defenseProgress" class="defense-progress" role="progressbar" aria-valuemin="5" aria-valuemax="120">
+          <span class="defense-progress__fill"></span>
+          <span class="defense-progress__marker" aria-hidden="true"></span>
+        </div>
+        <p class="battle-support defense-progress-copy" id="defenseProgressCopy">Personal distance scale · maximum 2:00</p>
+      </section>
+
+      <section class="battle-card defense-personal" id="defensePersonal" aria-labelledby="defensePersonalTitle">
+        <p class="defense-personal__eyebrow" id="defensePersonalEyebrow">Personal Defense timing</p>
+        <h2 class="defense-personal__title" id="defensePersonalTitle">Waiting for the next Defense order</h2>
+        <div class="battle-time defense-personal__countdown" id="defenseCountdown" aria-hidden="true">—:—</div>
+        <p class="battle-support defense-personal__support" id="defensePersonalSupport">Keep this page open. Your countdown will appear here.</p>
+        <div class="defense-countdown-live" id="defenseCountdownLive" role="status" aria-live="assertive" aria-atomic="true"></div>
+      </section>
+
+      <button class="battle-control defense-console-entry" id="defenseConsoleEntry" type="button" aria-expanded="false">
+        <span aria-hidden="true">🎖️</span><span id="defenseConsoleLabel">Defense Console</span><span aria-hidden="true">⌃</span>
+      </button>
+
+      <details class="defense-settings">
+        <summary id="defenseSettingsLabel">Alert settings</summary>
+        <button class="battle-control defense-full" id="defenseTestAlert" type="button">Test this device's alert</button>
+      </details>
+    </div>
+  </main>
+  <p class="defense-footer">Kingshot player-made tool · unofficial ⚔️🐟</p>
+
+  <script src="/battle-connection.js?v=2026071603"></script>
+  <script src="/battle-status.js?v=2026071603"></script>
+  <script src="/battle-audio.js?v=2026071603"></script>
+  <script src="/battle-cues.js?v=2026071603"></script>
+  <script src="/battle-identity.js?v=2026071603"></script>
+  <script src="/battle-delivery.js?v=2026071603"></script>
+  <script src="/defense-domain.js?v=2026071603"></script>
+  <script src="/defense-controller.js?v=2026071603"></script>
+</body>
+</html>

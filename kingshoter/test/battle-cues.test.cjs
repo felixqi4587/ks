@@ -84,6 +84,8 @@ test('absolute events schedule once and expose a node-free snapshot', () => {
   assert.equal(Object.isFrozen(snapshot), true);
   assert.equal(Object.isFrozen(snapshot[0]), true);
   assert.ok(snapshot.every(entry => !Object.hasOwn(entry, 'nodes')));
+  assert.ok(snapshot.every(entry => entry.scheduled === true),
+    'a projected cue reports that Web Audio nodes were actually created');
   assert.deepEqual(snapshot.map(entry => entry.clockOffsetMs), [25, 25, 25]);
 });
 
@@ -96,6 +98,8 @@ test('past events become tombstones and never replay after reconnect or drift', 
   assert.equal(h.api.reconcile([plan]), 0);
   assert.equal(h.scheduled.length, 0);
   assert.deepEqual(plain(h.registry['past-command:0'].nodes), []);
+  assert.equal(h.api.snapshot()[0].scheduled, false,
+    'an anti-replay tombstone is distinguishable from a real scheduled cue');
   assert.equal(h.scheduledEvents.length, 0, 'a tombstone is not a real scheduled cue');
 
   assert.equal(h.api.cancelDrifted(1_000, 300), true);
