@@ -31,7 +31,7 @@ The website never receives live game state. It can report that a website order r
 - Repairing a defense manager's missed anchor window. The manager is responsible for clicking when the game shows the configured value.
 - Automatically triggering Defense from `gameauto`, OCR, an AI model, or an emulator.
 - Adding a third Timing tab to the manager interface.
-- Building the global project-administrator page in this specification. `/admin` is a separate follow-up product with its own authentication, room registry, retention, and destructive-cleanup design.
+- Building a global project-administrator page, room registry, retention policy, or project-wide cleanup tooling.
 
 ## Product surfaces and routing
 
@@ -395,24 +395,6 @@ The design is complete when all of the following are true:
 - No label or metric claims knowledge of real game participation or response.
 - The manager UI remains usable with at least 100 connected devices, while the ordinary page remains constant-size.
 - Rally and Defense pass the complete isolation, timing, audio, browser, scale, and real-device QA matrix before production rollout.
-
-## Required follow-up: project administration
-
-The user-approved `/admin` product remains a required second project after Rally / Defense. It receives a separate brainstorm, approved design document, implementation plan, and security review because it introduces project-wide visibility and destructive authority.
-
-Its recorded scope is:
-
-- a private project-administrator login intended for the site owner;
-- a global list of known Rally and Defense rooms;
-- per-surface current website connection counts;
-- creation, last website activity, and last order timestamps;
-- inactivity sorting and filtering;
-- a safe preview of what a cleanup will remove;
-- confirmed single-room and bulk cleanup for rooms older than a chosen threshold;
-- protection for recently active or currently connected rooms;
-- an audit record of project-level cleanup actions.
-
-These metrics describe Kingshoter website activity only. They do not represent game-room activity or game participation. The authentication, registry, retention, confirmation, deletion, recreation, and audit rules must be resolved in that product's own specification before any `/admin` code is written.
 
 ## Deferred automation
 
