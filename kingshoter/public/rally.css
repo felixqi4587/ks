@@ -1,0 +1,177 @@
+html,
+body.kvk-page {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.kvk-page .situation {
+  contain: layout paint;
+}
+
+.kvk-page .lane-group-head {
+  min-height: 30px;
+  font-size: 11px;
+}
+
+.kvk-page .lane-group-head small,
+.kvk-page .lanenote {
+  font-size: 11px;
+}
+
+.kvk-page .lanenote {
+  color: var(--battle-label-secondary);
+}
+
+.kvk-page .lane-group.kingdom-1 .lane-group-head,
+.kvk-page .lane.me .lname {
+  color: var(--battle-label-primary);
+}
+
+.kvk-page .lane-group.kingdom-2 .lane-group-head {
+  color: var(--battle-commander);
+}
+
+.kvk-page .lane-empty {
+  min-height: 34px;
+  display: grid;
+  place-items: center;
+  color: var(--battle-label-secondary);
+  font: 700 11px/1.25 var(--font);
+}
+
+.kvk-page .lane .ltrack.live .lpath {
+  inset-block-start: 50%;
+  opacity: .42;
+}
+
+.kvk-page .lane.is-gathering .ldot.trav {
+  box-shadow: 0 0 0 4px rgba(245, 195, 28, .22);
+}
+
+.kvk-page .situation .pond {
+  position: relative;
+  isolation: isolate;
+}
+
+.rally-map-scale {
+  position: absolute;
+  inset: 10px 42px auto;
+  z-index: 3;
+  min-height: 22px;
+  color: var(--battle-label-primary);
+  font: 800 11px/1.25 var(--font);
+  text-align: center;
+  pointer-events: none;
+}
+
+.rally-map-message,
+.rally-map-legend {
+  position: absolute;
+  inset-inline: 18px;
+  z-index: 3;
+  color: var(--battle-label-secondary);
+  font: 800 11px/1.35 var(--battle-font);
+  text-align: center;
+  pointer-events: none;
+}
+
+.rally-map-message {
+  inset-block-end: 34px;
+}
+
+.rally-map-message[hidden] {
+  display: none;
+}
+
+.rally-map-legend {
+  inset-block-end: 10px;
+}
+
+.kvk-page #radar {
+  overflow: visible;
+}
+
+.kvk-page .rally-route {
+  vector-effect: non-scaling-stroke;
+}
+
+.kvk-page #cmdUnlock,
+.kvk-page .youchip .yedit,
+.kvk-page details > summary {
+  min-height: 44px;
+}
+
+@media (max-width: 430px) {
+  .kvk-wrap {
+    width: min(100%, 430px);
+    padding-inline: 10px;
+  }
+
+  .kvk-page .situation {
+    padding: 9px;
+  }
+
+  .kvk-page .lane {
+    grid-template-columns: minmax(66px, 82px) minmax(0, 1fr) 52px;
+    gap: 6px;
+    min-width: 0;
+    margin-block: 6px;
+  }
+
+  .kvk-page .lane .lname,
+  .kvk-page .lane .ltime {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 430px) {
+  body.kvk-page.cmdmode .situation .pond {
+    flex-basis: 220px;
+    height: 220px;
+    min-height: 220px;
+  }
+
+  body.kvk-page.cmdmode .situation .pond svg {
+    height: 220px;
+    max-height: 220px;
+  }
+}
+
+@media (max-width: 375px) {
+  .kvk-page .situation {
+    padding-inline: 7px;
+  }
+
+  .kvk-page .lane {
+    grid-template-columns: minmax(60px, 72px) minmax(0, 1fr) 48px;
+    gap: 5px;
+  }
+
+  .kvk-page .lane .lname {
+    font-size: 13px;
+  }
+
+  .kvk-page .lane .ltimev {
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 330px) {
+  .kvk-wrap {
+    padding-inline: 7px;
+  }
+
+  .kvk-page .lane {
+    grid-template-columns: 58px minmax(0, 1fr) 46px;
+    gap: 4px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kvk-page .lane .ldot.trav,
+  .kvk-page .phero,
+  .kvk-page .phero .pips i {
+    animation: none !important;
+    transition: none !important;
+  }
+}

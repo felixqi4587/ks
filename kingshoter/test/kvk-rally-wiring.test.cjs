@@ -154,7 +154,8 @@ test('every rally consumer shares Triple-aware predicates without changing Doubl
   assert.match(kvk, /if \(join && isRallyCommand\(join\)\) \{/);
   assert.match(kvk, /function announceCmd\([\s\S]{0,420}if \(isRallyCommand\(c\)\)/);
   assert.match(kvk, /if \(isRallyCommand\(c\) && tg\.mine && rem <= countdownLead/);
-  assert.match(kvk, /if \(c && isRallyCommand\(c\) && c\.payload/);
+  assert.match(kvk, /rallyTactical\.selectedGroups\(projectionRoom, myPid\)/,
+    'the tactical view consumes the shared Double/Triple group projector');
   assert.match(kvk, /if \(!personal && canJoin\)/,
     'the ordinary-member join audience guard remains intact');
   assert.doesNotMatch(kvk, /\.type\s*[!=]==?\s*["']double_rally["']/,

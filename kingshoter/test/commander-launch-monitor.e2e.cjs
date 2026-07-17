@@ -63,11 +63,14 @@ function check(condition, label) {
     await page.locator('#cmdUnlock').click();
     await page.locator('#pwInput').fill('666');
     await page.locator('#pwGo').click();
-    await page.locator('#console').waitFor({ state: 'visible', timeout: 8_000 });
+    await page.locator('#console[data-drawer-state="command"]').waitFor({ timeout: 8_000 });
+    await page.locator('#commanderCommandPane').waitFor({ state: 'visible', timeout: 8_000 });
   }
 
   async function selectPair(page, kingdom, pair) {
     await page.locator(`#kingdomPick button[data-k="${kingdom}"]`).click();
+    await page.locator('#commanderManageOpen').click();
+    await page.locator('#commanderManagePane').waitFor({ state: 'visible' });
     for (const player of pair) {
       await page.locator(`#roster .rp[data-pid="${player.pid}"]`).click();
     }
@@ -76,6 +79,8 @@ function check(condition, label) {
       null,
       { timeout: 8_000 }
     );
+    await page.locator('#commanderManageBack').click();
+    await page.locator('#commanderCommandPane').waitFor({ state: 'visible' });
   }
 
   async function fireDouble(page) {

@@ -55,10 +55,9 @@ async function laneRows(page) {
   return page.locator('#lanes .lane').evaluateAll(rows => rows.map(row => ({
     name: (row.querySelector('.lname')?.textContent || '').trim(),
     dotLeft: Number.parseFloat(row.querySelector('.ldot')?.style.left || 'NaN'),
-    gatherLeft: Number.parseFloat(row.querySelector('.gband')?.style.left || 'NaN'),
-    gatherWidth: Number.parseFloat(row.querySelector('.gband')?.style.width || 'NaN'),
-    landLeft: Number.parseFloat(row.querySelector('.ldot.tgt')?.style.left || 'NaN'),
-    landing: (row.querySelector('.ltimev')?.textContent || '').trim()
+    time: (row.querySelector('.ltimev')?.textContent || '').trim(),
+    live: row.querySelector('.ltrack')?.classList.contains('live') === true,
+    hasLegacyGatherBand: row.querySelector('.gband, .ldot.tgt') !== null
   })));
 }
 
@@ -72,10 +71,6 @@ function assertApprox(actual, expected, label, tolerance = 0.12) {
   assert.ok(Number.isFinite(actual), `${label} is numeric`);
   assert.ok(Math.abs(actual - expected) <= tolerance,
     `${label}: expected ${expected.toFixed(2)}%, received ${actual.toFixed(2)}%`);
-}
-
-function utcClock(seconds) {
-  return new Date(seconds * 1000).toISOString().slice(11, 19);
 }
 
 (async () => {
@@ -148,6 +143,8 @@ function utcClock(seconds) {
     await page.locator('#pwInput').fill(password);
     await page.locator('#pwGo').click();
     await page.locator('#console').waitFor({ state: 'visible' });
+    await page.locator('#commanderManageOpen').click();
+    await page.locator('#commanderManagePane').waitFor({ state: 'visible' });
 
     for (const player of players) {
       await page.locator(`#roster .roster-time[data-pid="${player.pid}"]`).click();
@@ -222,15 +219,12 @@ function utcClock(seconds) {
         }
       }
     }]);
-    await page.locator('#lanes .gband').first().waitFor();
+    await page.locator('#lanes .ltrack.live').first().waitFor();
 
     const canonicalRoom = await readRoom(page);
     const command = canonicalRoom.live.commands['1'];
     assert.ok(command && command.payload && command.payload.pairs.length === 2, 'valid command is canonical');
     const canonicalPairs = command.payload.pairs;
-    const t0 = Math.min(...canonicalPairs.map(pair => pair.pressUTC));
-    const landFor = pair => pair.pressUTC + 300 + pair.march;
-    const span = Math.max(8, Math.max(...canonicalPairs.map(landFor)) - t0);
     rows = await laneRows(page);
 
     for (const player of players.slice(0, 2)) {
@@ -238,14 +232,37 @@ function utcClock(seconds) {
       assert.ok(pair, `canonical pair for ${player.name} exists`);
       assert.equal(pair.march, player.march, `${player.name} keeps the canonical march`);
       const row = rowNamed(rows, player.name);
-      const expectedPress = (pair.pressUTC - t0) / span * 100;
-      const expectedGatherEnd = Math.min(98, (pair.pressUTC + 300 - t0) / span * 100);
-      const expectedLand = Math.max(6, Math.min(98, (landFor(pair) - t0) / span * 100));
-      assertApprox(row.gatherLeft, expectedPress, `${player.name} live press`, 0.02);
-      assertApprox(row.gatherWidth, expectedGatherEnd - expectedPress, `${player.name} five-minute gather band`, 0.02);
-      assertApprox(row.landLeft, expectedLand, `${player.name} live landing endpoint`, 0.02);
-      assert.equal(row.landing, utcClock(landFor(pair)), `${player.name} canonical landing clock`);
+      const expectedDistance = Math.min(96, pair.march / 120 * 100);
+      assertApprox(row.dotLeft, expectedDistance, `${player.name} fixed 2:00 live distance`, 0.02);
+      assert.equal(row.time, `${Math.floor(pair.march / 60)}:${String(pair.march % 60).padStart(2, '0')}`,
+        `${player.name} keeps exact M:SS`);
+      assert.equal(row.live, true, `${player.name} exposes the live progress bar`);
+      assert.equal(row.hasLegacyGatherBand, false, `${player.name} no longer switches to the five-minute ruler`);
     }
+
+    const firstLivePositions = rows.map(row => row.dotLeft);
+    await delay(350);
+    const secondLivePositions = (await laneRows(page)).map(row => row.dotLeft);
+    assert.deepEqual(secondLivePositions, firstLivePositions,
+      'markers remain at departure while the future rally is staged or gathering');
+
+    const field = await page.evaluate(() => ({
+      scale: document.querySelector('#mapScaleLabel')?.textContent || '',
+      routes: [...document.querySelectorAll('#radar .rally-route')].map(route => ({
+        x1: Number(route.getAttribute('x1')),
+        y1: Number(route.getAttribute('y1')),
+        x2: Number(route.getAttribute('x2')),
+        y2: Number(route.getAttribute('y2'))
+      })),
+      overflow: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - innerWidth
+    }));
+    assert.match(field.scale, /1:38/, 'the 90-second selected maximum uses about 8% field headroom');
+    assert.equal(field.routes.length, 3, 'both live captains and the other kingdom staged captain stay visible');
+    assert.ok(field.routes.every(route => route.x1 === 180 && route.y1 === 135),
+      'every route uses the centered castle and the full frame');
+    assert.ok(field.routes.some(route => route.y2 < 100) && field.routes.some(route => route.y2 > 170),
+      'kingdom/role angles use both upper and lower field space');
+    assert.ok(field.overflow <= 1, 'the tactical page has no horizontal overflow');
 
     assert.deepEqual(pageErrors, [], 'no browser page errors');
     if (requirementFailures.length) {

@@ -6,6 +6,7 @@ const vm = require('node:vm');
 
 const html = fs.readFileSync(path.join(__dirname, '../public/kvk.html'), 'utf8');
 const source = fs.readFileSync(path.join(__dirname, '../public/kvk.js'), 'utf8');
+const tacticalSource = fs.readFileSync(path.join(__dirname, '../public/rally-tactical.js'), 'utf8');
 const css = fs.readFileSync(path.join(__dirname, '../public/app.css'), 'utf8');
 
 function extractFunction(name) {
@@ -76,6 +77,7 @@ function loadMapHarness(room = roomFixture) {
     serverStagedByK: structuredClone(stagedFixture),
     myPid: 'captain-1',
     ATK_GATHER: 300,
+    FIELD_RADIUS: 120,
     MARCH_MIN_SECONDS: 5,
     MARCH_MAX_SECONDS: 120
   };
@@ -83,6 +85,8 @@ function loadMapHarness(room = roomFixture) {
   sandbox.rallyMode = kingdom => sandbox.room.rallyModes[kingdom].mode;
   sandbox.requiredCaptains = kingdom => sandbox.rallyMode(kingdom) === 'triple' ? 3 : 2;
   sandbox.commandUsesTripleRoles = command => command && command.type === 'triple_rally';
+  vm.runInNewContext(tacticalSource, sandbox);
+  sandbox.rallyTactical = sandbox.RallyTactical;
   vm.runInNewContext(
     `${extractFunction('liveCommands')}\n${extractFunction('activeCommand')}\n` +
       `${extractFunction('mapData')}\n${extractFunction('domainFor')}\n${extractFunction('ringR')}\n` +
@@ -152,7 +156,7 @@ test('idle tactical projection groups only staged captains by kingdom', () => {
   assert.equal(data.actors.some(actor => actor.pid === 'captain-7' || actor.pid === 'captain-8'), false);
 });
 
-test('live tactical projection remains frozen to command pairs and one kingdom group', () => {
+test('live tactical projection keeps both kingdoms frozen to their command pairs', () => {
   const decoy = Object.freeze({
     id: 'triple-command-1',
     type: 'triple_rally',
@@ -196,25 +200,29 @@ test('live tactical projection remains frozen to command pairs and one kingdom g
     'the existing personal-command priority selects Kingdom 2');
   const data = harness.mapData();
   const actors = data.actors.map(actor => ({
-    pid: actor.pid, name: actor.name, march: actor.march, role: actor.role
+    pid: actor.pid, name: actor.name, march: actor.march, role: actor.role, kingdom: actor.kingdom
   }));
 
   assert.equal(data.live, true);
-  assert.equal(data.id, preferred.id);
-  assert.equal(data.kingdom, 2);
+  assert.equal(data.id, `${decoy.id}+${preferred.id}`);
   assert.deepEqual(plain(actors), [
-    { pid: 'captain-1', name: 'Frozen Weak', march: 81, role: 'weak' },
-    { pid: 'captain-5', name: 'Frozen Second', march: 101, role: 'weak2' },
-    { pid: 'captain-6', name: 'Frozen Main', march: 121, role: 'main' }
+    { pid: 'captain-2', name: 'Decoy Weak', march: 22, role: 'weak', kingdom: 1 },
+    { pid: 'captain-3', name: 'Decoy Second', march: 42, role: 'weak2', kingdom: 1 },
+    { pid: 'captain-4', name: 'Decoy Main', march: 62, role: 'main', kingdom: 1 },
+    { pid: 'captain-1', name: 'Frozen Weak', march: 81, role: 'weak', kingdom: 2 },
+    { pid: 'captain-5', name: 'Frozen Second', march: 101, role: 'weak2', kingdom: 2 },
+    { pid: 'captain-6', name: 'Frozen Main', march: 121, role: 'main', kingdom: 2 }
   ]);
-  assert.ok(Array.isArray(data.groups), 'live projection exposes its command kingdom group');
-  assert.equal(data.groups.length, 1);
-  assert.equal(data.groups[0].kingdom, 2);
-  assert.equal(data.groups[0].mode, 'triple');
-  assert.equal(data.groups[0].required, 3);
-  assert.deepEqual(plain(data.groups[0].actors.map(actor => ({
-    pid: actor.pid, name: actor.name, march: actor.march, role: actor.role
-  }))), plain(actors));
+  assert.equal(data.groups.length, 2);
+  assert.deepEqual(plain(data.groups.map(group => ({
+    kingdom: group.kingdom,
+    mode: group.mode,
+    required: group.required,
+    actors: group.actors.map(actor => actor.pid)
+  }))), [
+    { kingdom: 1, mode: 'triple', required: 3, actors: ['captain-2', 'captain-3', 'captain-4'] },
+    { kingdom: 2, mode: 'triple', required: 3, actors: ['captain-1', 'captain-5', 'captain-6'] }
+  ]);
 });
 
 test('live tactical projection prefers the canonical kingdom over untrusted payload metadata', () => {
@@ -238,24 +246,23 @@ test('live tactical projection prefers the canonical kingdom over untrusted payl
 
   const data = loadMapHarness(liveRoom).mapData();
 
-  assert.equal(data.kingdom, 2);
-  assert.equal(typeof data.kingdom, 'number');
-  assert.equal(data.groups[0].kingdom, 2);
-  assert.equal(typeof data.groups[0].kingdom, 'number');
+  assert.equal(data.groups[1].kingdom, 2);
+  assert.equal(typeof data.groups[1].kingdom, 'number');
   assert.equal(JSON.stringify(data).includes(maliciousKingdom), false);
 });
 
-test('idle battlefield geometry expands to the current captains in 30-second steps', () => {
+test('battlefield geometry expands to the exact selected maximum with eight percent headroom', () => {
   const { domainFor, ringR } = loadMapHarness();
 
   assert.equal(domainFor([], false), 120);
-  assert.equal(domainFor([5, 30], false), 30);
-  assert.equal(domainFor([13, 34, 36, 40], false), 60);
-  assert.equal(domainFor([40, 61], false), 90);
-  assert.equal(domainFor([90, 91], false), 120);
+  assert.ok(Math.abs(domainFor([5, 30], false) - 32.4) < 1e-9);
+  assert.ok(Math.abs(domainFor([13, 34, 36, 40], false) - 43.2) < 1e-9);
+  assert.ok(Math.abs(domainFor([40, 61], false) - 65.88) < 1e-9);
+  assert.ok(Math.abs(domainFor([90, 91], false) - 98.28) < 1e-9);
   assert.equal(domainFor([20, 120], false), 120);
   assert.equal(domainFor([20, 121], false), 120);
-  assert.equal(ringR(120, 120), 180);
-  assert.equal(ringR(60, domainFor([13, 60], false)), 180);
-  assert.ok(ringR(5, 30) >= 48);
+  assert.equal(ringR(120, 120), 120);
+  assert.ok(Math.abs(ringR(60, domainFor([13, 60], false)) - 112.88888888888889) < 1e-9);
+  assert.equal(ringR(5, 30), 40);
+  assert.ok(ringR(5, 120) < ringR(20, 120), 'short marches keep distinct monotonic radii');
 });

@@ -70,6 +70,7 @@
   var isIOS = /iP(hone|od|ad)/.test(navigator.userAgent || "") || (navigator.platform === "MacIntel" && (navigator.maxTouchPoints || 0) > 1);
   var isAndroid = /android/i.test(navigator.userAgent || "");
   var $ = window.$;
+  var rallyTactical = window.RallyTactical;
   var deliveryAckQueue = window.BattleDelivery.createAckQueue({
     send: function (message) { return !!(sock && sock.send(message)); },
     nowMs: function () { return window.serverNow(); },
@@ -361,16 +362,16 @@
       pwtitle: "房间密码", pwph: "输入房间密码", pwcancel: "取消", pwgo: "进指挥模式",
       pwtitle_new: "首次解锁 · 设指挥密码", pwph_new: "设一个新密码", pwgo_new: "设为密码并进入",
       pwhint_new: "这个房间还没有指挥密码——你现在输入的就会成为本房间的密码，记得告诉其他指挥。",
-      net_off: "连接中…", syncing: "对时中…", online_n: "{n} 在线",
+      net_off: "连接中…", syncing: "对时中…", net_ready: "已连接",
       idlesub: "指挥发令后，这里变成你的大倒计时", waitlaunch: "⏳ 等待你的 {n} 秒开车倒数", youlaunch: "🚗 你开车！", whalelaunch: "🐋 鲸鱼开车", main: "主力", weak: "消耗",
-      cmd_watch_title: "发车监控", cmd_watch_sub: "指挥视角 · 静音", cmd_watch_next: "下一个", cmd_watch_opened: "已开车",
+      cmd_watch_title: "发车监控", cmd_watch_sub: "指挥视角 · 静音", cmd_watch_next: "下一个", cmd_watch_opened: "发令时间已过",
       refilltitle: "💧 现在 refill 补兵", refillsub: "敌落地后补满守军，把他弹回去", go: "出发！",
       soundon: "🔊 本页提醒已开启", soundgate: "① 开启本页提醒 · 手机系统仍可能暂停后台，开战前先测试", need2: "先选 2 个车头", wrongpw: "密码错误",
       action_remove: "删除", remove_confirm: "从房间删除 {n}？", remove_aria: "移除 {n}", remove_description: "删除后，该玩家会立即从所有指挥端和待命位置消失。", remove_impact: "同时清除以下待命位置：", remove_impact_line: "王国 {k} · {r}", remove_no_impact: "当前没有待命位置", remove_in_use: "该玩家正在进行中的集结里；先取消集结才能删除", remove_cancel: "取消", remove_button: "删除玩家", removing: "正在等待全房间确认删除 {n}…", remove_unknown: "连接中断，结果待确认；重连后会核对，但不会自动重发。", remove_retry: "没有成功发送或确认，请手动重试。", remove_changed: "玩家状态或待命位置刚刚变化；请检查后再点一次确认。", removed: "已删除 {n}", player_missing: "有车头已被删除或不在名单，请重新选择", identity_rebinding: "身份连接已失效，正在重新连接；连接后请重试保存",
-      mapcastle: "王城", mapempty: "指挥还没选择集结车头", mapstaged: "已就位 · 等指挥", kw1: "王国 ①", kw2: "王国 ②", mapnote: "⭕ 每环 = 30 秒行军 · 越外圈离王城越远",
+      mapcastle: "王城", mapempty: "指挥还没选择集结车头", mapstaged: "已就位 · 等指挥", kw1: "王国 ①", kw2: "王国 ②", mapnote: "⭕ 距离按本轮最远行军时间自动缩放", map_scale: "范围 {n} · 距王城远近", group_empty: "等待选择车头",
       copylink: "📋 点我复制房间链接", copied: "✓ 已复制 · 发给队友吧",
-      idle_note: "○ 每人离王城的行军时间 · 开打后变成实时进度条", legend_live: "● 主力 ○ 消耗 · 越近王城越快落地",
-      join_note: "🐋 集结中 · 现在去游戏里点「加入」车头的集结", pulled_atk: "⚔️ 有开车指令 · 已切到进攻页（可再切回防守）",
+      idle_note: "○ 上方固定按 2:00 比例 · 下方战场按本轮最远距离缩放", legend_live: "黄色外圈=你 · ● 主力 ○ 消耗 · 距离按本轮最远行军时间自动缩放",
+      join_note: "🐋 网站已发出集结指令 · 现在去游戏里点「加入」；网站无法确认游戏动作", pulled_atk: "⚔️ 网站发车指令有效 · 已切到进攻页（可再切回防守）",
       namefail: "✕ 查不到昵称 · 不影响使用，会以 ID 显示", pidph: "游戏内左上角头像里的数字 ID", nicknameph: "输入昵称", marchfirst: "先拖一下滑块（或点±）确认你的行军时间",
       identity_type: "身份类型", identity_player_id: "Player ID", identity_nickname: "昵称", identity_recommended: "推荐", invalid_nickname: "请输入有效昵称", player_id_taken: "这个 Player ID 已被另一位玩家使用", profile_conflict: "资料已在另一处更新 · 已保留你的草稿", profile_owner_mismatch: "此设备不能修改这位玩家 · 请让指挥删除后在本机重新登记", profile_delivery_only: "此设备只接收提醒 · 请用登记设备修改，或让指挥删除后重新登记", change_player: "更换玩家", roster_full: "房间名单已满 · 请让指挥先删除不用的玩家", registration_retry: "连接中断 · 点重试后才会重新登记", registration_retry_action: "重试", duplicate_suffix: "同名玩家会显示区分标记",
       defsethint: "分:秒 = 敌鲸到王城的行军时间 · 全队防守页的补兵倒计时都按它算",
@@ -379,10 +380,10 @@
       fired: "已发送 ✓", notconn: "未连接 · 稍候自动重连", notsynced: "还在对时，等一两秒再发", nomarch: "有车头没填行军时间，先让他填",
       cancelq: "再按一次取消当前指令", cancelled: "已取消", staged_line: "🛡️ 你是{k}{r}车头 · 待命，等指挥发令",
       as_on: "🔊 提醒已开启 · 可切回游戏", as_warn: "⚠️ 声音被系统暂停 · 点一下恢复", bgtest: "🔒 测后台", bgtest_on: "锁屏切到游戏——马上来一整套 10 秒倒数示范 🔔",
-      ready_btn: "✅ 我已就位", ready_done: "✓ 已就位", notready: "有车头还没点「就位」，仍可发", readyon: "✓ 已告诉指挥你就位", readyline: "就位 {n}/{m}", rally_live: "该王国还有进行中的集结，先取消再发 refill", cap_absent: "有车头掉线了，仍可发", syncp: "{n}/{m} 已对时·在线", syncp_pick: "先点 {n} 个车头", land_cap: "落地",
+      ready_btn: "✅ 我已就位", ready_done: "✓ 已就位", notready: "有车头还没点「就位」，仍可发", readyon: "✓ 已告诉指挥你就位", readyline: "就位 {n}/{m}", rally_live: "该王国的网站集结指令仍有效，先取消再发 refill", cap_absent: "有车头页面离线，仍可发", syncp: "{n}/{m} 已对时·在线", syncp_pick: "先点 {n} 个车头", land_cap: "预计落地",
       delivery_sent: "已发送", delivery_received: "已收到 ✓", delivery_received_count: "已收到 {n}/{m}", delivery_missing: "未确认", delivery_expired: "已过期",
       settings: "⚙️ 提醒设置", bgtest2: "🔔 实测锁屏 / 切游戏提醒", cmdlink: "🔓 我是指挥 → 解锁", cmd_reopen: "🎖️ 打开指挥台", cmd_collapse: "收起", cmd_manage: "管理玩家与房间", cmd_back: "返回发令视图", marchlab: "到王城行军时间", marchtip2: "实战提示：如果你会使用宠物行军速度增益，请在测量前先开启。",
-      cancel_k: "✖ 取消 {k} 的集结", legend: "● 你 ○ 队友 · 每环 30 秒，越外越远", unlocking: "验证密码中…", checklist_done: "都填好了，等指挥发车就行",
+      cancel_k: "✖ 取消 {k} 的集结", legend: "黄色外圈=你 · ● 主力 ○ 消耗 · 距离按本轮最远行军时间自动缩放", unlocking: "验证密码中…", checklist_done: "都填好了，等指挥发车就行",
       tab_atk: "进攻", tab_def: "防守", dpanel: "🛡️ 补兵时机（按你的行军算）", dpanelhint: "挑当场来袭的那条敌鲸，照大字发兵。时间线上=敌方（集结→🔴落地），下=我方（🟢发兵→行军→补满✓）。补兵约在敌落地后 1 秒到，把它弹回去。",
       addenemy: "加敌鲸", pubwhales: "📣 发布敌鲸给全队", pub_ok: "✓ 已发布给全队", pub_fail: "发布失败（密码或网络）", pub_neterr: "网络错误", publishing: "发布中…", confirm_over: "有人刚发布了新版，覆盖？", whale_ph: "敌鲸名", pubdef_none: "先加一条敌鲸",
       d_empty: "指挥还没发布敌方鲸鱼；开打前让指挥在指挥台设一下。", d_you_send: "你发兵", d_enemy_land: "敌落地", d_refilled: "补满✓", d_gather_band: "敌集结 5:00（加速）", d_send_now: "发兵！", d_your_march: "你行军 {x}", d_depart: "他发车", d_side_enemy: "敌方", d_side_our: "我方",
@@ -396,7 +397,7 @@
       roster_search: "按昵称或 Player ID 搜索", replace_choose: "选择要替换的位置", role_choose: "选择 {n} 的位置", replace_weak: "替换消耗 · {n}", replace_weak1: "替换消耗 1 · {n}", replace_weak2: "替换消耗 2 · {n}", replace_main: "替换主力 · {n}", replace_cancel: "取消", already_kingdom: "该玩家已在王国 {k}", stage_other_kingdom: "该玩家刚被另一王国选中，已恢复你的选择",
       edit_march: "修改 {n} 的行军时间", march_save: "保存", march_cancel: "取消", march_adjust: "调整行军时间", march_decrease: "减少 {n} 秒", march_increase: "增加 {n} 秒", march_latest: "房间当前值：{x}", march_active_unchanged: "已发出的倒数不会被这次修改影响", march_invalid: "请输入 0:05–2:00（5–120 秒）", march_conflict: "另一位指挥已更新；保留了你的草稿", march_retry: "按最新值重试", march_adopt: "采用最新值", march_saved: "已保存并同步到全房间", march_pending: "正在等待服务器确认与房间同步…", march_unsaved: "未保存 · 连接恢复后请手动重试", march_stale: "该玩家已不存在，正在刷新房间", march_locked: "先解锁指挥台才能修改",
       plat_ios: "🍎 iPhone：通常可在后台提醒；开战前请锁屏实测", plat_android: "🤖 安卓：保持本页亮屏最稳；系统可能暂停后台", plat_desktop: "💻 电脑：保持本标签页开启，并先做一次测试",
-      atk_note: "🟡 集结 5:00 → 🟢 行军 → 到点落地", order_cancelled: "✖ 指令已取消", defense_demo: "演练动画 · 非实时战况"
+      atk_note: "🟡 网站排程：集结 → 🟢 预计行军 → 预计落地 · 非游戏实时", order_cancelled: "✖ 指令已取消", defense_demo: "演练动画 · 非实时战况"
     },
     en: {
       join: "Enter room", ornew: "or join another room", joinhint: "Just a room name (share the same one with your team).", room: "Room", enter: "Enter", last: "Continue",
@@ -406,16 +407,16 @@
       pwtitle: "Room password", pwph: "Enter room password", pwcancel: "Cancel", pwgo: "Unlock",
       pwtitle_new: "First unlock · set a commander password", pwph_new: "Choose a new password", pwgo_new: "Set & unlock",
       pwhint_new: "This room has no commander password yet — whatever you enter now becomes this room's password. Share it with your co-commanders.",
-      net_off: "Connecting…", syncing: "syncing…", online_n: "{n} online",
+      net_off: "Connecting…", syncing: "Syncing…", net_ready: "Connected",
       idlesub: "When the commander fires, this becomes your countdown", waitlaunch: "⏳ Waiting for your {n}s launch countdown", youlaunch: "🚗 YOU launch!", whalelaunch: "🐋 Whales launch", main: "Main", weak: "Sacrifice",
-      cmd_watch_title: "Launch monitor", cmd_watch_sub: "Commander view · silent", cmd_watch_next: "Next", cmd_watch_opened: "Opened",
+      cmd_watch_title: "Launch monitor", cmd_watch_sub: "Commander view · silent", cmd_watch_next: "Next", cmd_watch_opened: "GO passed",
       refilltitle: "💧 Refill the garrison now", refillsub: "Top up right after they land — bounce them back", go: "GO!",
       soundon: "🔊 Page alerts enabled", soundgate: "① Enable page alerts · phones may pause background audio; test before battle", need2: "Pick 2 captains first", wrongpw: "Wrong password",
       action_remove: "Remove", remove_confirm: "Remove {n} from this room?", remove_aria: "Remove {n}", remove_description: "This removes the player from every commander and clears their staged positions.", remove_impact: "Staged positions that will be cleared:", remove_impact_line: "Kingdom {k} · {r}", remove_no_impact: "No staged positions", remove_in_use: "This player is in an active rally — cancel it before removal", remove_cancel: "Cancel", remove_button: "Remove player", removing: "Waiting for the room to confirm removal of {n}…", remove_unknown: "Connection closed; outcome unknown. Reconnect will verify it without resending.", remove_retry: "Not sent or not confirmed. Retry manually.", remove_changed: "The player or staged impact changed. Review it, then confirm again.", removed: "Removed {n}", player_missing: "A captain was removed or is no longer in the roster — pick again", identity_rebinding: "Your player connection expired. Reconnecting now; retry the save when connected",
-      mapcastle: "King's Castle", mapempty: "Waiting for the commander to select rally captains", mapstaged: "Staged · waiting for the order", kw1: "Kingdom ①", kw2: "Kingdom ②", mapnote: "⭕ each ring = 30s march · outer = farther from the castle",
+      mapcastle: "King's Castle", mapempty: "Waiting for the commander to select rally captains", mapstaged: "Staged · waiting for the order", kw1: "Kingdom ①", kw2: "Kingdom ②", mapnote: "⭕ distance scales to this round's longest selected march", map_scale: "{n} field · distance to castle", group_empty: "Waiting for captains",
       copylink: "📋 Tap to copy the room link", copied: "✓ Copied — share it with your team",
-      idle_note: "○ each dot = march time to the castle · turns into a live progress bar at fire", legend_live: "● main ○ sacrifice · closer = landing sooner",
-      join_note: "🐋 Rally live — go tap JOIN on the whale's rally in-game now", pulled_atk: "⚔️ Launch order live — switched to Attack (you can tab back)",
+      idle_note: "○ bars keep the 2:00 scale · the field fits this round's longest march", legend_live: "yellow ring = you · ● main ○ sacrifice · field fits the longest selected march",
+      join_note: "🐋 Rally order sent by this website — tap JOIN in-game; game action is not confirmed", pulled_atk: "⚔️ Website launch order active — switched to Attack (you can tab back)",
       namefail: "✕ Name not found · that's fine — your ID will be shown", pidph: "the numeric ID under your in-game avatar", nicknameph: "enter a nickname", marchfirst: "First drag the slider (or tap ±) to confirm your march time",
       identity_type: "Identity type", identity_player_id: "Player ID", identity_nickname: "Nickname", identity_recommended: "Recommended", invalid_nickname: "Enter a valid nickname", player_id_taken: "This Player ID is already in use", profile_conflict: "Profile changed in another session · your draft is preserved", profile_owner_mismatch: "This device cannot edit that player · ask a commander to remove it, then register again here", profile_delivery_only: "This device receives alerts only · edit on the owner device, or ask a commander to remove and re-register", change_player: "Change player", roster_full: "This room roster is full · ask a commander to remove an unused player", registration_retry: "Connection interrupted · tap Retry to register again", registration_retry_action: "Retry", duplicate_suffix: "Matching nicknames show a distinguishing marker",
       defsethint: "m:s = the enemy's march time to the castle · everyone's refill countdown is computed from it",
@@ -424,10 +425,10 @@
       fired: "Fired ✓", notconn: "Not connected · reconnecting", notsynced: "Still syncing — wait a sec", nomarch: "A captain has no march time set",
       cancelq: "Tap again to cancel the order", cancelled: "Cancelled", staged_line: "🛡️ You're the {k} {r} captain · stand by",
       as_on: "🔊 Alerts on · switch to game", as_warn: "⚠️ Sound paused by the OS — tap to resume", bgtest: "🔒 Test bg", bgtest_on: "Lock & switch to the game — a full 10s countdown demo starts now 🔔",
-      ready_btn: "✅ I'm ready", ready_done: "✓ Ready", notready: "A captain hasn't tapped Ready — firing anyway", readyon: "✓ Told the commander you're ready", readyline: "Ready {n}/{m}", rally_live: "A rally is still live in this kingdom — cancel it before a refill", cap_absent: "A captain went offline — firing anyway", syncp: "{n}/{m} synced & present", syncp_pick: "Pick {n} captains", land_cap: "LAND",
+      ready_btn: "✅ I'm ready", ready_done: "✓ Ready", notready: "A captain hasn't tapped Ready — firing anyway", readyon: "✓ Told the commander you're ready", readyline: "Ready {n}/{m}", rally_live: "This kingdom still has an active website rally order — cancel it before a refill", cap_absent: "A captain's page is offline — firing anyway", syncp: "{n}/{m} synced & present", syncp_pick: "Pick {n} captains", land_cap: "EST. LAND",
       delivery_sent: "Sent", delivery_received: "Received ✓", delivery_received_count: "Received {n}/{m}", delivery_missing: "No confirmation", delivery_expired: "Expired",
       settings: "⚙️ Alert settings", bgtest2: "🔔 Test lock-screen / in-game alert", cmdlink: "🔓 I'm the commander → unlock", cmd_reopen: "🎖️ Open commander console", cmd_collapse: "Collapse", cmd_manage: "Manage players & room", cmd_back: "Back to command", marchlab: "March time to the castle", marchtip2: "Battle tip: if you will use a pet march-speed buff, activate it before measuring.",
-      cancel_k: "✖ Cancel {k}'s rally", legend: "● you ○ mates · 30s per ring, outer = farther", unlocking: "checking password…", checklist_done: "All set — just wait for the commander",
+      cancel_k: "✖ Cancel {k}'s rally", legend: "yellow ring = you · ● main ○ sacrifice · field fits the longest selected march", unlocking: "checking password…", checklist_done: "All set — just wait for the commander",
       tab_atk: "Attack", tab_def: "Defense", dpanel: "🛡️ When to refill (for your march)", dpanelhint: "Pick the incoming whale and follow the big text. Above the line = enemy (gather → 🔴 hits), below = you (🟢 send → march → reinforced✓). Your reinforcement lands ~1s after they hit — bounces them back.",
       addenemy: "Add incoming", pubwhales: "📣 Publish to squad", pub_ok: "✓ Published to squad", pub_fail: "Publish failed (password or network)", pub_neterr: "Network error", publishing: "Publishing…", confirm_over: "Someone just published a newer version. Overwrite?", whale_ph: "Enemy name", pubdef_none: "Add an incoming whale first",
       d_empty: "The commander hasn't published incoming whales yet — ask them to set them in the console.", d_you_send: "You send", d_enemy_land: "Hits", d_refilled: "Reinforced✓", d_gather_band: "Enemy gather 5:00 (rush)", d_send_now: "SEND!", d_your_march: "march {x}", d_depart: "they march", d_side_enemy: "Enemy", d_side_our: "You",
@@ -441,7 +442,7 @@
       roster_search: "Search nickname or Player ID", replace_choose: "Choose the captain to replace", role_choose: "Choose a role for {n}", replace_weak: "Replace Sacrifice · {n}", replace_weak1: "Replace Sacrifice 1 · {n}", replace_weak2: "Replace Sacrifice 2 · {n}", replace_main: "Replace Main · {n}", replace_cancel: "Cancel", already_kingdom: "Already selected for Kingdom {k}", stage_other_kingdom: "Another kingdom just selected this player; your prior picks were restored",
       edit_march: "Edit {n}'s march time", march_save: "Save", march_cancel: "Cancel", march_adjust: "Adjust march time", march_decrease: "Decrease {n} seconds", march_increase: "Increase {n} seconds", march_latest: "Current room value: {x}", march_active_unchanged: "An active countdown will not change", march_invalid: "Enter 0:05–2:00 (5–120 seconds)", march_conflict: "Another commander updated this player; your draft is preserved", march_retry: "Retry on latest", march_adopt: "Adopt latest", march_saved: "Saved and synchronized to the room", march_pending: "Waiting for server confirmation and room sync…", march_unsaved: "Not saved · retry manually after reconnect", march_stale: "This player is gone; refreshing the room", march_locked: "Unlock the commander console to edit",
       plat_ios: "🍎 iPhone: background alerts usually work; lock-screen test before battle", plat_android: "🤖 Android: keeping this page visible is safest; the OS may pause it", plat_desktop: "💻 Desktop: keep this tab open and run one test first",
-      atk_note: "🟡 gather 5:00 → 🟢 march → lands", order_cancelled: "✖ Order cancelled", defense_demo: "Timing rehearsal · not live battle state"
+      atk_note: "🟡 Website schedule: gather → estimated march → estimated landing · not live game data", order_cancelled: "✖ Order cancelled", defense_demo: "Timing rehearsal · not live battle state"
     }
   };
   function L() { return window.lang === "en"; }
@@ -1339,56 +1340,70 @@
   setInterval(function () { if (soundReady) { resumeAudio(); scheduleAllCues(); } if (sock) { if (!sock.connected) sock.kick(); else sendDeviceStatus("hb", true); } try { if (window.speechSynthesis && speechSynthesis.paused) speechSynthesis.resume(); } catch (e) {} }, 25000);   // heartbeat: keep the WS warm, keep me un-evictable, self-heal audio + a stuck TTS queue (desktop Chrome), re-arm cues
 
   /* ---------- map: radar (space) + synced timeline (time), ONE data source so they never desync ---------- */
-  var CX = 180, CY = 68, ATK_GATHER = 300, mapS = { mode: null, raf: null, t0: 0, span: 1, domain: 90, live: false };   // ATK_GATHER: rally gather 5:00 — on the timeline so the landing time is REAL
+  var CX = 180, CY = 135, FIELD_RADIUS = 120, ATK_GATHER = 300;
+  var mapS = { mode: null, raf: null, motionBucket: null, domain: MARCH_MAX_SECONDS, fieldScale: MARCH_MAX_SECONDS, live: false, dots: [], lanes: [] };
   function E(t, a) { var e = document.createElementNS("http://www.w3.org/2000/svg", t); for (var k in a) e.setAttribute(k, a[k]); return e; }
   function E2(t, x, y, txt, fill, fs) { var e = E("text", { x: x, y: y, "text-anchor": "middle", fill: fill, "font-weight": 800, "font-size": fs }); e.textContent = txt; return e; }
   function stopRaf() { if (mapS.raf) { cancelAnimationFrame(mapS.raf); mapS.raf = null; } }
   function mapData() {
     if (!room) return { live: false, actors: [], groups: [] };
-    var c = activeCommand(room);
-    if (c && isRallyCommand(c) && c.payload && c.payload.pairs && c.payload.pairs.length) {
-      // real arc: press (click) → 5:00 gather → march → land. The right-rail landing clock is the ACTUAL landing.
-      var pairs = c.payload.pairs.map(function (p) { var ge = p.pressUTC + ATK_GATHER; return { pid: p.pid, name: p.name || p.pid, role: p.role, march: p.march, mine: p.pid === myPid, press: p.pressUTC, gatherEnd: ge, land: ge + p.march }; });
-      pairs.sort(function (a, b) { return a.march - b.march; });
-      var t0 = Math.min.apply(null, pairs.map(function (p) { return p.press; })), maxLand = Math.max.apply(null, pairs.map(function (p) { return p.land; })),
-        kingdom = Number(c.kingdom != null ? c.kingdom : c.payload.kingdom) === 2 ? 2 : 1, mode = commandUsesTripleRoles(c) ? "triple" : "double";
-      return { live: true, id: c.id, kingdom: kingdom, actors: pairs, groups: [{ kingdom: kingdom, mode: mode, required: mode === "triple" ? 3 : 2, actors: pairs }], t0: t0, span: Math.max(8, maxLand - t0) };
+    var live = room.live || {}, commands = live.commands || { 1: null, 2: null };
+    if (live.mode === "sim" && live.sim) {
+      var simulated = activeCommand(room), simulatedKingdom = simulated && Number(simulated.kingdom) === 2 ? 2 : 1;
+      commands = { 1: null, 2: null };
+      if (simulated && isRallyCommand(simulated)) commands[simulatedKingdom] = simulated;
     }
-    var players = room.players || {}, groups = [1, 2].map(function (kingdom) {
-      var mode = rallyMode(kingdom) === "triple" ? "triple" : "double", required = requiredCaptains(kingdom),
-        roles = mode === "triple" ? ["weak", "weak2", "main"] : ["weak", "main"], staged = Array.isArray(serverStagedByK[kingdom]) ? serverStagedByK[kingdom] : [],
-        seen = Object.create(null), actors = [];
-      roles.slice(0, required).forEach(function (role) {
-        for (var i = 0; i < staged.length; i++) {
-          var pick = staged[i];
-          if (!pick || !pick.pid || pick.role !== role || seen[pick.pid] || !Object.prototype.hasOwnProperty.call(players, pick.pid)) continue;
-          var player = players[pick.pid]; if (!player) continue; seen[pick.pid] = true;
-          actors.push({ pid: pick.pid, name: player.name || pick.pid, march: player.march, role: pick.role, mine: pick.pid === myPid, kingdom: kingdom });
-          break;
-        }
-      });
-      return { kingdom: kingdom, mode: mode, required: required, actors: actors };
+    var projectionRoom = Object.assign({}, room, {
+      live: Object.assign({}, live, {
+        commands: commands,
+        staged: { 1: serverStagedByK[1], 2: serverStagedByK[2] }
+      })
     });
-    return { live: false, actors: groups.reduce(function (all, group) { return all.concat(group.actors); }, []), groups: groups };
+    var groups = rallyTactical.selectedGroups(projectionRoom, myPid).slice(0, 2).map(function (group) {
+      var actors = group.actors.slice(0, 3).map(function (actor) {
+        var copy = Object.assign({}, actor, { live: group.source === "live" });
+        if (copy.live) {
+          copy.press = copy.pressUTC;
+          copy.gatherEnd = copy.press + ATK_GATHER;
+          copy.land = copy.gatherEnd + copy.march;
+        }
+        return copy;
+      });
+      return Object.assign({}, group, { actors: actors });
+    });
+    var actors = groups.reduce(function (all, group) { return all.concat(group.actors); }, []).slice(0, 6);
+    return {
+      live: actors.some(function (actor) { return actor.live; }),
+      id: groups.map(function (group) { return group.commandId; }).filter(Boolean).join("+"),
+      actors: actors,
+      groups: groups
+    };
   }
-  function domainFor(ms, live) {
-    if (!ms.length) return MARCH_MAX_SECONDS;
-    var mx = ms.length ? Math.max.apply(null, ms) : 60;
-    var domain = Math.max(30, Math.ceil(mx / 30) * 30);
-    return live ? domain : Math.min(MARCH_MAX_SECONDS, domain);
+  function domainFor(ms) {
+    return rallyTactical.scaleMax(ms);
   }
-  function ringR(seconds, domain) { return 48 + Math.min(seconds, domain) / domain * 132; }
+  function ringR(seconds, domain) { return rallyTactical.departureRadius(seconds, domain, FIELD_RADIUS, 24); }
   function radarAngle(actor, index, count) {
     var roleIndex = actor.role === "weak2" ? 1 : actor.role === "main" ? 2 : 0;
-    var degrees = actor.kingdom === 1 ? [135, 120, 105][roleIndex]
-      : actor.kingdom === 2 ? [45, 60, 75][roleIndex]
-        : count > 1 ? 45 + 90 * index / (count - 1) : 90;
+    var degrees = actor.kingdom === 1 ? [155, 180, 205][roleIndex]
+      : actor.kingdom === 2 ? [25, 0, -25][roleIndex]
+        : count > 1 ? -150 + 300 * index / (count - 1) : 90;
     return degrees * Math.PI / 180;
   }
   function clockAt(utc) { var d = new Date(utc * 1000); return window.pad(d.getHours()) + ":" + window.pad(d.getMinutes()) + ":" + window.pad(d.getSeconds()); }   // absolute landing clock time
   function renderRadar(d) {
-    var svg = $("radar"); if (!svg) return; svg.innerHTML = ""; var dom = mapS.domain; mapS.dots = [];
-    for (var s = 30; s <= dom; s += 30) svg.appendChild(E("circle", { cx: CX, cy: CY, r: ringR(s, dom), fill: "none", stroke: "#cdeee8", "stroke-width": 1.3, "stroke-dasharray": "2 6" }));
+    var svg = $("radar"); if (!svg) return; svg.innerHTML = ""; var dom = mapS.fieldScale; mapS.dots = [];
+    var scaleLabel = $("mapScaleLabel");
+    if (scaleLabel) scaleLabel.textContent = tkf("map_scale", { n: window.mmss(Math.ceil(dom)) });
+    var mapMessage = $("mapMessage"), mapLegend = $("mapLegend");
+    if (mapMessage) { mapMessage.hidden = !!d.actors.length; mapMessage.textContent = d.actors.length ? "" : tk("mapempty"); }
+    if (mapLegend) {
+      mapLegend.hidden = !d.actors.length;
+      mapLegend.textContent = d.actors.length ? tk(d.live ? "legend_live" : "legend") : "";
+    }
+    [0.25, 0.5, 0.75, 1].forEach(function (ratio) {
+      svg.appendChild(E("circle", { cx: CX, cy: CY, r: (FIELD_RADIUS * ratio).toFixed(1), fill: "none", stroke: "#cdeee8", "stroke-width": 1.2, "stroke-dasharray": "2 7" }));
+    });
     if (d.actors.length) {
       var n = d.actors.length;
       var placements = d.actors.map(function (a, i) {
@@ -1411,91 +1426,109 @@
         svg.appendChild(E("line", { "class": "rally-route kingdom-" + o.kingdom, x1: CX, y1: CY, x2: o.x.toFixed(1), y2: o.y.toFixed(1), fill: "none", stroke: o.kingdom === 2 ? "#aeb4dc" : "#9bded5", "stroke-width": 1.2, "stroke-dasharray": "4 6", opacity: .72, "pointer-events": "none" }));
       });
       placements.forEach(function (o) {
-        var a = o.a, col = o.kingdom === 2 ? "#6571ba" : a.role === "main" ? "#0fa193" : "#19c8b9";
+        var a = o.a, col = o.kingdom === 2 ? "#6571ba" : "#087a70";
         var g = E("g", { "class": "rally-dot kingdom-" + o.kingdom });   // numberless glyph (dot + 'you' ring) translated each frame toward the castle
-        if (a.mine) g.appendChild(E("circle", { cx: 0, cy: 0, r: 9, fill: "none", stroke: "#f5c542", "stroke-width": 2.5 }));
+        if (a.mine) g.appendChild(E("circle", { cx: 0, cy: 0, r: 9, fill: "none", stroke: "#9a6500", "stroke-width": 2.5 }));
         g.appendChild(E("circle", { cx: 0, cy: 0, r: 6, fill: a.role === "main" ? col : o.kingdom === 2 ? "#eef0fb" : "#eafaf7", stroke: col, "stroke-width": 2.5 }));
         g.setAttribute("transform", "translate(" + o.x.toFixed(1) + "," + o.y.toFixed(1) + ")");
         svg.appendChild(g); mapS.dots.push({ g: g, ang: o.ang, r0: o.r0, a: a });
       });
     }
     window.ksCastle(svg, CX, CY, "neutral");
-    if (!d.actors.length) {
-      svg.appendChild(E2("text", CX, 170, tk("mapempty"), "#5aa99b", 9));
-      var cp = E2("text", CX, 192, tk("copylink"), "#0fa193", 10); cp.setAttribute("id", "copyLinkT"); cp.setAttribute("style", "cursor:pointer"); svg.appendChild(cp);
-    }
-    svg.appendChild(E2("text", CX, 258, tk(d.live ? "legend_live" : "legend"), "#9cc4bc", 8));   // live draws captains only — a "● you" legend would promise a dot most viewers don't have
   }
-  function laneRow(a, i, live, dom, t0, span) {
-    var col = a.role === "main" ? "#0fa193" : "#19c8b9", fill = a.role === "main" ? col : "#fff", nm = (a.mine ? "● " : "○ ") + window.esc(a.name || a.pid);
+  function laneRow(a, i, live) {
+    var col = a.kingdom === 2 ? "#6571ba" : "#087a70", fill = a.role === "main" ? col : a.kingdom === 2 ? "#eef0fb" : "#eafaf7", nm = (a.mine ? "● " : "○ ") + window.esc(a.name || a.pid);
+    var px = Math.max(4, Math.min(96, a.march / MARCH_MAX_SECONDS * 100));
     if (live) {
-      // gather band = press → press+5:00 (amber), flight = gatherEnd → land (teal); one true linear time axis
-      var pressX = Math.max(0, Math.min(100, (a.press - t0) / span * 100)),
-        gEndX = Math.max(0, Math.min(98, (a.gatherEnd - t0) / span * 100)),
-        landX = Math.max(6, Math.min(98, (a.land - t0) / span * 100));
-      mapS.lanes[i] = { pressX: pressX, gEndX: gEndX, landX: landX, press: a.press, gatherEnd: a.gatherEnd, land: a.land };
+      mapS.lanes[i] = { startX: px, a: a };
       return '<div class="lane role-' + a.role + (a.mine ? " me" : "") + '"><span class="lname">' + nm + '</span>'
-        + '<div class="ltrack"><i class="gband" style="left:' + pressX + '%;width:' + Math.max(0, gEndX - pressX).toFixed(2) + '%"></i>'
-        + '<i class="lpath ' + a.role + '" style="left:' + gEndX + '%;right:' + (100 - landX) + '%"></i>'
-        + '<i class="ldot tgt" style="left:' + landX + '%;border-color:' + col + '"></i>'
-        + '<i class="ldot trav" data-i="' + i + '" style="left:' + pressX + '%;background:' + fill + ';border-color:' + col + '"></i></div>'
-        + '<div class="ltime"><span class="ltimecap">' + tk("land_cap") + '</span><span class="ltimev">' + clockAt(a.land) + '</span></div></div>';
+        + '<div class="ltrack idle live"><i class="lpath ' + a.role + '" style="left:0;width:' + px.toFixed(2) + '%"></i>'
+        + '<i class="ldot trav" data-i="' + i + '" style="left:' + px.toFixed(2) + '%;background:' + fill + ';border-color:' + col + '"></i></div>'
+        + '<div class="ltime"><span class="ltimev">' + window.mmss(a.march) + '</span></div></div>';
     }
-    var px = Math.max(4, Math.min(96, a.march / dom * 100));
     return '<div class="lane role-' + a.role + (a.mine ? " me" : "") + '"><span class="lname">' + nm + '</span>'
       + '<div class="ltrack idle"><i class="ldot" style="left:' + px + '%;background:' + fill + ';border-color:' + col + '"></i></div>'
       + '<div class="ltime"><span class="ltimev">' + window.mmss(a.march) + '</span></div></div>';
   }
   function renderLanes(d) {
     var box = $("lanes"); if (!box) return; mapS.lanes = [];
-    if (!d.actors.length) { box.innerHTML = ""; return; }
-    var dom = mapS.domain, t0 = d.t0 || 0, span = d.span || 1, actorIndex = 0, h = "";
-    d.groups.forEach(function (group) {
-      if (!group.actors.length) return;
+    var actorIndex = 0, h = "", groups = Array.isArray(d.groups) ? d.groups.slice(0, 2) : [];
+    [1, 2].forEach(function (kingdom) {
+      if (!groups.some(function (group) { return group.kingdom === kingdom; })) groups.push({ kingdom: kingdom, mode: "double", required: 2, actors: [] });
+    });
+    groups.sort(function (a, b) { return a.kingdom - b.kingdom; }).slice(0, 2).forEach(function (group) {
       h += '<section class="lane-group kingdom-' + group.kingdom + '"><div class="lane-group-head"><span>' + window.esc(tk("kw" + group.kingdom)) + '</span><small>' + window.esc(tk(group.mode === "triple" ? "mode_triple" : "mode_double")) + ' · ' + group.actors.length + '/' + group.required + '</small></div>';
-      group.actors.forEach(function (a) { h += laneRow(a, actorIndex++, d.live, dom, t0, span); });
+      if (!group.actors.length) h += '<div class="lane-empty">' + window.esc(tk("group_empty")) + '</div>';
+      group.actors.slice(0, 3).forEach(function (a) { h += laneRow(a, actorIndex++, a.live === true); });
       h += '</section>';
     });
-    h += '<div class="lanenote">' + tk(d.live ? "atk_note" : "idle_note") + '</div>';   // the strip is the biggest thing on screen — it gets a legend in BOTH states, not just mid-fight
-    // a mid-gather cold-open sees lanes but no verb: non-captains get the one action that matters while joining is still possible
-    if (d.live && !d.actors.some(function (a) { return a.mine; })) { mapS.gEndMax = Math.max.apply(null, d.actors.map(function (a) { return a.gatherEnd; })); h += '<div class="lanenote join">' + tk("join_note") + '</div>'; }
-    box.innerHTML = h + (d.live ? '<div id="nowHead"></div>' : '');
+    h += '<div class="lanenote">' + tk(d.live ? "atk_note" : "idle_note") + '</div>';
+    var liveActors = d.actors.filter(function (a) { return a.live; });
+    if (liveActors.length && !liveActors.some(function (a) { return a.mine; })) {
+      mapS.gEndMax = Math.max.apply(null, liveActors.map(function (a) { return a.gatherEnd; }));
+      h += '<div class="lanenote join">' + tk("join_note") + '</div>';
+    }
+    box.innerHTML = h;
   }
   function mapRenderKey(data) {
-    if (data.live) return "live-" + data.id;
-    var groups = data.groups && data.groups.length ? data.groups : [{ kingdom: 0, mode: "", actors: data.actors || [] }];
-    return "idle-" + JSON.stringify(groups.map(function (group) {
-      return [group.kingdom, group.mode, group.required, group.actors.map(function (actor) {
-        return [actor.pid, actor.name || actor.pid, actor.march, actor.role, !!actor.mine, actor.kingdom];
-      })];
-    }));
+    return rallyTactical.renderKey(data);
   }
   function syncMap() {
     var d = mapData();
     var key = mapRenderKey(d);
     if (mapS.mode === key) return;
-    mapS.mode = key; mapS.live = d.live; mapS.t0 = d.t0 || 0; mapS.span = d.span || 1; mapS.domain = domainFor(d.actors.map(function (a) { return a.march; }), d.live);
+    mapS.mode = key; mapS.live = d.live; mapS.motionBucket = null; mapS.domain = MARCH_MAX_SECONDS;
+    mapS.fieldScale = rallyTactical.scaleMax(d.actors.map(function (a) { return a.march; }));
     stopRaf(); renderRadar(d); renderLanes(d);
     if (d.live) mapFrame();
   }
-  // BOTH views animate off one clock: a single NOW head sweeps the timeline + army dots travel press→land, while radar dots glide inward
+  // Both views share one absolute-time projection: gathering stays at departure,
+  // then the fixed 2:00 bar and castle marker move linearly together.
   function mapFrame() {
     if (!mapS.live) return;
-    var now = window.serverNow() / 1000;
-    // radar: dots hold at their ring through the 5:00 gather, then glide toward the castle during the flight
-    (mapS.dots || []).forEach(function (o) { var a = o.a, p = (a.press && a.land) ? Math.max(0, Math.min(1, (now - a.press) / Math.max(1, a.land - a.press))) : 0; var r = o.r0 * (0.10 + 0.90 * (1 - p)); o.g.setAttribute("transform", "translate(" + (CX + Math.cos(o.ang) * r).toFixed(1) + "," + (CY + Math.sin(o.ang) * r).toFixed(1) + ")"); });   // same linear clock as the lane dot: press→land, so radius = time left to the castle
+    var nowMs = window.serverNow(), now = nowMs / 1000;
+    var reducedMotion = false;
+    try { reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches === true; } catch (e) {}
+    if (reducedMotion) {
+      var motionBucket = Math.floor(nowMs / 1000);
+      if (mapS.motionBucket === motionBucket) {
+        mapS.raf = requestAnimationFrame(mapFrame);
+        return;
+      }
+      mapS.motionBucket = motionBucket;
+    } else mapS.motionBucket = null;
+    (mapS.dots || []).forEach(function (o) {
+      var a = o.a, projection = a.live ? rallyTactical.actorProjection({
+        marchSeconds: a.march,
+        pressAtMs: a.press * 1000,
+        gatherEndsAtMs: a.gatherEnd * 1000,
+        nowMs: nowMs,
+        scaleMaxSeconds: mapS.fieldScale,
+        departureRadius: o.r0
+      }) : { progress: 0, radius: o.r0 };
+      var r = projection.radius;
+      o.g.setAttribute("transform", "translate(" + (CX + Math.cos(o.ang) * r).toFixed(1) + "," + (CY + Math.sin(o.ang) * r).toFixed(1) + ")");
+    });
     var box = $("lanes"), t = box && box.querySelector(".ltrack");
     var jn = box && box.querySelector(".lanenote.join"); if (jn) jn.style.display = now > mapS.gEndMax ? "none" : "";   // joining closes when the gather ends — don't keep telling people to JOIN a departed rally
     if (t) {
-      var nh = $("nowHead"); if (nh) { var np = Math.max(0, Math.min(1, (now - mapS.t0) / mapS.span)); nh.style.left = (t.offsetLeft + np * t.offsetWidth).toFixed(1) + "px"; }
       var tr = box.querySelectorAll(".trav");
       for (var i = 0; i < tr.length; i++) {
         var L = mapS.lanes[+tr[i].getAttribute("data-i")]; if (!L) continue;
-        var x;
-        if (now < L.gatherEnd) { var gp = Math.max(0, Math.min(1, (now - L.press) / ATK_GATHER)); x = L.pressX + gp * (L.gEndX - L.pressX); }   // crawl through the gather band
-        else { var fp = Math.max(0, Math.min(1, (now - L.gatherEnd) / Math.max(1, L.land - L.gatherEnd))); x = L.gEndX + fp * (L.landX - L.gEndX); }
-        tr[i].style.left = x.toFixed(2) + "%";
-        var ln = tr[i].parentNode && tr[i].parentNode.parentNode; if (ln && now >= L.land) ln.classList.add("fx-land");
+        var laneProjection = rallyTactical.actorProjection({
+          marchSeconds: L.a.march,
+          pressAtMs: L.a.press * 1000,
+          gatherEndsAtMs: L.a.gatherEnd * 1000,
+          nowMs: nowMs,
+          scaleMaxSeconds: MARCH_MAX_SECONDS,
+          departureRadius: L.startX
+        });
+        tr[i].style.left = laneProjection.radius.toFixed(2) + "%";
+        var ln = tr[i].parentNode && tr[i].parentNode.parentNode;
+        if (ln) {
+          ln.classList.toggle("is-gathering", laneProjection.phase === "gathering");
+          if (laneProjection.phase === "landed") ln.classList.add("fx-land");
+        }
       }
     }
     mapS.raf = requestAnimationFrame(mapFrame);
@@ -2922,12 +2955,12 @@
     };
   }
   // one glanceable signal instead of four separate badges: worst state wins (offline > syncing > "{n} online")
-  var connFlag = false, presenceN = 1;
+  var connFlag = false;
   function paintChrome() {
     var dot = $("cdot"), lab = $("netlab"); if (!dot || !lab) return;
     if (!connFlag) { dot.className = "cdot off"; lab.textContent = tk("net_off"); }
     else if (!syncedOK) { dot.className = "cdot"; lab.textContent = tk("syncing"); }
-    else { dot.className = "cdot on"; lab.textContent = tkf("online_n", { n: presenceN }); }
+    else { dot.className = "cdot on"; lab.textContent = tk("net_ready"); }
   }
   function setNet(on) { connFlag = on; paintChrome(); paintAudioStatus(); }
   function beginClockSync(done) {
@@ -3045,7 +3078,7 @@
       if (gone.some(function (c) { return myTarget(c).mine; })) { beepCancelled(); window.toast(tk("order_cancelled")); }
     }
     room = r; settlePendingRallyFire(r); settleRallyModeMutation(); renderRallyMode();
-    if (firstSnapshot) sendDeviceStatus(); if (!pendingStageMutation) pumpStageQueue(); reconcileCommanderMarchState(nextPlayers); setNet(true); if (pendingUnlock && r.updatedBy && r.updatedBy === pendingTok) unlockedOK(); presenceN = r.presence || 1; paintChrome(); paintHero(); syncMap(); renderRoster(); updateFireControl(); if (settledStageFocusPid) restoreRosterFocus(settledStageFocusPid); scheduleAllCues(); paintAudioStatus();
+    if (firstSnapshot) sendDeviceStatus(); if (!pendingStageMutation) pumpStageQueue(); reconcileCommanderMarchState(nextPlayers); setNet(true); if (pendingUnlock && r.updatedBy && r.updatedBy === pendingTok) unlockedOK(); paintChrome(); paintHero(); syncMap(); renderRoster(); updateFireControl(); if (settledStageFocusPid) restoreRosterFocus(settledStageFocusPid); scheduleAllCues(); paintAudioStatus();
     var ew = (r.config && r.config.enemyWhales) || [], key = JSON.stringify(ew);
     if (key !== lastWhalesKey) {
       lastWhalesKey = key; enemyWhales = ew; setBadge(); if (viewMode === "defense") renderDefense();   // only re-render (resets the radar) when the whale list actually changed, not on every heartbeat
@@ -3302,12 +3335,6 @@
       var hn = $("pwHint"); if (hn) hn.textContent = first ? tk("pwhint_new") : "";
       $("pwInput").value = ""; $("pwOvl").classList.add("show"); setTimeout(function () { $("pwInput").focus(); }, 50);
     };
-    $("radar").addEventListener("click", function (e) {   // empty-state "copy room link" (the SVG re-renders, so delegate)
-      if (!e.target || e.target.id !== "copyLinkT") return;
-      var url = location.origin + location.pathname + "?room=" + ROOM;
-      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(function () { window.toast(tk("copied")); }, function () { window.prompt("URL", url); });
-      else window.prompt("URL", url);
-    });
     $("pwCancel").onclick = function () { $("pwOvl").classList.remove("show"); };
     $("pwGo").onclick = doUnlock; $("pwInput").addEventListener("keydown", function (e) { if (e.key === "Enter") doUnlock(); });
     $("commanderDrawerClose").onclick = closeCmdDrawer;

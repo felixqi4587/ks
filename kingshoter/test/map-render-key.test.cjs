@@ -5,6 +5,7 @@ const test = require('node:test');
 const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, '../public/kvk.js'), 'utf8');
+const tacticalSource = fs.readFileSync(path.join(__dirname, '../public/rally-tactical.js'), 'utf8');
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -21,6 +22,8 @@ function extractFunction(name) {
 
 function loadMapRenderKey() {
   const sandbox = {};
+  vm.runInNewContext(tacticalSource, sandbox);
+  sandbox.rallyTactical = sandbox.RallyTactical;
   vm.runInNewContext(`${extractFunction('mapRenderKey')}\nthis.mapRenderKey = mapRenderKey;`, sandbox);
   return sandbox.mapRenderKey;
 }
@@ -55,11 +58,30 @@ test('idle tactical render key includes canonical display fields', () => {
   assert.notEqual(key(base), key(withActor({ kingdom: 2 })));
 });
 
-test('live tactical render key remains frozen to the command id', () => {
+test('live tactical render key tracks the immutable command snapshot, never clock-only fields', () => {
   const key = loadMapRenderKey();
+  const base = {
+    live: true,
+    nowMs: 100,
+    groups: [{
+      kingdom: 1,
+      mode: 'double',
+      required: 2,
+      source: 'live',
+      commandId: 'cmd-1',
+      actors: [{ pid: 'a', name: 'Ff', march: 34, role: 'weak', kingdom: 1, mine: true, pressUTC: 900 }]
+    }]
+  };
   assert.equal(
-    key({ live: true, id: 'cmd-1', actors: [{ name: 'Ff' }] }),
-    key({ live: true, id: 'cmd-1', actors: [{ name: 'Kimchi' }] })
+    key(base),
+    key({ ...structuredClone(base), nowMs: 999 })
   );
-  assert.notEqual(key({ live: true, id: 'cmd-1', actors: [] }), key({ live: true, id: 'cmd-2', actors: [] }));
+  assert.notEqual(key(base), key({
+    ...base,
+    groups: [{ ...base.groups[0], commandId: 'cmd-2' }]
+  }));
+  assert.notEqual(key(base), key({
+    ...base,
+    groups: [{ ...base.groups[0], actors: [{ ...base.groups[0].actors[0], name: 'Kimchi' }] }]
+  }));
 });

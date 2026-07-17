@@ -863,6 +863,8 @@ async function runCoreScenario(browser, engineName) {
       'removing a staged player clears every staged reference');
     assert.equal(await commander.page.locator(`#pickSlots .slot[data-pid="${captainBProfile.pid}"]`).count(), 1,
       'staged removal preserves the unrelated captain');
+    await commander.page.waitForFunction(() => document.querySelector('#fireDouble')?.disabled === true,
+      null, { timeout: 8_000 });
     assert.equal(await commander.page.locator('#fireDouble').isDisabled(), true,
       'staged removal disables ghost Fire');
     await selectPlayer(commander.page, captainAProfile.pid);
