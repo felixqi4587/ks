@@ -8,6 +8,7 @@ const {
   QA_PASSWORD,
   resetQaRallyState
 } = require('./support/qa-coordination.cjs');
+const { gotoQaDocument } = require('./support/qa-navigation.cjs');
 
 const LEAD_SECONDS = 15;
 const PASSWORD = () => QA_PASSWORD;
@@ -198,14 +199,14 @@ async function openDevice(browser, baseURL, room, options) {
   }, { roomName: room, storedProfile: profile, storedDeviceId: deviceId });
   const page = await context.newPage();
   page.on('pageerror', error => errors.push(`${key}: ${error.message}`));
-  await page.goto(qaRoomUrl(baseURL, room, {
+  await gotoQaDocument(page, qaRoomUrl(baseURL, room, {
     notour: '1',
     lang: 'en',
     deliveryQa: '1',
     deliveryShadow: '1'
-  }), { waitUntil: 'domcontentloaded' });
+  }));
   await expect.poll(() => page.evaluate(() => !!window.__kvkDeliveryQa)).toBe(true);
-  await page.locator('#soundGate').click();
+  await page.locator('#soundGate').click({ timeout: 5_000 });
   await page.waitForFunction(() => window.__ac && window.__ac.state === 'running');
   if (profile) {
     await page.locator('#youChip').waitFor({ state: 'visible' });
@@ -237,15 +238,15 @@ async function openClassicDevice(browser, baseURL, room, options) {
   }, { roomName: room, storedProfile: profile, storedDeviceId: deviceId });
   const page = await context.newPage();
   page.on('pageerror', error => errors.push(`${key}: ${error.message}`));
-  await page.goto(qaRoomUrl(baseURL, room, {
+  await gotoQaDocument(page, qaRoomUrl(baseURL, room, {
     notour: '1',
     lang: 'en'
-  }), { waitUntil: 'domcontentloaded' });
+  }));
   const url = new URL(page.url());
   expect(url.searchParams.has('deliveryQa')).toBe(false);
   expect(url.searchParams.has('deliveryShadow')).toBe(false);
   expect(await page.evaluate(() => window.__kvkDeliveryQa)).toBeUndefined();
-  await page.locator('#soundGate').click();
+  await page.locator('#soundGate').click({ timeout: 5_000 });
   await page.waitForFunction(() => window.__ac && window.__ac.state === 'running');
   await page.locator('#youChip').waitFor({ state: 'visible' });
   await page.locator('#youName').filter({ hasText: profile.name }).waitFor();
