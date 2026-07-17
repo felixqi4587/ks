@@ -1,10 +1,10 @@
-# Rally / Defense Separation Implementation Plan
+# Rally / Defense Separation + Apple-Inspired UI Master Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` to implement this plan task-by-task. Every implementation task also uses `superpowers:test-driven-development`; use `superpowers:systematic-debugging` for any unexpected failure and `superpowers:verification-before-completion` before release claims. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Every implementation task also uses `superpowers:test-driven-development`; use `superpowers:systematic-debugging` for any unexpected failure and `superpowers:verification-before-completion` before release claims. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship `/rally` and `/defense` as two isolated coordination products that share the proven connection, clock, identity, audio, cue, readiness, and delivery foundations without weakening the current Rally experience.
+**Goal:** Ship `/rally` and `/defense` as two isolated, mobile-first coordination products with one shared battle foundation, an Apple-inspired interaction hierarchy, and a Durable Objects write budget that remains stable with one hundred idle clients.
 
-**Architecture:** Keep one room-scoped Durable Object (`r:<room>`) so both products share the existing room password, but attach an explicit `rally` or `defense` surface to every socket and persist all operational data in separate namespaces. Extract narrow browser modules from the current Rally controller first, adapt Rally to them without behavior changes, then build the Defense domain, protocol, player page, and two-tab manager console on the same modules. Clients schedule absolute-time cues locally; the server broadcasts state transitions and acknowledgements, never per-second countdown frames.
+**Architecture:** First stop duplicate readiness and heartbeat messages from rewriting canonical Durable Object rows. Keep one room-scoped Durable Object (`r:<room>`) so both products share the existing room password, but attach an explicit `rally` or `defense` surface to every socket and persist operational data in separate namespaces. Extract narrow connection, clock, audio, readiness, identity, delivery, status, and drawer modules; adapt Rally to them before building Defense. Both surfaces use the same mobile shell and three-detent manager drawer, while their controllers, rosters, presence, orders, acknowledgements, and audio audiences remain isolated. Clients schedule absolute-time cues locally; the server broadcasts canonical transitions and acknowledgements, never per-second countdown frames or animation state.
 
 **Tech Stack:** Cloudflare Workers and Durable Objects, vanilla JavaScript UMD/CommonJS-compatible browser modules, HTML/CSS, Node's built-in test runner, Playwright 1.61, Wrangler 4.110, Web Audio, MediaSession, Wake Lock, WebSockets.
 
@@ -20,31 +20,46 @@
 - Defense uses the existing media assets and cue grammar: preparation at T-15, beeps at T-10 through T-6, spoken 5 through 1, and `Now` at T0. Do not create Defense-specific audio files or say `Defend now`.
 - Browser audio still requires the explicit user gesture. Do not simulate or auto-click **Enable page alerts**.
 - Keep the ordinary-player typography and mobile reading order visually consistent with current Rally. All text inputs remain at least 16px on iOS to prevent focus zoom.
+- Preserve the rounded Kingshoter font stack, mint/cream/warm-brown identity, every selected captain's precise progress bar, and the castle metaphor. This is an information-architecture and interaction redesign, not an iOS visual imitation.
+- Mobile is canonical. At 320, 375, 390, and 430 CSS pixels there is no horizontal page scroll; all interactive hit regions are at least 44 by 44 CSS pixels; critical supporting text is at least 11px; ordinary decision text is never shrunk to fit.
+- The ordinary Rally page shows both kingdoms and at most six selected captains together. The ordinary Defense page has constant rendered height regardless of whether the roster contains eight or one hundred defenders.
+- Information priority is fixed: time and alert truth, then the current player's action, then team tactical state, then manager operations, then motion and decoration.
+- The Rally spatial field derives its scale from the actual largest selected march time with roughly 5--10% headroom, capped at 120 seconds. Gathering markers remain at their departure radius until march begins; only the march phase moves linearly toward the castle.
+- Manager consoles have exactly three interruptible states: `closed`, `command`, and `manage`. Dragging is 1:1 from the handle/header, each gesture has a visible button alternative, collapse retains page-session authentication, and collapse is not logout.
+- Glass/blur is limited to floating connection chrome, the drawer header, and the sticky fire dock. Forms, progress bars, maps, player lists, and confirmations remain opaque and have reduced-transparency fallbacks.
+- `prefers-reduced-motion` stops decorative loops and replaces drawer spring travel with a short non-spatial transition. Precise countdown and map positions remain clock-derived rather than animation-derived.
+- Manager-only devices are silent. An unselected Rally commander sees all selected captains in a silent launch monitor; a Defense manager receives personal audio only when its own registered profile is captured in the active Defense order.
+- The visible readiness strip is one canonical projection. Green requires explicit enablement, running audio, live carrier, connected socket, and a fresh synchronized clock; it never implies speaker volume, attention, or any game action.
+- Idle drawer animation, readiness repainting, heartbeats, and identical device-status observations must produce zero periodic canonical Durable Object writes. A 100-idle-socket test is a release gate.
 - Fixed QA room and password are both `qa`. Do not expose generated, timestamped QA room names to the user. Automated local suites may reuse `qa` because each Wrangler run uses an isolated temporary persistence directory. Remote QA suites run serially: cancel a leftover Defense order first, remove only their stable `qa-test-*` profiles through the normal confirmed manager flow, and never add a reset/Admin protocol.
 - Do not open, mutate, or issue commands in any production operation room during tests. Production smoke checks are route/build/readiness checks only.
 - Before editing any existing function, class, or method, run GitNexus upstream impact analysis for that exact symbol. Report the blast radius before editing; stop and warn on HIGH or CRITICAL risk. Before every commit, run `gitnexus_detect_changes(scope: "all", repo: "ks")` and review affected flows.
 - Known risk anchors from planning: `audioAlive` and `saveProfile` are CRITICAL; `scheduleBeeps`, `snapshot`, `stateMsg`, `broadcast`, `writeSocketAttachment`, and `scheduleExpiry` are HIGH/CRITICAL; `renderDefense` is CRITICAL; `setView` and `persistAll` are HIGH. Their characterization tests must pass before and after each adapter change.
 - Keep commits independently revertible. A task's focused tests and the required Rally regression gate must pass before its commit.
-- Use one atomic production release after QA; do not remove old Rally Defense UI in production before the new Defense page and routing are ready in the same deployable commit.
+- The Task 2 write-amplification incident fix may ship independently after its own QA gate so daily Durable Object consumption stops immediately. All Rally/Defense separation, static-Defense removal, and UI work after that uses one atomic production release; never remove the old Rally Defense UI before the new Defense page and routing are ready in the same deployable commit.
 
 ## Execution Contracts
 
 | Task | Consumes | Produces |
 |---|---|---|
 | 1 | Current production-equivalent Rally source | Restore tag, baseline evidence, Rally characterization tests |
-| 2 | Characterized socket and clock behavior | `BattleConnection` API including generation and synchronized time |
-| 3 | Task 2 clock API and current Rally audio | Shared audio, readiness, and cue APIs with cancellation/future-cue inspection |
-| 4 | Tasks 2–3 APIs and current Rally profile/ACK code | Shared surface-aware identity store and generation-scoped ACK queue |
-| 5 | Existing room-player validation | Pure Defense config/order/delivery lifecycle with frozen roster/audience |
-| 6 | Task 5 state plus existing Room authority | Surface attachments, isolated namespaces, filtered presence/snapshots/broadcasts |
-| 7 | Tasks 2, 5, and 6 | Authenticated Defense protocol, manager clock status, one-order authority, bounded deltas |
-| 8 | Tasks 2–4 and 7 | Ordinary Defense page, personal projection, shared audio scheduling, ACKs |
-| 9 | Tasks 7–8 | Two-tab manager console and virtualized roster management |
-| 10 | Working Rally and Defense surfaces | Canonical routing, legacy redirect, independent build gates, homepage entries |
-| 11 | Tasks 2–4 and 10 | Rally-named assets/tests with the old static Defense implementation removed |
-| 12 | Complete local product | Isolation, concurrency, reconnect, mobile-browser, and 100-client evidence |
-| 13 | Task 12 green local commit | Exact QA deployment and device/audio matrix in fixed room `qa` |
-| 14 | Exact QA-tested commit and rollback ID | Atomic production deployment, read-only smoke evidence, documented rollback |
+| 2 | Task 1 baseline plus current readiness/presence traffic | Duplicate status no-op, transient heartbeat presence, stable client coalescing, zero-write idle budget |
+| 3 | Characterized and write-stable socket behavior | `BattleConnection` API including surface, generation, and synchronized time |
+| 4 | Task 3 clock API and current Rally audio | Shared audio, readiness, and cue APIs with cancellation/future-cue inspection |
+| 5 | Tasks 3–4 APIs and current Rally profile/ACK code | Shared surface-aware identity store and generation-scoped ACK queue |
+| 6 | Tasks 3–5 browser foundations and approved UI spec | Semantic battle tokens, canonical status projection, three-detent manager drawer |
+| 7 | Existing room-player validation | Pure Defense config/order/delivery lifecycle with frozen roster/audience |
+| 8 | Task 7 state plus existing Room authority | Surface attachments, isolated namespaces, filtered presence/snapshots/broadcasts |
+| 9 | Tasks 3, 7, and 8 | Authenticated Defense protocol, manager clock status, one-order authority, bounded deltas |
+| 10 | Tasks 3–6 and 9 | Ordinary Defense page, personal projection, shared audio scheduling, ACKs |
+| 11 | Tasks 6 and 9–10 | Defense `Status`/`Players` manager drawer and virtualized large roster |
+| 12 | Tasks 3–6 and characterized Rally | Mobile Rally shell, six-captain tactical view, meaningful map, silent manager monitor |
+| 13 | Working Rally and Defense surfaces | Canonical routing, legacy redirect, independent build gates, homepage entries |
+| 14 | Tasks 3–6, 12, and 13 | Rally-named assets/tests with the old static Defense implementation removed |
+| 15 | Task 6 tokens and canonical routes | Codes/Guide accessibility, reduced-motion behavior, consistent supporting UI |
+| 16 | Complete local product | Isolation, concurrency, zero-write idle load, accessibility, mobile-browser evidence |
+| 17 | Task 16 green local commit | Exact QA deployment and device/audio matrix in fixed room `qa` |
+| 18 | Exact QA-tested commit and rollback ID | Atomic production deployment, read-only smoke evidence, documented rollback |
 
 ---
 
@@ -84,7 +99,59 @@ lead time              -> selected value is the actual start of personal countdo
 
 ---
 
-### Task 2: Extract the shared room connection and synchronized clock
+### Task 2: Stop duplicate device-status and heartbeat Durable Object writes
+
+**Files:**
+- Create: `test/room-write-budget.test.cjs`
+- Modify: `src/room-delivery.js`
+- Modify: `src/room.js`
+- Modify: `public/kvk.js`
+- Modify: `test/room-harness.cjs`
+- Modify: `test/room-delivery.test.cjs`
+- Modify: `test/reliable-room-delivery.test.cjs`
+- Modify: `test/audio-readiness.test.cjs`
+- Modify: `test/classic-delivery-client.test.cjs`
+
+**Interfaces:**
+- Consumes: existing `normalizeCoreSocketAttachment`, `bindCoreSocketIdentity`, hibernation WebSocket attachments, `audioAlive()`, and `sendDeviceStatus(messageType, force)`.
+- Produces:
+
+```js
+projectLiveCoreDevices(socketAttachments, nowMs);
+// -> [{ pid, deviceId, soundReady, lastSeenMs }]
+// same pid/device across tabs is one device; soundReady is true when any live tab is ready
+
+Room.prototype.observeDevice(ws, message);
+// -> { ok, changed, attachmentBefore, attachmentAfter, devicesBefore, devicesAfter, error? }
+
+Room.prototype.persistDevices();
+// persists only the `devices` key after a real canonical identity/readiness transition
+```
+
+An identical `deviceStatus` still receives `deviceStatusSaved`; it produces no storage write, no full-room broadcast, and no alarm change. `hb` is transient presence: it refreshes live attachment/in-memory liveness but never writes `room`, `devices`, `deliveryAcks`, or `profileOwners`. `snapshot()` and command audience construction project live presence/readiness from WebSocket attachments so removing heartbeat persistence cannot make a connected client look offline. A red transition is reported immediately; a green transition is coalesced until stable for 900ms. An unchanged generation/signature is suppressed even when legacy callers pass `force=true`; reconnect and explicit server rejection may reset the signature and retry.
+
+- [ ] **Step 1: Run and record GitNexus impact before touching the hot path.** Analyze `Room.persistAll`, `Room.webSocketMessage`, `Room.observeDevice`, `Room.snapshot`, `Room.scheduleExpiry`, `touchDevice`, `sendDeviceStatus`, and `setKeepAliveState` upstream with tests included. Warn that shared status, delivery, and alarm paths are HIGH/CRITICAL before editing, then continue under the characterization gates.
+- [ ] **Step 2: Write the failing server write-budget tests.** In `test/room-write-budget.test.cjs`, use a storage spy that counts map entries as rows and assert: the first real status transition writes only `devices`; 100 identical status messages each receive an ACK but add zero rows and zero broadcasts; 100 sockets over four heartbeat rounds add zero rows, zero alarms, and zero broadcasts; clearing in-memory throttle fields between rounds does not change that result; `true → false → duplicate false → true` creates exactly two canonical transitions; a failed transition write restores the prior attachment and registry and sends no success ACK.
+
+```js
+assert.equal(metrics.rowsWrittenAfterSteadyState, 0);
+assert.equal(metrics.setAlarmCallsAfterSteadyState, 0);
+assert.equal(metrics.broadcastsAfterSteadyState, 0);
+assert.equal(savedMessages.length, 100);
+```
+
+- [ ] **Step 3: Run the new tests and confirm the current implementation fails for the intended reason.** Run `node --test test/room-write-budget.test.cjs`; expect failures showing four rows per duplicate `deviceStatus` and periodic rows from heartbeat.
+- [ ] **Step 4: Add live attachment projection and transition-aware observation.** Implement `projectLiveCoreDevices` as a pure export in `src/room-delivery.js`. In `Room.observeDevice`, capture before/after canonical identity/readiness, update the hibernation attachment, merge live siblings, and return `changed` without treating `lastSeenMs` as a canonical change. Add `persistDevices()` and roll back both attachment and in-memory devices if that one-key write fails.
+- [ ] **Step 5: Make `deviceStatus` idempotent and heartbeat transient.** In `Room.webSocketMessage`, only persist/broadcast a real transition; always ACK a valid duplicate. For `hb`, apply a real readiness transition through the same path, otherwise only refresh transient memory. In `snapshot()` clone player records and project current connected pids as online; in command delivery/ACK checks merge the live attachment registry before deriving expected devices.
+- [ ] **Step 6: Remove the idle QA alarm loop.** `scheduleExpiry()` may set an alarm for command expiry or an active delivery retry/lease, but a ready idle socket with no active delivery record must not maintain the three-second probe loop. Run the existing reliable-delivery retry, cancellation, and expiry tests to prove active windows still wake.
+- [ ] **Step 7: Write the failing client coalescing tests.** Simulate repeated `playing/waiting` carrier events and `AudioContext` transitions. Assert local readiness turns red immediately, identical network signatures are coalesced, green is sent once after 900ms stable, a new socket generation retries once, and explicit identity rejection clears the retry guard.
+- [ ] **Step 8: Implement minimal client coalescing.** Keep the current audio graph, carrier, and local `paintAudioStatus()` behavior. Replace forced duplicate sends from `ac.onstatechange` and `setKeepAliveState` with a single status publisher whose negative edge is immediate and whose positive edge uses one replaceable 900ms timer.
+- [ ] **Step 9: Run focused and full hotfix gates.** Run `node --test test/room-write-budget.test.cjs test/room-delivery.test.cjs test/reliable-room-delivery.test.cjs test/audio-readiness.test.cjs test/classic-delivery-client.test.cjs`, then `npm test && npm run test:delivery && npm run test:triple && npm run test:kvk-core:all`; expect all to pass and the budget assertions to remain exactly zero in steady state.
+- [ ] **Step 10: Commit the hotfix and validate it independently in fixed QA.** Run GitNexus change detection, commit `fix: stop idle durable object write amplification`, deploy that exact commit to `kingshoter-qa`, run the fixed `qa` room write/readiness smoke, and record its QA version ID. Because the daily write limit is an active production incident, promote this server/client hotfix after its own QA gate and record the production rollback version; the later Rally/Defense/UI release remains atomic.
+
+---
+
+### Task 3: Extract the shared room connection and synchronized clock
 
 **Files:**
 - Create: `public/battle-connection.js`
@@ -127,14 +194,14 @@ For example, Rally room `qa` at this release connects to `/api/ws?room=qa&surfac
 
 ---
 
-### Task 3: Extract the shared audio engine, readiness truth, and absolute-time cue scheduler
+### Task 4: Extract the shared audio engine, readiness truth, and absolute-time cue scheduler
 
 **Files:**
 - Create: `public/battle-audio.js`
-- Create: `public/battle-readiness.js`
+- Create: `public/battle-status.js`
 - Create: `public/battle-cues.js`
 - Create: `test/battle-audio.test.cjs`
-- Create: `test/battle-readiness.test.cjs`
+- Create: `test/battle-status.test.cjs`
 - Create: `test/battle-cues.test.cjs`
 - Modify: `public/kvk.js`
 - Modify: `public/kvk.html`
@@ -176,13 +243,13 @@ cues.snapshot();
 `BattleAudio` owns Web Audio, keep-alive, MediaSession, Wake Lock, test sound, and media playback. `BattleCues` owns timer IDs, cue IDs, cancellation, reconciliation, future-only reconnect, and clock-drift replanning. Neither module selects an audience, sends an ACK, mutates a profile, or paints DOM.
 
 ```js
-BattleReadiness.derive({
+BattleStatus.deriveReadiness({
   userEnabled: true,
   audioContextRunning: true,
   carrierAlive: true,
   connected: true,
   clockFresh: true
-}); // { green: true, reasons: [] }
+}); // { level: "ready", green: true, reasons: [] }
 ```
 
 The returned readiness object is the single source for the visible lamp, `deviceStatus` heartbeat, and delivery ACK. A page must never paint red from one calculation while reporting green from another, or paint green before all five measurable conditions are true.
@@ -191,14 +258,14 @@ The returned readiness object is the single source for the visible lamp, `device
 - [ ] **Step 2: Write failing engine tests.** Use fake AudioContext/media/timers to assert explicit enablement, carrier health, status transitions, exact SFX file paths, no duplicate node graph, `cancel`, `cancelScope`, `hasFutureCue`, scheduler `snapshot`, and dispose cleanup. Assert the same derived readiness object drives the lamp, heartbeat, and ACK so the prior “audio is audible but the page remains red” state cannot arise from divergent client calculations. Run the three new tests and expect module-not-found failures.
 - [ ] **Step 3: Implement the audio engine and readiness projection.** Preserve the existing 40Hz carrier and `/sfx/{en,zh}_{5,4,3,2,1,go}.mp3` files byte-for-byte; do not add new assets.
 - [ ] **Step 4: Implement the generic cue scheduler.** It accepts explicit events. Keep Rally policy in the Rally adapter; do not hard-code T-15 into the shared scheduler.
-- [ ] **Step 5: Adapt Rally one function at a time.** After each adapter replacement, run `node --test test/rally-audio-characterization.test.cjs test/audio-readiness.test.cjs test/battle-audio.test.cjs test/battle-cues.test.cjs`. Delete an old implementation only after its adapter passes.
+- [ ] **Step 5: Adapt Rally one function at a time.** After each adapter replacement, run `node --test test/rally-audio-characterization.test.cjs test/audio-readiness.test.cjs test/battle-audio.test.cjs test/battle-status.test.cjs test/battle-cues.test.cjs`. Delete an old implementation only after its adapter passes.
 - [ ] **Step 6: Prove commander and participant routing remain unchanged.** Run `node --test test/commander-launch-monitor.test.cjs test/kvk-rally-wiring.test.cjs test/delivery-browser-wiring.test.cjs`.
 - [ ] **Step 7: Run all unit and browser-core regressions.** Run `npm test && npm run test:delivery && npm run test:triple && npm run test:kvk-core:all`.
 - [ ] **Step 8: Run GitNexus change detection and commit.** Commit with `refactor: share battle audio and cue scheduling`.
 
 ---
 
-### Task 4: Extract shared identity, profile persistence, and client acknowledgement retry primitives
+### Task 5: Extract shared identity, profile persistence, and client acknowledgement retry primitives
 
 **Files:**
 - Create: `public/battle-identity.js`
@@ -247,7 +314,63 @@ Rally continues to read its existing profile and device keys. Defense uses indep
 
 ---
 
-### Task 5: Add the pure Defense timing, lifecycle, and delivery domains
+### Task 6: Build the shared Apple-inspired battle shell, status strip, and manager drawer
+
+**Files:**
+- Create: `public/battle-ui.css`
+- Create: `public/battle-drawer.js`
+- Create: `test/battle-ui-contract.test.cjs`
+- Create: `test/battle-drawer.test.cjs`
+- Create: `test/battle-drawer.e2e.cjs`
+- Modify: `public/battle-status.js`
+- Modify: `test/battle-status.test.cjs`
+- Modify: `public/app.css`
+- Modify: `public/kvk.html`
+- Modify: `public/kvk.js`
+- Modify: `test/mobile-input-font.test.cjs`
+
+**Interfaces:**
+
+```js
+BattleStatus.project(readiness, {
+  managerOnly: false,
+  connectedCount: 0,
+  language: "en"
+});
+// -> { level, label, detail, action, managerMeta }
+
+var drawer = BattleDrawer.create({
+  root: drawerElement,
+  handle: handleElement,
+  background: battleMainElement,
+  reducedMotion: matchMedia("(prefers-reduced-motion: reduce)"),
+  onStateChange: function (state) {}
+});
+drawer.state();          // "closed" | "command" | "manage"
+drawer.openCommand();
+drawer.openManage();
+drawer.backToCommand();
+drawer.close();
+drawer.destroy();
+```
+
+`BattleDrawer` knows no Rally or Defense messages and performs no socket, storage, or status writes. Authentication remains in each surface controller and is independent from drawer state. Command detent is non-modal and preserves the live tactical view above it; Manage detent marks the background inert, traps/restores focus, and exposes a visible `Back to command` control. Pointer drag begins only on the handle/header after a 10px intent threshold, follows the finger 1:1 from its grab offset, applies bounded rubber-band beyond detents, and settles from projected position plus velocity. Every gesture has button and keyboard equivalents.
+
+- [ ] **Step 1: Write failing semantic-token tests.** Parse computed styles in a minimal fixture and assert: primary/secondary text and status foregrounds meet AA contrast; critical text is at least 11px; text inputs are at least 16px at mobile widths; interactive hit regions are at least 44px; one safe-area inset is consumed; forms/progress/maps/lists are opaque; translucent material appears only on the allowed status/drawer/fire layers; reduced-transparency has a solid fallback.
+- [ ] **Step 2: Write failing status-projection tests.** Assert `ready` only when enablement, AudioContext, carrier, socket, and clock are all healthy; audio recovery is amber/actionable; disconnection is red; manager-only projects `Manager connected · clock synced` without a personal audio warning; ordinary projections contain no online count; `managerMeta` may contain connected count; labels never claim game response, march, defense, or arrival.
+- [ ] **Step 3: Write failing pure drawer tests.** Cover all legal transitions, 10px intent, 1:1 delta, grab-offset preservation, velocity projection, rubber-band bounds, interruption/reversal, no drag from a scrolling player list, idempotent programmatic calls, destroy cleanup, and reduced-motion settling without spring travel.
+- [ ] **Step 4: Run the new tests and confirm module/style failures.** Run `node --test test/battle-ui-contract.test.cjs test/battle-status.test.cjs test/battle-drawer.test.cjs`; expect missing module/token failures.
+- [ ] **Step 5: Implement semantic battle tokens and shared component styles.** Layer `battle-ui.css` as tokens, base accessibility, shared cards/status, drawer, then responsive overrides. Preserve existing font and brand variables through semantic aliases; do not restyle non-battle pages yet.
+- [ ] **Step 6: Implement the pure status projector.** Render text plus icon/shape for every state. The same readiness input object remains the source for visible status, `deviceStatus`, and ACK; the projector adds copy and manager metadata only.
+- [ ] **Step 7: Implement the drawer state machine and pointer controller.** Use Pointer Events and pointer capture; update one transform custom property during drag; animate only transform/opacity; allow a new pointerdown to interrupt the current settle; never write storage, send messages, or recalculate page data during motion.
+- [ ] **Step 8: Adapt the current Rally console as a compatibility proof.** Add a handle, visible close/back controls, and the three detents around the existing console without changing selection, Fire, Cancel, audio, or password validation. A successful password remains in page memory after `close()`; only an explicit invalidation/logout path clears it.
+- [ ] **Step 9: Run the browser interaction matrix.** Run `node test/battle-drawer.e2e.cjs`; assert pointer/touch/mouse/keyboard paths, live background repaint while command is open, inert/focus behavior in manage, 320/375/390/430 widths, no horizontal overflow, and reduced-motion/reduced-transparency fallbacks.
+- [ ] **Step 10: Run `node --test test/battle-ui-contract.test.cjs test/battle-status.test.cjs test/battle-drawer.test.cjs test/mobile-input-font.test.cjs test/cancel-rally-selection.test.cjs test/commander-launch-monitor.test.cjs`, then `npm test && npm run test:triple`.** Expect all pass.
+- [ ] **Step 11: Run GitNexus change detection and commit.** Commit with `feat: add shared battle shell and manager drawer`.
+
+---
+
+### Task 7: Add the pure Defense timing, lifecycle, and delivery domains
 
 **Files:**
 - Create: `src/defense-domain.js`
@@ -344,7 +467,7 @@ goAtMs = enemyImpactAtMs - defenderMarchSeconds * 1000;
 
 ---
 
-### Task 6: Add surface-aware socket attachments and isolated persistence without changing Rally
+### Task 8: Add surface-aware socket attachments and isolated persistence without changing Rally
 
 **Files:**
 - Create: `src/room-surface.js`
@@ -418,7 +541,7 @@ export function isQaRoomName(room) {
 
 ---
 
-### Task 7: Implement the Defense room protocol, one-order lock, and bounded deltas
+### Task 9: Implement the Defense room protocol, one-order lock, and bounded deltas
 
 **Files:**
 - Create: `test/defense-room.test.cjs`
@@ -460,7 +583,7 @@ export function isQaRoomName(room) {
 { t: "error", source, mutationId, error, canonicalRevision }
 ```
 
-- [ ] **Step 1: Run fresh GitNexus impact for every `Room` method touched in this task.** The earlier report does not substitute for a fresh check after Task 6.
+- [ ] **Step 1: Run fresh GitNexus impact for every `Room` method touched in this task.** The earlier report does not substitute for a fresh check after Task 8.
 - [ ] **Step 2: Write failing registration/privacy tests.** Reuse `room-player.js` against the Defense roster; assert Player ID/nickname registration, profile ownership, march edit revision, immediate non-captured removal, queued captured removal, 150-profile cap, no full roster for ordinary sockets, and manager roster only after successful `defenseUnlock`.
 - [ ] **Step 3: Write failing order tests.** Assert config persistence/revision conflict, identity-free `defenseManagerStatus`, manager clock freshness, exact signal bounds of 5s past/1s future, immutable connected-profile audience, frozen roster/offline/invalid counts, new player waits next round without changing this round's metrics, multi-device audience dedupe, Too late, single active order, next-order blocking, concurrent-manager first writer, duplicate mutation idempotency, and manager-only silence projection.
 - [ ] **Step 4: Write failing cancel/complete/reconnect tests.** Assert cancellation revision and tombstone, future cue restoration for captured reconnect, no restoration for new profile, automatic completion, next-round automatic waiting, and no stale-message resurrection.
@@ -472,7 +595,7 @@ export function isQaRoomName(room) {
 
 ---
 
-### Task 8: Build the ordinary Defense page and personal countdown
+### Task 10: Build the ordinary Defense page and personal countdown
 
 **Files:**
 - Create: `public/defense.html`
@@ -519,7 +642,7 @@ collapsed Defense console entry
 
 ---
 
-### Task 9: Build the two-tab Defense manager console for large rosters
+### Task 11: Build the two-tab Defense manager console for large rosters
 
 **Files:**
 - Create: `public/defense-manager.js`
@@ -572,7 +695,63 @@ list.scrollToKey(pid);
 
 ---
 
-### Task 10: Make `/rally` and `/defense` canonical, preserve legacy links, and split build gates
+### Task 12: Modernize the ordinary Rally page and make the tactical field truthful
+
+**Files:**
+- Create: `public/rally.css`
+- Create: `public/rally-tactical.js`
+- Create: `test/rally-tactical.test.cjs`
+- Create: `test/rally-player-layout.test.cjs`
+- Create: `test/rally-tactical.e2e.cjs`
+- Modify: `public/kvk.html`
+- Modify: `public/kvk.js`
+- Modify: `public/app.css`
+- Modify: `test/map-render-key.test.cjs`
+- Modify: `test/kvk-home-layout.test.cjs`
+- Modify: `test/march-domain.e2e.cjs`
+- Modify: `test/commander-launch-monitor.test.cjs`
+- Modify: `test/commander-launch-monitor.e2e.cjs`
+- Modify: `test/cancel-rally-selection.test.cjs`
+
+**Interfaces:**
+
+```js
+RallyTactical.scaleMax(selectedMarchSeconds);
+// min(120, max(5, max(selectedMarchSeconds) * 1.08))
+
+RallyTactical.actorProjection({
+  marchSeconds,
+  pressAtMs,
+  gatherEndsAtMs,
+  nowMs,
+  scaleMaxSeconds,
+  departureRadius
+});
+// idle/staged or gathering -> progress 0 and full departure radius
+// marching -> progress clamp((nowMs - gatherEndsAtMs) / (marchSeconds * 1000), 0, 1)
+// radius -> departureRadius * (1 - progress)
+
+RallyTactical.selectedGroups(room);
+// both kingdoms, canonical Double/Triple order, at most six selected captains
+```
+
+The upper role bars retain a fixed 120-second scale and exact `M:SS` text so cross-player timing remains comparable. The lower castle field uses actual current maximum march with 8% visual headroom and the full usable radius. It does not round to a 30-second bucket. The castle field is explanatory; progress bars and exact time labels remain authoritative.
+
+- [ ] **Step 1: Run GitNexus impact for `mapData`, `domainFor`, `ringR`, `renderRadar`, `laneRow`, `renderLanes`, `mapRenderKey`, `mapFrame`, `paintChrome`, `paintHero`, `commanderLaunchRows`, and `paintCommanderLaunchMonitor`.** Warn before modifying any HIGH/CRITICAL renderer or routing function.
+- [ ] **Step 2: Write failing tactical projection tests.** Assert `[13,34,36,40]` yields scale `43.2`, the 40-second actor uses about 92.6% of the usable radius, all values cap at 120, empty state is safe, staged actors stay at departure radius, gathering actors do not move, marching actors move linearly, landing actors reach the castle, and render keys change only for canonical tactical changes.
+- [ ] **Step 3: Write failing layout tests.** Assert ordinary Rally contains no full roster or online count; both kingdoms are visible; Double shows up to four and Triple up to six full captain rows; every row retains role/name/progress/exact time; five/six rows use compact spacing without shrinking decision text below 11px or requiring horizontal scroll.
+- [ ] **Step 4: Run the new tests and confirm current bucket/gather behavior fails.** Run `node --test test/rally-tactical.test.cjs test/rally-player-layout.test.cjs`; expect current 30-second bucket and gathering-motion assertions to fail.
+- [ ] **Step 5: Implement the pure tactical projector.** Keep all calculations independent from DOM and requestAnimationFrame. Use the same immutable active command snapshot for names, march times, roles, press times, and kingdom; use canonical staged records while idle.
+- [ ] **Step 6: Rebuild the ordinary Rally reading order.** Render compact readiness/clock, collapsed `You · Name · march · Edit`, two selected-captain groups, all precise bars, the larger meaningful castle field, then the collapsed Commander Console entry. Move full roster and room-wide counts into Manage only. Preserve current approximate font sizes and the two-minute upper scale.
+- [ ] **Step 7: Adapt the castle field.** Use the full existing frame, distribute up to six actors by kingdom/role angle so equal distances remain distinguishable, show the current scale in readable text, and keep paths/markers clock-derived. Do not enlarge the castle into the main content or add decorative looping motion.
+- [ ] **Step 8: Keep personal and commander semantics exact.** Only a selected captain gets a large personal countdown/audio. An ordinary unselected member keeps the existing generic JOIN policy. An unselected commander sees every selected captain in a silent launch monitor, not only the first departure; a commander who is a selected captain receives only that captain's personal audio.
+- [ ] **Step 9: Prove Cancel and profile changes are stable.** Cancel stops future cues and active visuals but preserves staged teams. Identity/nickname/march edits repaint idle canonical rows; an active command remains frozen and cannot rename or retime mid-flight.
+- [ ] **Step 10: Run `node --test test/rally-tactical.test.cjs test/rally-player-layout.test.cjs test/map-render-key.test.cjs test/commander-launch-monitor.test.cjs test/cancel-rally-selection.test.cjs`, then `node test/rally-tactical.e2e.cjs` and `node test/commander-launch-monitor.e2e.cjs`.** Expect all pass at 320/375/390/430 widths.
+- [ ] **Step 11: Run `npm test && npm run test:delivery && npm run test:triple && npm run test:kvk-core:all`, then GitNexus change detection and commit.** Commit with `feat: modernize rally tactical view`.
+
+---
+
+### Task 13: Make `/rally` and `/defense` canonical, preserve legacy links, and split build gates
 
 **Files:**
 - Create: `public/rally.html`
@@ -643,7 +822,7 @@ Cache-Control: no-store
 
 ---
 
-### Task 11: Remove the static Defense implementation from Rally and finish Rally naming
+### Task 14: Remove the static Defense implementation from Rally and finish Rally naming
 
 **Files:**
 - Create: `public/rally-controller.js`
@@ -732,22 +911,54 @@ ignore legacy stored enemyWhales during migration; do not expose it to clients
 - [ ] **Step 3: Move active Rally assets to Rally names using add/delete patches.** Change UMD globals from `KvkRally/KvkUpdate` to `RallyDomain/RallyUpdate`, script URLs, CSS body hooks, storage labels where migration-safe, diagnostics, and visible coordination copy. Preserve legacy Rally profile/device keys through the shared identity adapter.
 - [ ] **Step 4: Remove static Defense call sites first, running focused Rally tests after each group.** Only then delete the now-unreachable functions, DOM, translations, and CSS.
 - [ ] **Step 5: Remove `enemyWhales` from new Rally config writes/projections.** During this release tolerate the stored key on read so a rollback remains possible; never serialize it to canonical clients.
-- [ ] **Step 6: Recreate the listed active tests under Rally/coordination names, update every listed helper import and package script, and delete their old files.** `test/rally-update.test.cjs` and `test/rally-update-wiring.test.cjs` already come from Task 10, so delete the two old update tests without creating duplicates. Make `test/support/qa-coordination.cjs` accept only fixed room `qa`; update all local suites to isolate state through a temporary Wrangler persistence directory and all remote suites to serialize/clean their own stable `qa-test-*` profiles. Fold both old QA Playwright configurations into the new `playwright.qa-rally-defense.config.cjs`. Keep `legacy-kvk-script-guard.test.cjs`, `test/support/legacy-kvk-script-guard.cjs`, and `test/fixtures/kvk-legacy-target.cjs` as intentional legacy-route coverage. The game term KvK may remain in gameplay guide content; generated URLs and product assets may not use `/kvk`.
+- [ ] **Step 6: Recreate the listed active tests under Rally/coordination names, update every listed helper import and package script, and delete their old files.** `test/rally-update.test.cjs` and `test/rally-update-wiring.test.cjs` already come from Task 13, so delete the two old update tests without creating duplicates. Make `test/support/qa-coordination.cjs` accept only fixed room `qa`; update all local suites to isolate state through a temporary Wrangler persistence directory and all remote suites to serialize/clean their own stable `qa-test-*` profiles. Fold both old QA Playwright configurations into the new `playwright.qa-rally-defense.config.cjs`. Keep `legacy-kvk-script-guard.test.cjs`, `test/support/legacy-kvk-script-guard.cjs`, and `test/fixtures/kvk-legacy-target.cjs` as intentional legacy-route coverage. The game term KvK may remain in gameplay guide content; generated URLs and product assets may not use `/kvk`.
 - [ ] **Step 7: Add a source guard.** Fail if public Rally HTML/JS/CSS contains the deleted Defense IDs/functions, if homepage/generated links point to `/kvk`, or if an executable test helper creates/opens a generated `qa-kvk-*` room. Whitelist only Worker redirects, migration build fields, legacy localStorage reads, legacy-route tests, and negative guard fixtures that prove non-`qa` rooms are refused.
 - [ ] **Step 8: Run the focused absence/naming tests and `npm test && npm run test:delivery && npm run test:triple && npm run test:rally-core:all`; expect all pass.**
 - [ ] **Step 9: Run GitNexus change detection and commit.** Commit with `refactor: remove static defense from rally`.
 
 ---
 
-### Task 12: Prove isolation, concurrency, reconnect behavior, and 100-client scale
+### Task 15: Unify Home, Codes, and Guide with the battle interaction system
+
+**Files:**
+- Create: `test/supporting-pages-ui.test.cjs`
+- Create: `test/supporting-pages-ui.e2e.cjs`
+- Modify: `public/index.html`
+- Modify: `public/codes.html`
+- Modify: `public/guide.html`
+- Modify: `public/app.css`
+- Modify: `public/app.js`
+- Modify: `test/codes-toggle.cjs`
+- Modify: `test/guide-toggle.cjs`
+- Modify: `test/coordination-home-layout.test.cjs`
+
+**Interfaces:**
+- Consumes: semantic colors, control sizes, focus behavior, material limits, and reduced-motion rules from `battle-ui.css`; canonical `/rally` and `/defense` routes from Task 13.
+- Produces: a consistent mobile entry flow and accessible supporting pages without importing room sockets, battle state, or manager logic.
+
+- [ ] **Step 1: Run GitNexus impact for shared `setLang`, `applyI18n`, `renderLangToggle`, `ksActor`, `ksCastle`, the home room-entry handler, Codes copy/filter handlers, and Guide animation initializer.** Record blast radius before editing shared `app.js` symbols.
+- [ ] **Step 2: Write failing local UI contract tests.** Assert Home has equal Rally and Defense room cards above secondary content, no `LIVE` wording that implies game telemetry, no KvK product route, 44px language/enter/copy/tab controls, accessible headings and `<main>`, visible focus, text+icon status, and no critical 8--10px copy.
+- [ ] **Step 3: Write failing reduced-motion/transparency tests.** Emulate both media queries. Assert fish/guide decorative loops are stopped in a stable final pose, no GSAP infinite timeline remains active, content remains readable with solid surfaces, and no information disappears when animation is disabled.
+- [ ] **Step 4: Run `node --test test/supporting-pages-ui.test.cjs`; expect current route/control/animation assertions to fail.**
+- [ ] **Step 5: Reorder Home without changing its brand.** Keep the fish, rounded type, and warm palette, shorten decorative hero height on mobile, place Rally and Defense as equal cards using one room input convention, and move full navigation below the primary coordination choice.
+- [ ] **Step 6: Upgrade Codes.** Give copy/filter/retry controls 44px hit regions, add `aria-live` for loading/empty/error/copy state, keep destructive/error information textual, and avoid relying on toast or color alone.
+- [ ] **Step 7: Upgrade Guide.** Point actions to Rally/Defense, reuse shared actor/castle artwork, mark decoration `aria-hidden`, keep explanatory text outside SVG, and stop rather than merely hide GSAP/rAF loops under reduced motion.
+- [ ] **Step 8: Run `node test/supporting-pages-ui.e2e.cjs` at 320/375/390/430 and desktop widths.** Assert no horizontal overflow, 200% text usability, keyboard order, focus visibility, long English/Chinese labels, reduced motion, reduced transparency, and high-contrast mode.
+- [ ] **Step 9: Run `node --test test/supporting-pages-ui.test.cjs test/codes-toggle.cjs test/guide-toggle.cjs test/coordination-home-layout.test.cjs && npm test`; then GitNexus change detection and commit.** Commit with `feat: unify coordination supporting pages`.
+
+---
+
+### Task 16: Prove isolation, concurrency, reconnect behavior, accessibility, and 100-client scale
 
 **Files:**
 - Create: `test/rally-defense-isolation.e2e.cjs`
 - Create: `test/defense-multibrowser.e2e.cjs`
 - Create: `test/defense-load.e2e.mjs`
+- Create: `test/coordination-accessibility.e2e.cjs`
 - Create: `test/qa-rally-defense.spec.cjs`
 - Modify: `playwright.qa-rally-defense.config.cjs`
 - Modify: `test/support/qa-coordination.cjs`
+- Modify: `test/room-write-budget.test.cjs`
 - Modify: `package.json`
 
 **Load shape:**
@@ -772,12 +983,14 @@ room: qa (isolated local Wrangler persistence)
 - [ ] **Step 5: Add the QA Playwright config.** Allow only loopback by default. Remote execution requires the exact QA Worker origin plus `ALLOW_REMOTE_QA=1`; it always uses room/password `qa`, one worker, no parallelism, and never accepts `kingshoter.com` as a test origin.
 - [ ] **Step 6: Run `npm run test:rally-defense`; expect all unit/integration tests pass.**
 - [ ] **Step 7: Run `npm run test:load:defense`; expect one accepted order, 100 targeted profiles, ACK convergence, successful 20-profile reconnect, bounded frames, and no duplicates.**
-- [ ] **Step 8: Run local `npm run test:qa:rally-defense`; expect Chromium, Firefox, and WebKit to pass at 320/375/390/430 widths.**
-- [ ] **Step 9: Run `npm test && npm run test:delivery && npm run test:triple && npm run test:rally-core:all`; then run GitNexus change detection and commit.** Commit with `test: prove rally defense isolation and scale`.
+- [ ] **Step 8: Run the steady-state storage budget inside the load test.** After all sockets are initialized, hold the 104 sockets across repeated heartbeats/readiness repaints and assert zero canonical `put` rows, zero idle `setAlarm` calls, and zero periodic full-state frames. Report website messages and storage rows only; do not invent a real-game participation count.
+- [ ] **Step 9: Add and run the accessibility/mobile matrix.** At 320/375/390/430px and 200% text, assert no horizontal page overflow, 44px hit targets, 16px text inputs, non-color-only state, non-duplicating live regions, focus restore across drawer detents, virtual-list focus retention, reduced motion/transparency, and manager-only silence. Run it in Chromium, Firefox, and WebKit.
+- [ ] **Step 10: Run local `npm run test:qa:rally-defense`; expect Chromium, Firefox, and WebKit to pass at 320/375/390/430 widths.**
+- [ ] **Step 11: Run `npm test && npm run test:delivery && npm run test:triple && npm run test:rally-core:all`; then run GitNexus change detection and commit.** Commit with `test: prove rally defense isolation ui and scale`.
 
 ---
 
-### Task 13: Deploy to the isolated QA Worker and perform the device/audio gate
+### Task 17: Deploy to the isolated QA Worker and perform the device/audio gate
 
 **Files:**
 - Create: `docs/superpowers/qa/2026-07-16-rally-defense-device-matrix.md`
@@ -800,7 +1013,7 @@ Use the exact HTTPS origin printed by the successful QA deploy in Step 3. Append
 
 ---
 
-### Task 14: Promote the tested commit atomically and preserve rollback
+### Task 18: Promote the tested commit atomically and preserve rollback
 
 **Files:**
 - Create: `docs/superpowers/qa/2026-07-16-rally-defense-release.md`
@@ -827,6 +1040,12 @@ Use the exact HTTPS origin printed by the successful QA deploy in Step 3. Append
 - [ ] Manager anchor defaults to 3:00, enemy march is required, timing uses the approved exact equation, and only one order can be active.
 - [ ] Captured audience/march values are immutable; new or offline players wait for the next round; captured reconnects restore only future cues.
 - [ ] Defense reuses the current preparation/beep/5..1/Now media and scheduler; manager-only devices are silent.
+- [ ] One canonical readiness projection drives the visible strip, network status, and ACK; green requires audio, carrier, socket, and fresh clock and never claims game action.
+- [ ] Rally preserves both kingdoms, at most six selected captain rows, every precise progress bar, fixed 120-second upper bars, and a full-field castle projection based on actual maximum march plus 8% headroom.
+- [ ] Gathering markers remain at their departure radius; only the march phase moves them toward the castle from absolute synchronized time.
+- [ ] Rally and Defense manager consoles use the shared `closed`/`command`/`manage` drawer, 1:1 interruptible gestures, visible button/keyboard alternatives, and collapse without password re-entry.
+- [ ] At 320/375/390/430px there is no horizontal page overflow; text inputs are at least 16px, hit regions at least 44px, critical text at least 11px, and reduced motion/transparency leave all information usable.
+- [ ] One hundred idle sockets and repeated carrier/readiness transitions produce zero periodic canonical Durable Object rows, zero idle alarm writes, and zero full-state heartbeat broadcasts.
 - [ ] Manager Status and Players remain usable with at least 100 connected devices; ordinary-player rendering stays constant-size.
 - [ ] All manager metrics use website-verifiable wording and make no claim about actual game response.
 - [ ] Fixed QA room/password are `qa`; no production operation room was used for testing.
