@@ -189,12 +189,12 @@ connection.stop();
 
 For example, Rally room `qa` at this release connects to `/api/ws?room=qa&surface=rally&clientBuild=2026071603`; Defense changes only `surface=defense`. Reconnect timers are generation-scoped so a stale socket cannot update the new page. Clock sync keeps the lowest-RTT sample and refreshes at the existing cadence.
 
-- [ ] **Step 1: Run GitNexus impact for `RoomSocket`, `syncClock`, `beginClockSync`, and each current caller to be edited.** Record UNKNOWN graph coverage for unindexed symbols and use the existing socket tests as the compensating gate.
-- [ ] **Step 2: Write failing module tests.** Cover URL construction, surface rejection, generation-scoped reconnect, callback ordering, explicit stop, lowest-RTT clock selection, stale-clock detection, and 180-second resynchronization. Run `node --test test/battle-connection.test.cjs`; expect failure because the module does not exist.
-- [ ] **Step 3: Implement `battle-connection.js` in the repository's UMD/CommonJS style.** Move connection and clock behavior without DOM, Rally roles, Defense rules, audio, or profile storage.
-- [ ] **Step 4: Adapt Rally through a thin compatibility wrapper.** Load `/battle-connection.js` before the controller and keep the existing Rally callbacks and visible state unchanged. During this task the surface is always `rally`.
-- [ ] **Step 5: Run focused tests.** Run `node --test test/battle-connection.test.cjs test/room-socket.test.cjs test/kvk-rally-wiring.test.cjs test/rally-behavior-characterization.test.cjs`; expect all to pass.
-- [ ] **Step 6: Run the Rally regression gate.** Run `npm test && npm run test:triple`; compare characterization output with Task 1.
+- [x] **Step 1: Run GitNexus impact for `RoomSocket`, `syncClock`, `beginClockSync`, and each current caller to be edited.** `beginClockSync`, `connect`, and `updateSync` were LOW; `RoomSocket` and `syncClock` initially had UNKNOWN graph coverage, so their existing socket and Rally characterization tests were retained as compensating gates. Final change detection was HIGH because the shared connection fans into ten Rally/Delivery/audio flows.
+- [x] **Step 2: Write failing module tests.** The first run failed because `public/battle-connection.js` did not exist. The final suite covers browser UMD and CommonJS loading, `http→ws` and `https→wss`, surface rejection, generation-scoped reconnect, callback ordering, explicit stop, adapter compatibility, lowest-RTT clock selection, 359999/360000ms freshness boundaries, failure without false renewal, and 180-second resynchronization.
+- [x] **Step 3: Implement `battle-connection.js` in the repository's UMD/CommonJS style.** Connection and clock behavior now live in a DOM-free module with no Rally roles, Defense rules, audio, identity, or profile storage.
+- [x] **Step 4: Adapt Rally through a thin compatibility wrapper.** `/battle-connection.js` loads before `app.js`; the legacy `RoomSocket` API delegates to it and Rally explicitly connects with `surface=rally`. Existing callbacks, global clock fields, initial sync, reconnect, and visible behavior remain compatible.
+- [x] **Step 5: Run focused tests.** Final focused evidence: 41/41 passed, including the three independent review follow-ups.
+- [x] **Step 6: Run the Rally regression gate.** Fresh final evidence: `npm test` 423/423, Delivery 125/125, Triple 193/193, and Chromium Core + Compatibility 1/1. Two independent read-only reviews found zero Critical and zero Important issues.
 - [ ] **Step 7: Run GitNexus change detection and commit.** Commit with `refactor: share battle connection and clock`.
 
 ---

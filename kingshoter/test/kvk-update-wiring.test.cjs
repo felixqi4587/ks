@@ -96,8 +96,8 @@ test('updater wiring defers until canonical personal timing is known and then se
     bootstrap.indexOf('safeUpdateStart();') < bootstrap.indexOf('if (!ROOM)') &&
     bootstrap.indexOf('connect();') > bootstrap.indexOf('if (!ROOM)'),
   'a contained updater starts on the join page and before normal room initialization');
-  assert.match(kvk, /new window\.RoomSocket\(ROOM, onState, \{ clientBuild: advertisedKvkBuild \}\)/,
-    'the socket advertises the build selected by the complete Triple runtime gate');
+  assert.match(kvk, /new window\.RoomSocket\(ROOM, onState, \{ clientBuild: advertisedKvkBuild, surface: ["']rally["'] \}\)/,
+    'the Rally-scoped socket advertises the build selected by the complete Triple runtime gate');
 });
 
 test('partial and throwing updater generations cannot stop the existing KvK runtime', () => {

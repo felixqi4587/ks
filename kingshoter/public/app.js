@@ -1,4 +1,4 @@
-/* kingshoter shared backbone: helpers, i18n (中/EN), live clock, RoomSocket (WebSocket client). */
+/* kingshoter shared backbone: helpers, i18n (中/EN), live clock, BattleConnection compatibility. */
 
 /* ---- helpers ---- */
 window.$ = (i) => document.getElementById(i);
@@ -104,19 +104,12 @@ window.initI18n = () => { applyI18n(); renderLangToggle(); };
 window.clockOffset = 0;                       // ms to add to Date.now() to get server time
 window.serverNow = () => Date.now() + window.clockOffset;
 window.serverNowSec = () => Math.floor(window.serverNow() / 1000);
+var activeRoomSocket = null;
 window.syncClock = async () => {
-  let best = null;
-  for (let i = 0; i < 4; i++) {
-    const t0 = Date.now();
-    try {
-      const r = await fetch("/api/time", { cache: "no-store" });
-      const j = await r.json(); const t3 = Date.now();
-      const rtt = t3 - t0, offset = j.t - (t0 + t3) / 2;   // server time minus client midpoint
-      if (!best || rtt < best.rtt) best = { rtt, offset };
-    } catch (e) {}
+  if (!activeRoomSocket || typeof activeRoomSocket.syncClock !== "function") {
+    return { offset: window.clockOffset, rtt: null, offsetMs: window.clockOffset, rttMs: null };
   }
-  if (best) window.clockOffset = Math.round(best.offset);
-  return { offset: window.clockOffset, rtt: best ? best.rtt : null };
+  return activeRoomSocket.syncClock();
 };
 
 /* ---- live UTC clock ---- */
@@ -137,41 +130,58 @@ window.getRoomDeviceId = (room) => {
   return value;
 };
 
-/* ---- RoomSocket: WebSocket client with auto-reconnect ---- */
+/* ---- legacy RoomSocket adapter over the surface-aware shared connection ---- */
 window.RoomSocket = class {
-  constructor(room, onState, options) { this.room = room; this.onState = onState; Object.defineProperty(this, "clientBuild", { value: Number.isSafeInteger(options && options.clientBuild) && options.clientBuild > 0 ? options.clientBuild : 0, enumerable: true }); this.onError = null; this.onMessage = null; this.onOpen = null; this.onClose = null; this.dead = false; this.connectionGeneration = 0; this.reconnectTimer = null; this.connect(); }
-  connect() {
-    if (this.reconnectTimer !== null) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
-    const generation = ++this.connectionGeneration;
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${location.host}/api/ws?room=${encodeURIComponent(this.room)}&clientBuild=${this.clientBuild}`);
-    this.ws = ws;
-    const isCurrent = () => this.ws === ws && this.connectionGeneration === generation;
-    ws.onopen = () => { if (!isCurrent() || this.dead) return; if (this.onOpen) this.onOpen(); };
-    ws.onmessage = (event) => {
-      if (!isCurrent() || this.dead) return;
-      let message;
-      try { message = JSON.parse(event.data); } catch (_) { return; }
-      if (message.t === "state") this.onState(message.room);
-      else if (message.t === "error") { if (this.onError) this.onError(message); }
-      else if (this.onMessage) this.onMessage(message);
-    };
-    ws.onclose = () => {
-      if (!isCurrent()) return;
-      if (this.onClose) this.onClose();
-      if (!this.dead && isCurrent()) this.reconnectTimer = setTimeout(() => {
-        if (!isCurrent() || this.dead) return;
-        this.reconnectTimer = null;
-        this.connect();
-      }, 1000 + Math.random() * 2000);   // jitter avoids a synchronized reconnect storm on DO eviction / deploy
-    };
+  constructor(room, onState, options) {
+    options = options || {};
+    this.room = room;
+    this.onState = onState;
+    this.onError = null;
+    this.onMessage = null;
+    this.onOpen = null;
+    this.onClose = null;
+    this.onClockChange = null;
+    this.dead = false;
+    Object.defineProperty(this, "clientBuild", { value: Number.isSafeInteger(options.clientBuild) && options.clientBuild > 0 ? options.clientBuild : 0, enumerable: true });
+    Object.defineProperty(this, "surface", { value: options.surface || "rally", enumerable: true });
+    if (!window.BattleConnection || typeof window.BattleConnection.createRoomConnection !== "function") {
+      throw new Error("BattleConnection is required before RoomSocket");
+    }
+    const self = this;
+    this.connection = window.BattleConnection.createRoomConnection({
+      room: room,
+      surface: this.surface,
+      clientBuild: this.clientBuild,
+      manageClock: false,
+      onMessage(message) {
+        if (message.t === "state") self.onState(message.room);
+        else if (message.t === "error") { if (self.onError) self.onError(message); }
+        else if (self.onMessage) self.onMessage(message);
+      },
+      onConnectionChange(state) {
+        if (state.reason === "open" && self.onOpen) self.onOpen();
+        else if (state.reason === "closed" && self.onClose) self.onClose();
+      },
+      onClockChange(sample) {
+        window.clockOffset = Number(sample.offsetMs) || 0;
+        if (self.onClockChange) self.onClockChange(sample);
+      }
+    });
+    activeRoomSocket = this;
+    this.connection.start();
   }
-  send(o) { try { if (this.ws && this.ws.readyState === 1) { this.ws.send(JSON.stringify(o)); return true; } } catch (e) {} return false; }
-  refresh() { if (this.dead) return false; const previous = this.ws; this.connect(); try { if (previous && previous.readyState < 2) previous.close(); } catch (e) {} return true; }
+  connect() { return this.connection.connect(); }
+  send(o) { return this.connection.send(o); }
+  refresh() { return this.connection.refresh(); }
   // iOS may suspend a backgrounded socket without firing onclose; reconnect if it's not OPEN/CONNECTING when we resume
-  kick() { if (this.dead) return; if (!this.ws || this.ws.readyState > 1) this.connect(); }
-  get connected() { return this.ws && this.ws.readyState === 1; }
-  close() { this.dead = true; if (this.reconnectTimer !== null) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; } try { this.ws.close(); } catch (e) {} }
+  kick() { return this.connection.kick(); }
+  syncClock() { return this.connection.syncClock(); }
+  clockFresh() { return this.connection.clockFresh(); }
+  serverNowMs() { return this.connection.serverNowMs(); }
+  get ws() { return this.connection.socket(); }
+  get connectionGeneration() { return this.connection.generation(); }
+  get connected() { return this.connection.connected(); }
+  close() { this.dead = true; this.connection.stop(); }
 };
 
 /* ---- shared KvK actor visual language (color-blind safe: ●circle=ally / ▼triangle=enemy; size+crown=captain) ----

@@ -2934,7 +2934,7 @@
       if (tripleClientAvailable && Number.isSafeInteger(updateBuild) && updateBuild > 0 &&
           updateBuild === rallyClientBuild) advertisedKvkBuild = updateBuild;
     } catch (e) {}
-    sock = new window.RoomSocket(ROOM, onState, { clientBuild: advertisedKvkBuild });
+    sock = new window.RoomSocket(ROOM, onState, { clientBuild: advertisedKvkBuild, surface: "rally" });
     var deliveryShadowSocket = sock;
     sock.onMessage = function (message) {
       var deliveryShadowGeneration = Number(deliveryShadowSocket.connectionGeneration || 0);
@@ -3348,12 +3348,12 @@
   }
 
   /* ---------- bootstrap (after every definition; no fragile load-order) ---------- */
-  window.startClock(); beginClockSync(); setInterval(beginClockSync, 180000); safeUpdateStart();
+  window.startClock(); setInterval(beginClockSync, 180000); safeUpdateStart();
   if (!ROOM) { window.onLangChange = function () { renderStatics(); showJoin(); }; showJoin(); window.initI18n(); return; }   // join gate re-translates on 中/EN toggle too
   try { localStorage.setItem("kingshoter_lastroom", JSON.stringify({ room: ROOM })); } catch (e) {}
   $("roomView").classList.remove("hide");
   $("roomView").classList.add("presound");   // everything below the sound switch is dimmed/locked until step ① is done — no auto-prime, the gesture must be the sound button
   $("roomlabel").textContent = "🏠 " + ROOM;
-  window.initI18n(); renderStatics(); connect(); wireRoom(); wireDefenseTruth();
+  window.initI18n(); renderStatics(); connect(); beginClockSync(); wireRoom(); wireDefenseTruth();
   paintHero();   // the forced flow (dim-lock + fill card) IS the onboarding; the commander tour runs once on first unlock
 })();

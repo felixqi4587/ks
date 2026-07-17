@@ -50,10 +50,16 @@ function loadRallyAdapter(KvkRally, KvkUpdate) {
 }
 
 test('the shared rally generation loads exactly once before the KvK runtime', () => {
+  const connectionTag = `<script src="/battle-connection.js?v=${BUILD}"></script>`;
   const tag = `<script src="/kvk-rally.js?v=${BUILD}"></script>`;
+  const connection = html.indexOf(connectionTag);
+  const app = html.indexOf(`<script src="/app.js?v=${BUILD}"></script>`);
   const rally = html.indexOf(tag);
   const runtime = html.indexOf(`<script src="/kvk.js?v=${BUILD}"></script>`);
+  assert.equal(count(html, connectionTag), 1);
   assert.equal(count(html, tag), 1);
+  assert.ok(connection >= 0 && connection < app,
+    'the shared connection must be available to the app compatibility adapter');
   assert.ok(rally >= 0 && rally < runtime);
 });
 
@@ -66,7 +72,7 @@ test('optional rally loading fails closed while a complete runtime advertises it
   assert.match(kvk, /rallyCandidate\.BUILD/);
   assert.match(kvk, /function isRallyCommand\(/);
   assert.match(kvk, /function myTarget\([^)]*\)\s*\{[^}]*rallyApi\.targetFor/);
-  assert.match(kvk, /new window\.RoomSocket\(ROOM, onState, \{ clientBuild: advertisedKvkBuild \}\)/);
+  assert.match(kvk, /new window\.RoomSocket\(ROOM, onState, \{ clientBuild: advertisedKvkBuild, surface: ["']rally["'] \}\)/);
   const connect = kvk.slice(kvk.indexOf('function connect()'), kvk.indexOf('function onState('));
   assert.match(connect, /var advertisedKvkBuild = 0[\s\S]{0,240}window\.KvkUpdate[\s\S]{0,240}tripleClientAvailable[\s\S]{0,240}advertisedKvkBuild = updateBuild/);
 });

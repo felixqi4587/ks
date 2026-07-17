@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
+const battleConnectionSource = fs.readFileSync(path.join(__dirname, '..', 'public', 'battle-connection.js'), 'utf8');
 const appSource = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
 
 function createStorage() {
@@ -36,8 +37,20 @@ function createTimers() {
   };
 }
 
-function loadApp({ localStorage = createStorage(), crypto = { randomUUID }, timers = createTimers() } = {}) {
+function loadApp({
+  localStorage = createStorage(),
+  crypto = { randomUUID },
+  timers = createTimers(),
+  clockSamples = []
+} = {}) {
   const sockets = [];
+  const pendingClockSamples = clockSamples.slice();
+  let clockNowMs = 1_000_000;
+  let clockFetches = 0;
+  const NativeDate = Date;
+  class FakeDate extends NativeDate {
+    static now() { return clockNowMs; }
+  }
   class FakeWebSocket {
     constructor(url) {
       this.url = url;
@@ -67,16 +80,32 @@ function loadApp({ localStorage = createStorage(), crypto = { randomUUID }, time
   const context = {
     clearTimeout: timers.clearTimeout,
     crypto,
+    Date: FakeDate,
     document: {},
+    fetch: async () => {
+      clockFetches += 1;
+      const sample = pendingClockSamples.shift();
+      if (!sample) throw new Error('missing clock sample');
+      const startedAtMs = clockNowMs;
+      return {
+        async json() {
+          clockNowMs += sample.rttMs;
+          return { t: startedAtMs + sample.rttMs / 2 + sample.offsetMs };
+        }
+      };
+    },
     localStorage,
     location: { protocol: 'https:', host: 'example.test' },
     navigator: { language: 'en' },
+    clearInterval() {},
+    setInterval() { return 1; },
     setTimeout: timers.setTimeout,
     WebSocket: FakeWebSocket
   };
   context.window = context;
+  vm.runInNewContext(battleConnectionSource, context, { filename: 'public/battle-connection.js' });
   vm.runInNewContext(appSource, context, { filename: 'public/app.js' });
-  return { localStorage, sockets, timers, window: context };
+  return { localStorage, sockets, timers, window: context, clockFetches: () => clockFetches };
 }
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -86,7 +115,8 @@ test('RoomSocket advertises build 0 when the optional build is omitted', () => {
   const roomSocket = new window.RoomSocket('qa-kvk-build-default', () => {});
 
   assert.equal(roomSocket.clientBuild, 0);
-  assert.equal(sockets[0].url, 'wss://example.test/api/ws?room=qa-kvk-build-default&clientBuild=0');
+  assert.equal(roomSocket.surface, 'rally');
+  assert.equal(sockets[0].url, 'wss://example.test/api/ws?room=qa-kvk-build-default&surface=rally&clientBuild=0');
 });
 
 test('RoomSocket preserves a safe positive client build through reconnects', () => {
@@ -97,14 +127,14 @@ test('RoomSocket preserves a safe positive client build through reconnects', () 
   assert.equal(Object.getOwnPropertyDescriptor(roomSocket, 'clientBuild').writable, false);
   roomSocket.clientBuild = 1;
   assert.equal(roomSocket.clientBuild, 2026071302);
-  assert.equal(sockets[0].url, 'wss://example.test/api/ws?room=qa%20kvk%2Fbuild&clientBuild=2026071302');
+  assert.equal(sockets[0].url, 'wss://example.test/api/ws?room=qa%20kvk%2Fbuild&surface=rally&clientBuild=2026071302');
 
   sockets[0].emitClose();
   const reconnect = [...timers.pending.values()][0].callback;
   reconnect();
 
   assert.equal(sockets.length, 2);
-  assert.equal(sockets[1].url, 'wss://example.test/api/ws?room=qa%20kvk%2Fbuild&clientBuild=2026071302');
+  assert.equal(sockets[1].url, 'wss://example.test/api/ws?room=qa%20kvk%2Fbuild&surface=rally&clientBuild=2026071302');
 });
 
 test('RoomSocket normalizes malformed client builds to 0', () => {
@@ -114,8 +144,40 @@ test('RoomSocket normalizes malformed client builds to 0', () => {
   invalidBuilds.forEach((clientBuild, index) => {
     const roomSocket = new window.RoomSocket(`qa-kvk-invalid-${index}`, () => {}, { clientBuild });
     assert.equal(roomSocket.clientBuild, 0);
-    assert.match(sockets[index].url, /&clientBuild=0$/);
+    assert.match(sockets[index].url, /&surface=rally&clientBuild=0$/);
   });
+});
+
+test('RoomSocket accepts the future Defense surface without changing the legacy API', () => {
+  const { sockets, window } = loadApp();
+  const roomSocket = new window.RoomSocket('qa', () => {}, { surface: 'defense', clientBuild: 17 });
+
+  assert.equal(roomSocket.surface, 'defense');
+  assert.equal(sockets[0].url, 'wss://example.test/api/ws?room=qa&surface=defense&clientBuild=17');
+  assert.equal(typeof roomSocket.syncClock, 'function');
+  assert.equal(typeof roomSocket.clockFresh, 'function');
+});
+
+test('window.syncClock delegates through RoomSocket and preserves the legacy clock result', async () => {
+  const h = loadApp({
+    clockSamples: [
+      { rttMs: 80, offsetMs: 900 },
+      { rttMs: 35, offsetMs: -400 },
+      { rttMs: 12, offsetMs: 275 },
+      { rttMs: 50, offsetMs: 700 }
+    ]
+  });
+  new h.window.RoomSocket('qa', () => {}, { surface: 'rally', clientBuild: 2026071603 });
+
+  const result = await h.window.syncClock();
+
+  assert.equal(h.clockFetches(), 4);
+  assert.equal(result.rttMs, 12);
+  assert.equal(result.offsetMs, 275);
+  assert.equal(result.rtt, 12, 'legacy callers keep the rtt field');
+  assert.equal(result.offset, 275, 'legacy callers keep the offset field');
+  assert.equal(h.window.clockOffset, 275);
+  assert.equal(h.window.serverNow(), 1_000_177 + 275);
 });
 
 test('RoomSocket preserves state and error routing while dispatching generic messages', () => {
